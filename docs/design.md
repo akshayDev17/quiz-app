@@ -11,8 +11,13 @@ Calls marked **(my call)** were not specified and are open to change.
 
 ## 1. What it must do
 
-- Questions belong to a **set**, and a set belongs to a **topic**
-  (`Python › Decorators — Set 1`).
+- Questions belong to a **set**. A set belongs to a **topic** (a course, such as
+  RAG or Harness Engineering), and optionally to a **subtopic** inside it (a
+  module or a concept). A set may also carry a difficulty and/or be
+  scenario-based. "Set N" is a number within that group, not typed by hand:
+  `RAG › Embeddings and vector space · Set 1`,
+  `Harness Engineering › Prefix caching · Scenario · Set 1`,
+  `RAG › Easy · Set 2` (whole-course).
 - Each question has **N options** (any N ≥ 2). The frontend renders them
   dynamically, with no fixed A–D layout.
 - **Any number of options may be correct**, for example A, B and D out of A–E.
@@ -66,6 +71,10 @@ policy listing invited addresses.
   as is (`CloudflareAccessIdentity` in prod, `DevIdentity` locally) and still
   **fails closed**: no identity means 401.
 - On first authenticated request, upsert a `users` row with role `solver`.
+  Access gives only an email, so `display_name` starts empty, and the first
+  visit shows a one-time **"What should we call you?"** prompt
+  (`PATCH /me {display_name}`). The masthead shows the name, falling back to
+  the email until it is set.
   Admins are bootstrapped from a Worker var `ADMIN_EMAILS`. **(my call)**
 - Query strings are fine here (e.g. `/quiz/play?attempt=…`). The archive
   avoided them only because Access can't scope a policy by query string. With
@@ -77,14 +86,21 @@ policy listing invited addresses.
 ## 3. DB schema (D1)
 
 Source of truth: [`backend/migrations/0001_init.sql`](../backend/migrations/0001_init.sql).
-It has been checked against SQLite: the one-open-attempt index and the
-`time_limit_minutes > 0` and expired-implies-timed CHECKs all reject bad rows.
+It has been checked against SQLite: these all reject bad rows — the
+one-open-attempt index; the no-duplicate-"Set N" index; the rule that a
+subtopic must belong to its set's own topic; the difficulty, display-name and
+`time_limit_minutes > 0` checks; and the rule that an expired attempt must
+have been timed.
 
 ```
 users(email PK, display_name, role[solver|admin], created_at)
 
-topics(id, slug UNIQUE, name, description, created_at)
-  └─< quiz_sets(id, topic_id, slug, title, description,
+topics(id, slug UNIQUE, name, description, position, created_at)       RAG, Harness Engineering
+  ├─< subtopics(id, topic_id, slug, name, position)                      Embeddings…, Prefix caching
+  │     └─< quiz_sets.subtopic_id  (NULL = whole-topic set)
+  └─< quiz_sets(id, topic_id, subtopic_id NULL,
+  │             difficulty NULL[easy|medium|hard], style[standard|scenario],
+  │             seq ("Set N"), title NULL (override), description,
   │             time_limit_minutes NULL=untimed,
   │             scoring_policy[all_or_nothing|partial],
   │             shuffle_questions, shuffle_options, reveal_answers,
@@ -112,11 +128,17 @@ Design notes:
 | Partial unique index: one `in_progress` attempt per (set, user) | Pressing "Start" twice, or in two tabs, resumes the same attempt instead of creating a second one. |
 | `attempt_selections` is one row per ticked option | Multi-select needs no JSON column. Saving an answer is a delete-then-insert of that question's rows in one D1 `batch()`. |
 | `attempt_results` is written **once**, at grading | Scores never move afterwards, even if an author later edits the question. |
+| Topic → optional **subtopic** → set (not a strict 3 levels) | Some quizzes cover a whole course ("RAG, Easy, Set 1"), others one module or concept ("Prefix caching, Set 1"). A nullable `subtopic_id` covers both without inventing a "General" subtopic. |
+| Subtopics are **authored freely**, not seeded from the coursework folders | "Prefix caching" is a concept inside a module, not a module itself. Coursework modules are a good starting list, not a constraint. |
+| **Difficulty and style are separate columns**, both optional | "Easy" and "scenario-based" are independent: a set can be both. As columns rather than free-text tags they can be filtered and grouped. |
+| **Set names are derived**, not stored: `[subtopic] · [difficulty] · [Scenario] · Set {seq}` | `seq` is assigned as max+1 within its (topic, subtopic, difficulty, style) group, so "Set 2" can't be mistyped. An optional `title` overrides the name for one-offs. |
+| Composite FK `(subtopic_id, topic_id) → subtopics(id, topic_id)` | A set can't point at another course's subtopic. D1 enforces foreign keys by default. |
 | Epoch-ms integers for all times | Deadline checks become integer comparisons, with no ISO parsing in Python or JS. |
 
 **Editing a set after people have attempted it (my call):** a published set
-that has any attempts is **locked**. To change it, *Clone as new draft*
-(`Set 1` → `Set 1 (v2)`). Old attempts keep pointing at the old questions, so
+that has any attempts is **locked**. To change it, *Clone as new draft*. The
+clone takes the next `seq` in its group (`Set 1` → `Set 3`), and the original
+can be archived. Old attempts keep pointing at the old questions, so
 their review pages stay truthful. This is cheaper than full row versioning and
 covers the realistic case.
 
@@ -165,8 +187,8 @@ otherwise, so an attempt's existence isn't revealed.
 
 | Method & path | Does |
 |---|---|
-| `GET  /me` | email, role |
-| `GET  /topics` | topics → published sets: title, question count, time limit, your best/last score |
+| `GET  /me` · `PATCH /me` | email, display name, role · set your display name (the first-visit prompt) |
+| `GET  /topics` | topics → subtopic groups → published sets: derived name, chips (difficulty, scenario, time limit, question count), your last score |
 | `GET  /sets/{id}` | set intro: rules, time limit, attempts used / allowed. No questions. |
 | `POST /sets/{id}/attempts` | **start or resume**: returns attempt, `deadline_at`, `server_now`, questions in solver view, saved selections |
 | `GET  /attempts/{id}` | resume (same payload). **Lazily expires** if past deadline (see below). |
@@ -244,23 +266,26 @@ phase 2. JSON shape:
 
 ```json
 {
-  "topic": {"slug": "python", "name": "Python"},
-  "slug": "decorators-1", "title": "Decorators — Set 1",
+  "topic": {"slug": "rag", "name": "RAG"},
+  "subtopic": {"slug": "embeddings", "name": "Embeddings and vector space"},
+  "difficulty": "medium", "style": "standard",
   "time_limit_minutes": 15, "scoring_policy": "all_or_nothing",
   "questions": [
-    {"prompt": "Which are true of `functools.wraps`?",
+    {"prompt": "Which of these change when you swap the embedding model?",
      "explanation": "…",
      "options": [
-       {"body": "Copies `__name__`", "correct": true},
-       {"body": "Copies `__doc__`", "correct": true},
-       {"body": "Makes the decorator faster", "correct": false},
-       {"body": "Sets `__wrapped__`", "correct": true}]}
+       {"body": "Every stored vector must be re-embedded", "correct": true},
+       {"body": "The vector dimension may change", "correct": true},
+       {"body": "The chunking boundaries", "correct": false},
+       {"body": "Similarity thresholds need re-tuning", "correct": true}]}
   ]
 }
 ```
 
+`topic` and `subtopic` are found by slug or created, `subtopic` may be
+omitted (a whole-topic set), and `seq` is assigned by the server.
 `QuizValidator` rejects any question with fewer than 2 options or 0 correct
-options, an empty prompt, or a duplicate slug within the topic.
+options, and any empty prompt.
 
 ---
 
@@ -288,17 +313,20 @@ The quiz must look like part of the same site as `my-github-io/index.html` and
   loaded via `next/font`, as in the archive's `layout.tsx`.
 - **The site's recurring elements**: a masthead with a 3px double rule; mono
   uppercase micro-cap labels and blue kickers; numbered section heads
-  (`01 Python`); white cards with a 3:1 border, a neutral ink shadow and a
+  (`01 RAG`); white cards with a 3:1 border, a neutral ink shadow and a
   hover lift; mono pill chips; ink `.btn` turning accent on hover, with a
   `.ghost` variant; and the portfolio's three-cell hairline `.stats` row for
   the score.
 - **Light only.** Neither existing site has a dark mode, so the quiz doesn't
   either.
 - The masthead name "The Quiz Room" is a placeholder. **(my call)**
+- **Sketch-only, must not ship:** the "Spark, not the product…" note, the
+  sample data, the 60-second demo timer and its scaled amber/red thresholds,
+  and the `#play`/`#results` screenshot hooks.
 
 | Page | What's on it |
 |---|---|
-| `/quiz` | Topics, each with its published sets as cards: title, question count, a **"15 min" or "Untimed"** chip, your last score. A card with an attempt in progress shows **Resume** with the time left. |
+| `/quiz` | Topics as numbered section heads (`01 RAG`). Under each topic, a small sub-head per subtopic, with whole-topic sets first, then cards. Each card shows the set's name (`Embeddings and vector space · Set 1`), chips for difficulty, **Scenario**, **"15 min" or "Untimed"** and question count, and your last score. A card with an attempt in progress shows **Resume** with the time left. |
 | `/quiz/set?id=` | Intro: rules, time limit, attempts left. **"The timer starts when you press Start."** |
 | `/quiz/play?attempt=` | The quiz itself (below). |
 | `/quiz/results?attempt=` | Score, then a per-question review (if `reveal_answers`): each option marked *your pick ✓*, *your pick ✗*, *missed*. Explanation underneath. Header says **"Time's up — auto-submitted"** when expired. |

@@ -77,6 +77,14 @@
   .shead .num { font-family: var(--mono); font-size: .6875rem; letter-spacing: .1em; color: var(--accent); }
   .shead h2 { font-size: 1.625rem; font-weight: 400; letter-spacing: -.015em; line-height: 1.2; }
   .shead .count { margin-left: auto; }
+  .subhead { display: flex; align-items: baseline; gap: var(--s2); margin: var(--s5) 0 var(--s3); }
+  .subhead::after { content: ""; flex: 1; height: 1px; background: var(--rule); align-self: center; }
+  .shead + .subhead { margin-top: 0; }
+  .field { display: flex; flex-direction: column; gap: var(--s2); margin: var(--s4) 0 0; }
+  .field input { font-family: var(--mono); font-size: .9375rem; color: var(--ink); background: var(--card);
+                 border: 1px solid var(--card-line); border-radius: 4px; padding: .7rem .8rem; }
+  .field input:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 18%, transparent); }
+  .who .uname { font-size: 1rem; }
   .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: var(--s4); list-style: none; }
   .set-card { display: flex; flex-direction: column; padding: var(--s4); cursor: pointer; text-align: left; font: inherit; color: inherit; width: 100%; }
   @media (hover: hover) and (pointer: fine) {
@@ -170,7 +178,7 @@
       <div class="name">The Quiz Room</div>
       <div class="mc" style="margin-top:var(--s2)">akshayprabhakant.com / quiz</div>
     </div>
-    <div class="who"><span class="mc">you@example.com</span><button class="linkbtn">Sign out</button></div>
+    <div class="who"><span class="uname" id="uname"></span><span class="mc" id="uemail">you@example.com</span><button class="linkbtn">Sign out</button></div>
   </header>
   <p class="note">Spark, not the product: sample data, and the "15 min" set runs a 60-second timer so you can watch it time out.</p>
 
@@ -226,6 +234,16 @@
   </section>
 </div>
 
+<div class="scrim" id="namePrompt">
+  <form class="card dialog" onsubmit="saveName(event)">
+    <div class="kicker">First visit</div>
+    <h3>What should we call you?</h3>
+    <p>Shown in the masthead. You’re signed in as <code>you@example.com</code>.</p>
+    <div class="field"><label class="mc" for="nameInput">Display name</label>
+      <input id="nameInput" maxlength="60" autocomplete="name" required></div>
+    <div class="row"><button class="btn" type="submit">Continue</button></div>
+  </form>
+</div>
 <div class="scrim" id="confirm">
   <div class="card dialog">
     <h3>Submit your answers?</h3>
@@ -240,37 +258,49 @@
 
 <script>
 // ---- sample data: N options per question, any number correct --------------
+// topic = a course · subtopic = a module or concept (optional) · then difficulty, style, "Set {seq}"
 const TOPICS = [
-  { name: "Python", sets: [
-    { id: 1, title: "Decorators — Set 1", minutes: 15, demoSeconds: 60, questions: [
-      { prompt: "Which of these does <code>functools.wraps</code> do?",
-        explanation: "wraps copies __name__, __doc__, __module__, __qualname__, __dict__ and sets __wrapped__.",
-        options: [["Copies <code>__name__</code>",1],["Copies <code>__doc__</code>",1],["Makes the call faster",0],["Sets <code>__wrapped__</code>",1],["Caches the result",0]] },
-      { prompt: "A decorator with arguments, <code>@retry(3)</code>, is a…",
-        explanation: "retry(3) runs first and returns the real decorator.",
-        options: [["function that returns a decorator",1],["class method",0],["generator",0]] },
-      { prompt: "Which built-ins are commonly used as decorators?",
-        explanation: "property, staticmethod and classmethod are all descriptors applied with @.",
-        options: [["<code>property</code>",1],["<code>staticmethod</code>",1],["<code>len</code>",0],["<code>classmethod</code>",1],["<code>print</code>",0],["<code>zip</code>",0],["<code>map</code>",0]] },
-      { prompt: "Decorators are applied…",
-        explanation: "At definition time, bottom-up.",
-        options: [["at function definition time",1],["at every call",0],["bottom-up when stacked",1],["only on methods",0]] },
+  { name: "RAG", subtopics: ["Embeddings and vector space", "Ranking, fusion and reranking"], sets: [
+    { id: 1, subtopic: "Embeddings and vector space", difficulty: null, style: "standard", seq: 1,
+      minutes: 15, demoSeconds: 60, questions: [
+      { prompt: "You swap the embedding model behind an existing index. What has to change?",
+        explanation: "Vectors from different models live in different spaces: re-embed everything, expect a possible dimension change, and re-tune any similarity thresholds. Chunk boundaries are independent of the model.",
+        options: [["Every stored vector must be re-embedded",1],["The vector dimension may change",1],["Chunk boundaries must be recomputed",0],["Similarity thresholds need re-tuning",1],["Nothing, if both models are from the same vendor",0]] },
+      { prompt: "Cosine similarity and dot product rank results identically when…",
+        explanation: "On unit-normalised vectors, the dot product equals the cosine.",
+        options: [["vectors are L2-normalised",1],["the index is HNSW",0],["the query is short",0]] },
+      { prompt: "Which are typical causes of poor recall from a dense retriever?",
+        explanation: "Domain shift, rare exact-match terms (IDs, codes), and asymmetric query/passage encoding without the right prefixes all hurt recall.",
+        options: [["Domain shift from the model’s training data",1],["Exact-match identifiers like SKUs",1],["Using <code>float32</code> vectors",0],["Missing query/passage instruction prefixes",1],["Too few CPU cores",0],["Storing metadata alongside vectors",0]] },
+      { prompt: "Matryoshka embeddings let you…",
+        explanation: "Matryoshka training makes leading sub-vectors usable on their own, so you can truncate dimensions for cost.",
+        options: [["truncate to fewer dimensions with graceful quality loss",1],["skip normalisation",0],["store several resolutions from one model",1],["avoid re-embedding on model change",0]] },
     ]},
-    { id: 2, title: "Generators — Set 1", minutes: null, questions: [
-      { prompt: "Which keywords make a function a generator?", explanation: "yield (and yield from).",
-        options: [["<code>yield</code>",1],["<code>return</code>",0],["<code>yield from</code>",1]] },
-      { prompt: "<code>next()</code> on an exhausted generator raises…", explanation: "StopIteration.",
-        options: [["<code>StopIteration</code>",1],["<code>ValueError</code>",0],["Nothing; returns None",0],["<code>GeneratorExit</code>",0]] },
+    { id: 2, subtopic: null, difficulty: "easy", style: "standard", seq: 1, minutes: null, questions: [
+      { prompt: "Which stages belong to a basic RAG pipeline?", explanation: "Parse, chunk, embed, index, retrieve, assemble context, generate.",
+        options: [["Chunking",1],["Retrieval",1],["Fine-tuning the LLM",0],["Context assembly",1]] },
+      { prompt: "RAG mainly addresses…", explanation: "Knowledge the model doesn’t have, or that has changed since training.",
+        options: [["stale or missing knowledge",1],["slow tokenisation",0],["GPU memory limits",0],["private data the model never saw",1]] },
+    ]},
+    { id: 3, subtopic: "Ranking, fusion and reranking", difficulty: "medium", style: "scenario", seq: 1, minutes: 20, demoSeconds: 60, questions: [
+      { prompt: "Hybrid search returns good docs at ranks 15–30 but the LLM sees only the top 5. Best first move?",
+        explanation: "A cross-encoder reranker over a wider candidate pool is the standard fix.",
+        options: [["Add a cross-encoder reranker over the top 50",1],["Increase the LLM temperature",0],["Shrink chunk size by half",0]] },
     ]},
   ]},
-  { name: "System design", sets: [
-    { id: 3, title: "Caching — Set 1", minutes: 10, demoSeconds: 60, questions: [
-      { prompt: "Which are cache eviction policies?", explanation: "LRU, LFU and FIFO are; write-through is a write policy.",
-        options: [["LRU",1],["LFU",1],["Write-through",0],["FIFO",1]] },
+  { name: "Harness Engineering", subtopics: ["Prefix caching"], sets: [
+    { id: 4, subtopic: "Prefix caching", difficulty: null, style: "scenario", seq: 1, minutes: 10, demoSeconds: 60, questions: [
+      { prompt: "Your agent’s cache hit rate fell to near zero after a deploy. Likely causes?",
+        explanation: "Anything that changes the early prefix — a timestamp in the system prompt, reordered tools — invalidates the cache from that point on.",
+        options: [["A timestamp was added to the system prompt",1],["Tool definitions are now sorted differently per request",1],["The user’s messages got longer",0],["The response max_tokens was raised",0]] },
     ]},
   ]},
 ];
+// "[subtopic] · [Difficulty] · [Scenario] · Set N" — derived, never typed
+const cap = w => w[0].toUpperCase() + w.slice(1);
+const setName = s => [s.subtopic, s.difficulty && cap(s.difficulty), s.style === "scenario" && "Scenario", `Set ${s.seq}`].filter(Boolean).join(" · ");
 const LAST = { 2: "Last: 2 / 2" };
+let userName = null;   // users.display_name — NULL until the first-visit prompt
 
 // ---- helpers ----------------------------------------------------------------
 const $ = id => document.getElementById(id);
@@ -282,26 +312,28 @@ function go(id) { document.querySelectorAll(".screen").forEach(s => s.classList.
 
 // ---- home -------------------------------------------------------------------
 function renderHome() {
+  const card = s => `<li><button class="card set-card" onclick="openSet(${s.id})">
+      <h3>${s.subtopic ? setName(s).slice(s.subtopic.length + 3) : setName(s)}</h3>
+      <div class="chips">
+        <span class="chip ${s.minutes ? "timed" : ""}">${s.minutes ? s.minutes + " min" : "Untimed"}</span>
+        <span class="chip">${s.questions.length} question${s.questions.length > 1 ? "s" : ""}</span>
+      </div>
+      <div class="mc foot">${LAST[s.id] ? `<span class="state">${LAST[s.id]}</span>` : "Not attempted"}</div>
+    </button></li>`;
+  // whole-topic sets first, then one group per subtopic, in authored order
+  const groups = t => [[null, "Whole course"], ...t.subtopics.map(n => [n, n])]
+    .map(([key, label]) => [label, t.sets.filter(s => s.subtopic === key)]).filter(([, sets]) => sets.length);
   $("topics").innerHTML = TOPICS.map((t, ti) => `
     <div class="shead"><span class="num">${pad2(ti + 1)}</span><h2>${t.name}</h2>
       <span class="mc count">${t.sets.length} set${t.sets.length > 1 ? "s" : ""}</span></div>
-    <ul class="cards">
-      ${t.sets.map(s => `<li><button class="card set-card" onclick="openSet(${s.id})">
-        <h3>${s.title}</h3>
-        <div class="chips">
-          <span class="chip ${s.minutes ? "timed" : ""}">${s.minutes ? s.minutes + " min" : "Untimed"}</span>
-          <span class="chip">${s.questions.length} question${s.questions.length > 1 ? "s" : ""}</span>
-        </div>
-        <div class="mc foot">${LAST[s.id] ? `<span class="state">${LAST[s.id]}</span>` : "Not attempted"}</div>
-      </button></li>`).join("")}
-    </ul>`).join("");
+    ${groups(t).map(([label, sets]) => `<div class="subhead mc">${label}</div><ul class="cards">${sets.map(card).join("")}</ul>`).join("")}`).join("");
 }
 
 // ---- intro ------------------------------------------------------------------
 let set, sel, cur, deadline, tick, finished;
 function openSet(id) {
-  set = TOPICS.flatMap(t => t.sets.map(s => ({ ...s, topic: t.name }))).find(s => s.id === id);
-  $("introTopic").textContent = set.topic;
+  set = TOPICS.flatMap(t => t.sets.map(s => ({ ...s, topic: t.name, title: setName(s) }))).find(s => s.id === id);
+  $("introTopic").textContent = set.topic + (set.subtopic ? " › " + set.subtopic : "");
   $("introTitle").textContent = set.title;
   $("introRules").innerHTML = `
     <li>${set.questions.length} questions. Some have more than one correct answer.</li>
@@ -416,7 +448,17 @@ function renderResults(how) {
     ${rows}`;
 }
 
-renderHome();
+function renderWho() {
+  $("uname").textContent = userName || "";
+  $("uemail").style.display = userName ? "none" : "";     // email is the fallback until a name exists
+}
+function saveName(e) {
+  e.preventDefault();
+  const v = $("nameInput").value.trim(); if (!v) return;
+  userName = v; renderWho(); $("namePrompt").classList.remove("on");   // prod: PATCH /quiz/api/me
+}
+renderHome(); renderWho();
+if (!location.hash) { $("namePrompt").classList.add("on"); $("nameInput").focus(); }
 // #play / #results jump straight to a screen with a few answers ticked (handy for screenshots)
 if (location.hash === "#play" || location.hash === "#results") {
   openSet(1); start(); toggle(0); toggle(1); toggle(2); jump(1); toggle(1); jump(0);

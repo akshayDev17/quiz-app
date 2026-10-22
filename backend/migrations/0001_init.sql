@@ -1,6 +1,8 @@
 -- quiz-app — initial schema (Cloudflare D1 / SQLite).
 --
--- Shape:  topic 1─* quiz_set 1─* question 1─* option
+-- Shape:  topic 1─* subtopic (optional grouping inside a topic)
+--         topic 1─* quiz_set 1─* question 1─* option
+--         subtopic 1─* quiz_set   (NULL = the set spans the whole topic)
 --         quiz_set 1─* attempt 1─* attempt_selection   (what the solver ticked)
 --                          attempt 1─* attempt_result  (written once, at grading)
 --
@@ -14,26 +16,54 @@ PRAGMA foreign_keys = ON;
 -- who may author quizzes.
 CREATE TABLE users (
   email         TEXT PRIMARY KEY,                       -- normalized (lowercased)
-  display_name  TEXT,
+  -- Access OTP yields only an email, so this starts NULL and is filled by the
+  -- one-time "What should we call you?" prompt on first visit.
+  display_name  TEXT CHECK (display_name IS NULL OR length(trim(display_name)) BETWEEN 1 AND 60),
   role          TEXT NOT NULL DEFAULT 'solver'
                 CHECK (role IN ('solver', 'admin')),
   created_at    INTEGER NOT NULL
 );
 
+-- A topic is a body of material, e.g. a course: 'RAG', 'Harness Engineering'.
 CREATE TABLE topics (
   id            INTEGER PRIMARY KEY,
-  slug          TEXT NOT NULL UNIQUE,                   -- 'python', 'system-design'
+  slug          TEXT NOT NULL UNIQUE,                   -- 'rag', 'harness-engineering'
   name          TEXT NOT NULL,
   description   TEXT,
+  position      INTEGER NOT NULL DEFAULT 0,             -- display order: 01, 02, …
   created_at    INTEGER NOT NULL
 );
 
+-- Optional grouping inside a topic: a coursework module ('Embeddings and vector
+-- space') or a narrower concept ('Prefix caching'). Authored freely — not tied
+-- to the coursework folder list.
+CREATE TABLE subtopics (
+  id            INTEGER PRIMARY KEY,
+  topic_id      INTEGER NOT NULL REFERENCES topics(id) ON DELETE RESTRICT,
+  slug          TEXT NOT NULL,
+  name          TEXT NOT NULL,
+  position      INTEGER NOT NULL DEFAULT 0,
+  created_at    INTEGER NOT NULL,
+  UNIQUE (topic_id, slug),
+  UNIQUE (id, topic_id)                                 -- target of quiz_sets' composite FK
+);
+
 -- A set is the unit a solver takes: it carries the time limit and the rules.
+-- Its name is *derived*, not typed:  [subtopic] · [difficulty] · [Scenario] · Set {seq}
+--   RAG                  › Embeddings and vector space · Set 1
+--   Harness Engineering  › Prefix caching · Scenario · Set 1
+--   RAG                  › Easy · Set 2                    (whole-topic set)
 CREATE TABLE quiz_sets (
   id                   INTEGER PRIMARY KEY,
   topic_id             INTEGER NOT NULL REFERENCES topics(id) ON DELETE RESTRICT,
-  slug                 TEXT NOT NULL,
-  title                TEXT NOT NULL,
+  subtopic_id          INTEGER,                         -- NULL = spans the whole topic
+  difficulty           TEXT CHECK (difficulty IS NULL OR difficulty IN ('easy', 'medium', 'hard')),
+  style                TEXT NOT NULL DEFAULT 'standard'
+                       CHECK (style IN ('standard', 'scenario')),
+  -- "Set N": numbered within its (topic, subtopic, difficulty, style) bucket,
+  -- assigned by AuthoringService as max(seq)+1 — never typed by hand.
+  seq                  INTEGER NOT NULL CHECK (seq > 0),
+  title                TEXT,                            -- optional override of the derived name
   description          TEXT,
   -- NULL = untimed. Whole minutes, as authored.
   time_limit_minutes   INTEGER CHECK (time_limit_minutes IS NULL OR time_limit_minutes > 0),
@@ -50,8 +80,12 @@ CREATE TABLE quiz_sets (
   created_by           TEXT NOT NULL REFERENCES users(email),
   created_at           INTEGER NOT NULL,
   updated_at           INTEGER NOT NULL,
-  UNIQUE (topic_id, slug)
+  -- A subtopic must belong to the set's own topic. (FK is skipped when NULL.)
+  FOREIGN KEY (subtopic_id, topic_id) REFERENCES subtopics(id, topic_id) ON DELETE RESTRICT
 );
+-- No two "Set 1"s in the same bucket. COALESCE because UNIQUE treats NULLs as distinct.
+CREATE UNIQUE INDEX uq_quiz_sets_bucket_seq
+  ON quiz_sets(topic_id, COALESCE(subtopic_id, 0), COALESCE(difficulty, ''), style, seq);
 CREATE INDEX idx_quiz_sets_topic_status ON quiz_sets(topic_id, status);
 
 CREATE TABLE questions (
