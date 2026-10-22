@@ -268,7 +268,33 @@ options, an empty prompt, or a duplicate slug within the topic.
 
 Next.js (static export, `basePath: '/quiz'`), TypeScript, served by a
 static-assets Worker, the same pattern as the archive. Clickable sketch:
-[`design/sparks.html`](../design/sparks.html).
+[`design/sparks.html`](../design/sparks.html) (open `#play` or `#results` to
+jump straight to those screens).
+
+### Theme
+
+The quiz must look like part of the same site as `my-github-io/index.html` and
+`ai-chat-archive`. It uses their shared palette and type, not its own:
+
+- **Tokens**: copy the `:root` block of
+  `ai-chat-archive/frontend/app/globals.css` as is: `--paper #EEF1F8`,
+  `--paper-2`, `--ink #0F1220`, `--muted`, `--rule`, `--rule-2`,
+  `--accent #3A4BD8`, `--card #FFF`, `--card-line #818A9F`, the `--s1…--s7`
+  spacing and `--ease`. Status colours are also the archive's: danger
+  `#b00020`, warn `#8a5a00`. The only new token is `--ok #1f6b45` (for "your
+  pick ✓" on the results page), because neither site needed a success colour.
+  **(my call)**
+- **Type**: Newsreader for body and headings, IBM Plex Mono for labels, both
+  loaded via `next/font`, as in the archive's `layout.tsx`.
+- **The site's recurring elements**: a masthead with a 3px double rule; mono
+  uppercase micro-cap labels and blue kickers; numbered section heads
+  (`01 Python`); white cards with a 3:1 border, a neutral ink shadow and a
+  hover lift; mono pill chips; ink `.btn` turning accent on hover, with a
+  `.ghost` variant; and the portfolio's three-cell hairline `.stats` row for
+  the score.
+- **Light only.** Neither existing site has a dark mode, so the quiz doesn't
+  either.
+- The masthead name "The Quiz Room" is a placeholder. **(my call)**
 
 | Page | What's on it |
 |---|---|
