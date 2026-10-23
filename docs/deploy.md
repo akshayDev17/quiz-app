@@ -67,16 +67,21 @@ copy desk.
 
 ## B. D1 (CLI, not the dashboard)
 
+wrangler is pinned in `frontend/package.json`; install it once with
+`cd frontend && npm ci`. The backend has no `node_modules` of its own, so from
+`backend/` call that copy directly (a bare `npx wrangler` there would fetch
+whatever version is latest):
+
 ```sh
 cd backend
-npx wrangler d1 create quiz-app --location apac
+../frontend/node_modules/.bin/wrangler d1 create quiz-app --location apac
 ```
 
 Paste the printed `database_id` into `backend/wrangler.jsonc` (replacing
 `REPLACE_AFTER_d1_create`) and commit it. Then apply the schema:
 
 ```sh
-npx wrangler d1 migrations apply quiz-app --remote
+../frontend/node_modules/.bin/wrangler d1 migrations apply quiz-app --remote
 ```
 
 CI repeats the `migrations apply` before every backend deploy; it is idempotent,
@@ -86,7 +91,7 @@ so later migrations ship by adding a file under `backend/migrations/`.
 
 ```sh
 cd backend
-npx wrangler secret put ADMIN_EMAILS
+../frontend/node_modules/.bin/wrangler secret put ADMIN_EMAILS
 ```
 
 Enter your email (comma-separated for several; case-insensitive). Wrangler
@@ -259,8 +264,8 @@ console.log(r[0].attempt.id === r[1].attempt.id);         // true
 `except` in `D1AttemptRepository.create` (`backend/quiz_app/d1/attempts.py`) and
 widen the match.
 
-**(e) `UPDATE … RETURNING` with `.first()` works.** Submit the attempt from (d)
-twice and compare:
+**(e) A second submit writes nothing.** Submit the attempt from (d) twice and
+compare:
 
 ```js
 const id = r[0].attempt.id;
@@ -270,11 +275,12 @@ const res = await fetch(`/quiz/api/attempts/${id}/results`).then(x => x.json());
 console.log(s, res.attempt);                               // same status both times, one score, no 500
 ```
 
-Expect two identical `{attempt_id, status}` answers and one score. Results are
-written only by the call that flips the row out of `in_progress`; a second write
-would collide on the `attempt_results` primary key and surface as a 500.
-*If not:* `finish` in `backend/quiz_app/d1/attempts.py` is the place; `.first()`
-must return nothing for an `UPDATE … RETURNING` that matched no row.
+Expect two identical `{attempt_id, status}` answers and one score. `finish`
+writes the results and the status flip in one `batch()`, every statement guarded
+on the attempt still being `in_progress`, so a second call writes nothing; an
+unguarded second write would collide on the `attempt_results` primary key and
+surface as a 500. *If not:* `finish` in `backend/quiz_app/d1/attempts.py` is the
+place; check that D1 runs the batch's statements in order inside one transaction.
 
 **(f) `/quiz/play/` with a trailing slash stays inside `/quiz`.** Visit
 `https://akshayprabhakant.com/quiz/play/` by hand. It must redirect to
@@ -285,3 +291,13 @@ the browser.
 *If not:* `reprefixRedirect` in `frontend/worker.js` (covered by
 `frontend/worker.test.mjs`) is the place; compare the real `Location` header with
 what the stub assumes.
+
+**(g) A set with no optional fields round-trips.** Import (in `/quiz/admin`) a set
+with no `subtopic`, no `title`, no `difficulty` and no `time_limit_minutes`, and
+publish it. Start it, answer a question, submit, and open the results. Each step
+must succeed, and the card and intro must show it as untimed with no subtopic.
+This confirms Python `None` binds as D1 `NULL`.
+
+*If not:* a 500 on import or start points at the D1 binding of `None`; check the
+`bind(...)` calls in `backend/quiz_app/d1/authoring.py` and
+`backend/quiz_app/d1/attempts.py` (an untimed attempt binds `deadline_at = None`).
