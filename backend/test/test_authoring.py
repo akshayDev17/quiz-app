@@ -21,7 +21,7 @@ from quiz_app.auth import Identity  # noqa: E402
 from quiz_app.clock import FakeClock  # noqa: E402
 from quiz_app.d1.authoring import D1QuizAuthoring  # noqa: E402
 from quiz_app.d1.users import D1UserRepository  # noqa: E402
-from quiz_app.errors import Forbidden, Invalid, NotFound  # noqa: E402
+from quiz_app.errors import Conflict, Forbidden, Invalid, NotFound  # noqa: E402
 from quiz_app.models import User  # noqa: E402
 from quiz_app.services.authoring import AuthoringService  # noqa: E402
 from quiz_app.services.users import UserService  # noqa: E402
@@ -283,11 +283,34 @@ class PermissionTest(AuthoringCase):
             lambda: self.service.publish(SOLVER, info.id),
             lambda: self.service.archive(SOLVER, info.id),
             lambda: self.service.clone(SOLVER, info.id),
+            lambda: self.service.delete(SOLVER, info.id),
             lambda: self.service.list_all(SOLVER),
         ):
             with self.assertRaises(Forbidden):
                 await call()
         self.assertEqual((await self.repo.get(info.id)).status, "draft")
+
+
+class DeleteTest(AuthoringCase):
+    async def test_delete_removes_a_draft_and_cascades(self):
+        info = await self.service.import_set(ADMIN, sample_import())
+        await self.service.delete(ADMIN, info.id)
+        self.assertIsNone(await self.repo.get(info.id))
+        self.assertEqual((await self.rows("SELECT COUNT(*) AS n FROM questions WHERE set_id = ?", info.id))[0]["n"], 0)
+
+    async def test_delete_refuses_a_set_with_attempts(self):
+        info = await self.service.import_set(ADMIN, sample_import())
+        await self.users.get_or_create(SOLVER.email)
+        await self.db.prepare(
+            "INSERT INTO attempts (id, set_id, user_email, started_at) VALUES ('att-1', ?, ?, ?)"
+        ).bind(info.id, SOLVER.email, START).run()
+        with self.assertRaises(Conflict):
+            await self.service.delete(ADMIN, info.id)
+        self.assertIsNotNone(await self.repo.get(info.id))
+
+    async def test_delete_missing_set_is_not_found(self):
+        with self.assertRaises(NotFound):
+            await self.service.delete(ADMIN, 999)
 
 
 class UserServiceTest(AuthoringCase):

@@ -119,6 +119,7 @@ export const adminSetStatus = (setId: number, action: 'publish' | 'archive') =>
   send<SetStatusResult>('POST', `/admin/sets/${id(setId)}/${action}`);
 export const adminClone = (setId: number) =>
   send<SetStatusResult>('POST', `/admin/sets/${id(setId)}/clone`);
+export const adminDelete = (setId: number) => send<void>('DELETE', `/admin/sets/${id(setId)}`);
 
 /**
  * End the session.

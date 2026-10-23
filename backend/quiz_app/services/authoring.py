@@ -40,6 +40,11 @@ class AuthoringService:
         new_id = await self._repo.clone(set_id, user.email, self._clock.now_ms())
         return await self._existing(new_id)
 
+    async def delete(self, user: User, set_id: int) -> None:
+        _require_admin(user)
+        await self._existing(set_id)
+        await self._repo.delete(set_id)
+
     async def list_all(self, user: User) -> list[tuple[QuizSetInfo, int]]:
         _require_admin(user)
         return await self._repo.list_all()

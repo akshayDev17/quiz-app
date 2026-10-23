@@ -89,6 +89,7 @@ class Api:
                 ("POST", f"/admin/sets/{sid}/publish", self._admin_publish),
                 ("POST", f"/admin/sets/{sid}/archive", self._admin_archive),
                 ("POST", f"/admin/sets/{sid}/clone", self._admin_clone),
+                ("DELETE", f"/admin/sets/{sid}", self._admin_delete),
             ]
         ]
 
@@ -169,3 +170,7 @@ class Api:
     async def _admin_clone(self, user: User, body: object, set_id: str) -> Response:
         info = await self._authoring.clone(user, int(set_id))
         return 200, {"id": info.id, "status": info.status}
+
+    async def _admin_delete(self, user: User, body: object, set_id: str) -> Response:
+        await self._authoring.delete(user, int(set_id))
+        return 204, None

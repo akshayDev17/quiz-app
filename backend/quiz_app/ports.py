@@ -70,6 +70,10 @@ class QuizAuthoring(ABC):
     async def get(self, set_id: int) -> QuizSetInfo | None:
         """A set in any status (drafts included), or ``None``."""
 
+    @abstractmethod
+    async def delete(self, set_id: int) -> None:
+        """Hard-delete a set (questions/options cascade). Raises Conflict if it has attempts."""
+
 
 class AttemptRepository(ABC):
     @abstractmethod

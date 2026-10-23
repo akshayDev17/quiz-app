@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from ..clock import Clock
-from ..errors import NotFound
+from ..errors import Conflict, NotFound
 from ..models import QuizSetInfo
 from ..ports import QuizAuthoring
 from ..validation import SetImport
@@ -125,3 +125,14 @@ class D1QuizAuthoring(QuizAuthoring):
     async def get(self, set_id: int) -> QuizSetInfo | None:
         row = await self._db.prepare(f"{QUIZ_SET_SELECT} WHERE s.id = ?").bind(set_id).first()
         return quiz_set_from_row(row) if row else None
+
+    async def delete(self, set_id: int) -> None:
+        # A set with attempts can't be hard-deleted: attempts.set_id → quiz_sets is
+        # ON DELETE RESTRICT. Refuse cleanly instead of surfacing a D1 FK error.
+        attempts = (await self._db.prepare(
+            "SELECT COUNT(*) AS n FROM attempts WHERE set_id = ?"
+        ).bind(set_id).first())["n"]
+        if attempts:
+            raise Conflict("set has attempts — archive it instead of deleting")
+        # questions and options cascade; no attempts means nothing else references them.
+        await self._db.prepare("DELETE FROM quiz_sets WHERE id = ?").bind(set_id).run()
