@@ -29,6 +29,14 @@ def normalize_email(email: str) -> str:
     return email.strip().lower()
 
 
+def parse_emails(raw: str | None) -> frozenset[str]:
+    """A comma-separated list of emails (e.g. the ``ADMIN_EMAILS`` secret) as a normalized set.
+
+    Missing, ``None`` or blank gives the empty set; empty entries are dropped.
+    """
+    return frozenset(e for e in (normalize_email(part) for part in (raw or "").split(",")) if e)
+
+
 @dataclass(frozen=True)
 class Identity:
     """An authenticated user."""

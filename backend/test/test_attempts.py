@@ -404,5 +404,53 @@ class ArchivedSetTest(AttemptCase):
             await self.svc.start_or_resume(ALICE, self.sid)
 
 
+class OverviewAndIntroTest(AttemptCase):
+    async def test_overview_gives_published_sets_last_finished_and_open(self):
+        other = await self.seed()
+        draft = await self.seed(publish=False)
+        done = await self.start()
+        await self.svc.submit(ALICE, done)
+        open_id = await self.start(set_id=other)
+        sets, last, open_ = await self.svc.overview(ALICE)
+        self.assertEqual({s.id for s in sets}, {self.sid, other})
+        self.assertNotIn(draft, {s.id for s in sets})
+        self.assertEqual({k: v.id for k, v in last.items()}, {self.sid: done})
+        self.assertEqual({k: v.id for k, v in open_.items()}, {other: open_id})
+
+    async def test_overview_expires_due_attempts_first(self):
+        aid = await self.start()
+        self.clock.advance(LIMIT_MS)
+        _, last, open_ = await self.svc.overview(ALICE)
+        self.assertEqual(open_, {})
+        self.assertEqual((last[self.sid].id, last[self.sid].status), (aid, "expired"))
+
+    async def test_overview_is_per_person(self):
+        await self.start(BOB)
+        _, last, open_ = await self.svc.overview(ALICE)
+        self.assertEqual((last, open_), ({}, {}))
+
+    async def test_intro_counts_finished_and_names_the_open_attempt(self):
+        info, used, open_id = await self.svc.intro(ALICE, self.sid)
+        self.assertEqual((info.id, used, open_id), (self.sid, 0, None))
+        first = await self.start()
+        await self.svc.submit(ALICE, first)
+        second = await self.start()
+        info, used, open_id = await self.svc.intro(ALICE, self.sid)
+        self.assertEqual((used, open_id), (1, second))
+
+    async def test_intro_expires_a_due_open_attempt(self):
+        aid = await self.start()
+        self.clock.advance(LIMIT_MS)
+        _, used, open_id = await self.svc.intro(ALICE, self.sid)
+        self.assertEqual((used, open_id), (1, None))
+        self.assertEqual((await self.repo.get(aid)).status, "expired")
+
+    async def test_intro_of_unpublished_or_missing_set_not_found(self):
+        draft = await self.seed(publish=False)
+        for set_id in (draft, 9999):
+            with self.assertRaises(NotFound):
+                await self.svc.intro(ALICE, set_id)
+
+
 if __name__ == "__main__":
     unittest.main()

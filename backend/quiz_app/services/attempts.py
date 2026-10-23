@@ -156,6 +156,29 @@ class AttemptService:
             if attempt.is_due(now):
                 await self._expire(attempt, await self._set_for(attempt))
 
+    async def overview(
+        self, email: str
+    ) -> tuple[list[QuizSetInfo], dict[int, Attempt], dict[int, Attempt]]:
+        """The published sets, plus the caller's last finished and open attempt per set id."""
+        await self.expire_due_for(email)
+        return (
+            await self._catalog.list_published(),
+            await self._attempts.last_finished_by_set(email),
+            {a.set_id: a for a in await self._attempts.open_for_user(email)},
+        )
+
+    async def intro(self, email: str, set_id: int) -> tuple[QuizSetInfo, int, str | None]:
+        """A published set, how many attempts the caller has finished on it, and their open one (if any)."""
+        info = await self._catalog.get_set(set_id)
+        if info is None:
+            raise NotFound("quiz set not found")
+        open_attempt = await self._attempts.open_for(set_id, email)
+        if open_attempt is not None and open_attempt.is_due(self._clock.now_ms()):
+            await self._expire(open_attempt, info)
+            open_attempt = None
+        used = await self._attempts.count_finished(set_id, email)
+        return info, used, open_attempt.id if open_attempt else None
+
     async def history(self, email: str) -> list[tuple[Attempt, QuizSetInfo]]:
         await self.expire_due_for(email)
         sets: dict[int, QuizSetInfo] = {}
