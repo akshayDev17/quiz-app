@@ -19,7 +19,9 @@ from .composition import build_api
 
 def _response(status: int, body: dict | None) -> Response:
     if status == 204 or body is None:
-        return Response(None, status=status)  # a 204 carries neither body nor content-type
+        # An empty string, not None: empty-string bodies are proven on Python Workers.
+        # A 204 carries neither body nor content-type.
+        return Response("", status=status)
     return Response(json.dumps(body), headers={"content-type": "application/json"}, status=status)
 
 
