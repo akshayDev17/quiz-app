@@ -11,9 +11,9 @@ file is clean before it goes anywhere near the server. Do **not** upload — tha
 
 ## The shape
 
-Authoritative source of truth: `backend/quiz_app/validation.py` in this repo
-(`docs/design.md` §4 "Authoring in v1" documents it). The validator below imports
-that *same* module, so a file that passes here cannot fail validation on upload.
+The validator (`scripts/validate.py`, via `quiz_validation.py`) mirrors
+`backend/quiz_app/validation.py`, so a file that passes here cannot fail validation
+on upload.
 
 ```json
 {
@@ -42,7 +42,8 @@ that *same* module, so a file that passes here cannot fail validation on upload.
 
 ## Steps
 
-1. Write the set to a `.json` file. Completion: every field is present or
+1. Write the set to a `.json` file under `~/quiz-sets/` — scratch, never inside
+   or committed to the quiz-app repo. Completion: every field is present or
    deliberately omitted, each question has ≥2 options and ≥1 correct.
 2. Run `python3 scripts/validate.py <file>`. Completion: it prints `OK — N question(s) …`.
 3. If it prints `invalid: …`, fix every listed problem and re-run until `OK`.
