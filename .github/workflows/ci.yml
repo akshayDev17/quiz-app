@@ -1,7 +1,7 @@
 name: CI
 
-# Tests run on every push and every pull request. The two deploys run only on
-# main, and only after the tests have passed.
+# Tests run on every push, every pull request, and every manual dispatch. The
+# two deploys run only on main, and only after the tests have passed.
 #
 # Cloudflare Access protects /quiz before anything is deployed, so a first deploy
 # never exposes the app. Do the Access setup in docs/deploy.md §A *before* the
@@ -11,6 +11,11 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Lets the workflow be re-run by hand from the Actions tab ("Run workflow"),
+  # e.g. after adding the `production` environment secrets that were missing on
+  # the first push. `github.event_name` is then `workflow_dispatch`, which the
+  # deploy jobs' `if:` below also accepts.
+  workflow_dispatch:
 
 # A second push to the same branch cancels the first, so a stale run never
 # reports on code that has already been replaced.
@@ -91,7 +96,7 @@ jobs:
     name: Deploy API
     runs-on: ubuntu-latest
     needs: test
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     environment: production
     steps:
       - uses: actions/checkout@v6
@@ -184,7 +189,7 @@ jobs:
     # After the API, so a failed API deploy (or setup not done) never leaves the
     # frontend live at /quiz with nothing behind it.
     needs: [test, deploy-api]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     environment: production
     steps:
       - uses: actions/checkout@v6
