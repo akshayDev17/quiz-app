@@ -98,7 +98,7 @@ class CloudflareAccessIdentity(IdentityProvider):
     page. ``self.ctx`` demonstrably exists in Python (the docs' own Cache API
     example uses ``self.ctx.waitUntil``), so ``self.ctx.access`` may well work —
     but that is an inference, not a citation. It must be verified empirically on
-    the deployed Worker, which a deployed health check should do.
+    the deployed Worker, ideally via a health check.
 
     If it does not exist, ``identify`` returns ``None`` and every protected
     route answers 401. That is the correct failure direction, but it is also why
