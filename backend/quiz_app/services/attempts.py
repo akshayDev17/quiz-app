@@ -154,19 +154,16 @@ class AttemptService:
         now = self._clock.now_ms()
         for attempt in await self._attempts.open_for_user(email):
             if attempt.is_due(now):
-                info = await self._catalog.get_set(attempt.set_id)
-                if info is not None:
-                    await self._expire(attempt, info)
+                await self._expire(attempt, await self._set_for(attempt))
 
     async def history(self, email: str) -> list[tuple[Attempt, QuizSetInfo]]:
         await self.expire_due_for(email)
-        sets: dict[int, QuizSetInfo | None] = {}
+        sets: dict[int, QuizSetInfo] = {}
         out = []
         for attempt in await self._attempts.for_user(email):
             if attempt.set_id not in sets:
-                sets[attempt.set_id] = await self._catalog.get_set(attempt.set_id)
-            if sets[attempt.set_id] is not None:
-                out.append((attempt, sets[attempt.set_id]))
+                sets[attempt.set_id] = await self._set_for(attempt)
+            out.append((attempt, sets[attempt.set_id]))
         return out
 
     async def _owned(self, email: str, attempt_id: str) -> Attempt:
@@ -186,7 +183,8 @@ class AttemptService:
         return attempt, info
 
     async def _set_for(self, attempt: Attempt) -> QuizSetInfo:
-        info = await self._catalog.get_set(attempt.set_id)
+        """The attempt's set in any status: archiving never strands or hides an attempt."""
+        info = await self._catalog.set_for_attempt(attempt.set_id)
         if info is None:
             raise NotFound("quiz set not found")
         return info

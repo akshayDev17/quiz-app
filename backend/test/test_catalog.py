@@ -81,6 +81,14 @@ class ListPublishedTest(CatalogCase):
         self.assertIsNone(await self.catalog.get_set(archived))
         self.assertIsNone(await self.catalog.get_set(9999))
 
+    async def test_set_for_attempt_is_any_status(self):
+        for status in ("published", "draft", "archived"):
+            set_id = await self.seed(status)
+            info = await self.catalog.set_for_attempt(set_id)
+            self.assertEqual((info.id, info.status), (set_id, status))
+            self.assertEqual(info.question_count, 3)
+        self.assertIsNone(await self.catalog.set_for_attempt(9999))
+
 
 class SolverQuestionsTest(CatalogCase):
     async def test_solver_questions_in_authored_order_without_answers(self):

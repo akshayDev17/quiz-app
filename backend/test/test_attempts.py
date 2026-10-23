@@ -363,5 +363,47 @@ class HistoryTest(AttemptCase):
         self.assertIsNone(await self.repo.open_for(other, BOB))
 
 
+
+class ArchivedSetTest(AttemptCase):
+    async def archive(self):
+        await self.authoring.archive(ADMIN, self.sid)
+
+    async def test_open_attempt_survives_archiving(self):
+        aid = await self.start()
+        await self.archive()
+        session = await self.svc.session(ALICE, aid)
+        self.assertEqual(session.attempt.status, "in_progress")
+        self.assertEqual(len(session.questions), 3)
+        await self.svc.save(ALICE, aid, self.q1.question_id, list(self.q1.correct))
+        attempt = await self.svc.submit(ALICE, aid)
+        self.assertEqual((attempt.status, attempt.score), ("submitted", 1))
+        view = await self.svc.results(ALICE, aid)
+        self.assertEqual(view.set.status, "archived")
+        self.assertEqual(len(view.questions), 3)
+        self.assertTrue(view.results[self.q1.question_id].is_correct)
+
+    async def test_due_attempt_on_archived_set_is_expired_and_graded(self):
+        aid = await self.start()
+        await self.svc.save(ALICE, aid, self.q1.question_id, list(self.q1.correct))
+        await self.archive()
+        self.clock.advance(LIMIT_MS + 1)
+        await self.svc.expire_due_for(ALICE)
+        attempt = await self.repo.get(aid)
+        self.assertEqual((attempt.status, attempt.score, attempt.finished_at), ("expired", 1, START + LIMIT_MS))
+        self.assertEqual(await self.count_results(aid), 3)
+
+    async def test_history_lists_attempts_on_archived_set(self):
+        aid = await self.start()
+        await self.svc.submit(ALICE, aid)
+        await self.archive()
+        history = await self.svc.history(ALICE)
+        self.assertEqual([(a.id, s.id) for a, s in history], [(aid, self.sid)])
+
+    async def test_cannot_start_on_archived_set(self):
+        await self.archive()
+        with self.assertRaises(NotFound):
+            await self.svc.start_or_resume(ALICE, self.sid)
+
+
 if __name__ == "__main__":
     unittest.main()

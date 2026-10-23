@@ -35,6 +35,10 @@ class QuizCatalog(ABC):
     async def get_set(self, set_id: int) -> QuizSetInfo | None: ...
 
     @abstractmethod
+    async def set_for_attempt(self, set_id: int) -> QuizSetInfo | None:
+        """A set in any status, for an attempt already started on it; ``None`` only if no such id."""
+
+    @abstractmethod
     async def questions_for_solver(self, set_id: int) -> list[QuestionForSolver]: ...
 
 

@@ -33,6 +33,11 @@ class D1Catalog(QuizCatalog):
         ).bind(set_id).first()
         return quiz_set_from_row(row) if row else None
 
+    async def set_for_attempt(self, set_id: int) -> QuizSetInfo | None:
+        # Any status: archiving a set must not strand or hide attempts already on it.
+        row = await self._db.prepare(f"{QUIZ_SET_SELECT} WHERE s.id = ?").bind(set_id).first()
+        return quiz_set_from_row(row) if row else None
+
     async def questions_for_solver(self, set_id: int) -> list[QuestionForSolver]:
         # Deliberately selects neither is_correct nor explanation: a solver-facing
         # read cannot leak what it never fetched.
