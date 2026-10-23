@@ -75,7 +75,7 @@ policy listing invited addresses.
   visit shows a one-time **"What should we call you?"** prompt
   (`PATCH /me {display_name}`). The masthead shows the name, falling back to
   the email until it is set.
-  Admins are bootstrapped from a Worker var `ADMIN_EMAILS`. **(my call)**
+  Admins are bootstrapped from a Worker secret `ADMIN_EMAILS`, which keeps your email out of the repo. **(my call)**
 - Query strings are fine here (e.g. `/quiz/play?attempt=…`). The archive
   avoided them only because Access can't scope a policy by query string. With
   one policy covering everything, that doesn't matter, and it lets a static
