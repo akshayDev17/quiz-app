@@ -72,9 +72,15 @@ a.btn { display: inline-flex; align-items: center; justify-content: center; text
 .shead + .subhead { margin-top: 0; }
 .field { display: flex; flex-direction: column; gap: var(--s2); margin: var(--s4) 0 0; }
 .field input, .field textarea, .field select { font-family: var(--mono); font-size: .9375rem; color: var(--ink);
-               background: var(--card); border: 1px solid var(--card-line); border-radius: 4px; padding: .7rem .8rem; }
+               background-color: var(--card); border: 1px solid var(--card-line); border-radius: 4px; padding: .7rem .8rem; }
 .field textarea { resize: vertical; line-height: 1.5; }
 .field input:focus, .field textarea:focus, .field select:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 18%, transparent); }
+/* selects: drop the native arrow and draw our own, so it matches the rest of the
+   icon set and stays the same on every platform */
+select { -webkit-appearance: none; -moz-appearance: none; appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%235a6069' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right .6rem center; background-size: .75rem .75rem; }
+.field select { padding-right: 2rem; }
 .who .uname { font-size: 1rem; }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: var(--s4); list-style: none; }
 .set-card { display: flex; text-decoration: none; flex-direction: column; padding: var(--s4); cursor: pointer; text-align: left; font: inherit; color: inherit; width: 100%; }
@@ -239,8 +245,9 @@ code { font-family: var(--mono); font-size: .85em; background: var(--paper-2); p
 .editor-page .lab { display: block; font-size: .75rem; color: #5a6069; margin-bottom: .25rem; }
 .editor-page .ed-field { margin-bottom: .6rem; }
 .editor-page input[type="text"], .editor-page input:not([type]), .editor-page textarea, .editor-page select {
-  width: 100%; font-family: inherit; font-size: .8125rem; color: #16181c; background: #fbfbfc;
+  width: 100%; font-family: inherit; font-size: .8125rem; color: #16181c; background-color: #fbfbfc;
   border: 1px solid #aeb4be; border-radius: 5px; padding: .35rem .5rem; }
+.editor-page select { padding-right: 1.75rem; background-position: right .55rem center; }
 .editor-page textarea { resize: vertical; line-height: 1.5; }
 .editor-page input[type="text"]:focus, .editor-page input:not([type]):focus,
 .editor-page textarea:focus, .editor-page select:focus {
