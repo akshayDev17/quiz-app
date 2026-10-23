@@ -1,7 +1,10 @@
 node_modules/
 .wrangler/
 .next/
+.next-build/
 out/
+*.tsbuildinfo
+next-env.d.ts
 __pycache__/
 .venv/
 .env
