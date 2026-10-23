@@ -6,7 +6,7 @@ what ships. It models the slice of the D1 API the repositories use:
 
 * ``db.prepare(sql).bind(*params)`` gives a statement with async ``first()``
   (a ``dict`` or ``None``), ``all()`` (an object with ``.results``, a list of
-  ``dict``) and ``run()``.
+  ``dict``) and ``run()`` (an object with ``.meta.changes``, the rows changed).
 * ``db.batch(statements)`` runs the statements in a single transaction.
 
 Differences worth knowing: ``sqlite3.IntegrityError`` propagates unchanged, and
@@ -29,22 +29,25 @@ class _Statement:
     def bind(self, *params) -> "_Statement":
         return _Statement(self._conn, self._sql, params)
 
-    def _execute(self) -> list[dict]:
+    def _execute(self) -> tuple[list[dict], int]:
+        """The result rows and the number of rows changed."""
         # Always drain the cursor: an INSERT ... RETURNING is not finished (and,
         # in autocommit, not committed) until its rows have been fetched.
         cursor = self._conn.execute(self._sql, self._params)
-        return [dict(row) for row in cursor.fetchall()]
+        rows = [dict(row) for row in cursor.fetchall()]
+        return rows, max(cursor.rowcount, 0)
 
     async def first(self) -> dict | None:
-        rows = self._execute()
+        rows, _ = self._execute()
         return rows[0] if rows else None
 
     async def all(self) -> SimpleNamespace:
-        return SimpleNamespace(results=self._execute())
+        rows, _ = self._execute()
+        return SimpleNamespace(results=rows)
 
     async def run(self) -> SimpleNamespace:
-        self._execute()
-        return SimpleNamespace(success=True)
+        _, changes = self._execute()
+        return SimpleNamespace(success=True, meta=SimpleNamespace(changes=changes))
 
 
 class SqliteD1:

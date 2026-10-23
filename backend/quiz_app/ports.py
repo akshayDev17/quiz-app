@@ -4,7 +4,16 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from .models import QuestionForSolver, QuestionKey, QuizSetInfo, ReviewQuestion, User
+from .models import (
+    Attempt,
+    GradeResult,
+    QuestionForSolver,
+    QuestionKey,
+    QuestionResult,
+    QuizSetInfo,
+    ReviewQuestion,
+    User,
+)
 from .validation import SetImport
 
 
@@ -59,4 +68,40 @@ class QuizAuthoring(ABC):
 
 
 class AttemptRepository(ABC):
-    """Methods added in Task 5."""
+    @abstractmethod
+    async def create(self, attempt: Attempt) -> Attempt:
+        """Insert an open attempt. If the person already has one open for the set
+        (``uq_attempts_one_open``), return that one instead."""
+
+    @abstractmethod
+    async def get(self, attempt_id: str) -> Attempt | None: ...
+
+    @abstractmethod
+    async def open_for(self, set_id: int, email: str) -> Attempt | None: ...
+
+    @abstractmethod
+    async def count_finished(self, set_id: int, email: str) -> int: ...
+
+    @abstractmethod
+    async def selections(self, attempt_id: str) -> dict[int, frozenset[int]]: ...
+
+    @abstractmethod
+    async def replace_selection(self, attempt_id: str, question_id: int, option_ids: frozenset[int]) -> None:
+        """One batch: delete the question's rows, then insert the new ones."""
+
+    @abstractmethod
+    async def finish(self, attempt_id: str, status: str, finished_at: int, grade: GradeResult) -> bool:
+        """Close an open attempt and write its results once. False if it was already closed."""
+
+    @abstractmethod
+    async def results(self, attempt_id: str) -> dict[int, QuestionResult]: ...
+
+    @abstractmethod
+    async def for_user(self, email: str) -> list[Attempt]:
+        """Newest first."""
+
+    @abstractmethod
+    async def open_for_user(self, email: str) -> list[Attempt]: ...
+
+    @abstractmethod
+    async def last_finished_by_set(self, email: str) -> dict[int, Attempt]: ...
