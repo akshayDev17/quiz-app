@@ -1,0 +1,46 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "quiz-app-backend",
+  "main": "entry.py",
+
+  // Python Workers require this flag:
+  // https://developers.cloudflare.com/workers/languages/python/
+  "compatibility_flags": ["python_workers"],
+  "compatibility_date": "2026-10-08",
+
+  // Reachable only through the custom domain. Attaching a route flips this to
+  // false by default, but it is set explicitly so the intent is not left to an
+  // inference.
+  "workers_dev": false,
+  "routes": [
+    {
+      "pattern": "akshayprabhakant.com/quiz/api/*",
+      "zone_name": "akshayprabhakant.com"
+    }
+  ],
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "quiz-app",
+      "database_id": "REPLACE_AFTER_d1_create"
+    }
+  ],
+
+  // No "vars" block on purpose. ADMIN_EMAILS (comma-separated, case-insensitive)
+  // is a Worker secret, set with `wrangler secret put ADMIN_EMAILS`, so admin
+  // emails never land in the repo. The Worker reads it as
+  // `self.env.ADMIN_EMAILS` and treats a missing value as empty.
+
+  // Lets `wrangler dev` simulate an authenticated Access identity, so
+  // CloudflareAccessIdentity can be exercised locally without a login flow.
+  // The entrypoint reads `ctx.access.getIdentity().email`; this block is what
+  // feeds it in dev.
+  // https://developers.cloudflare.com/workers/configuration/cloudflare-access/
+  "access": {
+    "dev": {
+      "aud": "quiz-app",
+      "identity": { "email": "you@example.com" }
+    }
+  }
+}
