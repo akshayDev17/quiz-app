@@ -14,4 +14,5 @@ Access (email one-time PIN) as the only way in.
 - `docs/deploy.md` — the deploy runbook: Access, D1, secrets, CI, first-deploy checks
 - `design/sparks.html` — clickable frontend sketch (open it in a browser)
 
-Status: Implemented; deploy per docs/deploy.md.
+Status: Implemented; deploy per docs/deploy.md. Do not push to main before completing
+docs/deploy.md §A–C (Access, D1, ADMIN_EMAILS) — CI deploys on every push to main.

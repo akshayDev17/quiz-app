@@ -5,6 +5,13 @@ A checklist, in order. **Access is set up before anything is deployed**, so
 the order you do them in; "Verify after first deploy" lists what only the real
 platform can prove.
 
+> **Precondition: do not push to `main` before completing §A to §C** (Access, D1
+> with its `database_id` committed, and the `ADMIN_EMAILS` secret), plus the
+> GitHub `production` environment of §E. CI deploys on every push to `main`. The
+> API job refuses to run while `backend/wrangler.jsonc` still holds the
+> `REPLACE_AFTER_d1_create` placeholder, and the frontend job waits for the API
+> job, but neither check knows whether Access exists.
+
 Topology (details in [design.md](design.md) §2 and §7):
 
 ```
@@ -95,6 +102,10 @@ cd frontend && npm run build && npx wrangler deploy
 
 Do this by hand once, or skip it and let CI do it (§E) on the first push to
 `main`. Never deploy before §A is done.
+
+A missing `ADMIN_EMAILS` does not fail the deploy: the Worker treats it as an
+empty list, so it deploys fine but nobody is an admin and `/quiz/admin` shows
+"Not available".
 
 ## E. CI (deploy on push)
 
@@ -187,17 +198,21 @@ off-platform: the local server and the test suite use SQLite and a fixed identit
 Each item below is an assumption the code makes. Check them once, after the first
 deploy, signed in through Access. Run the snippets in the browser's DevTools
 console on any `https://akshayprabhakant.com/quiz/...` page (the Access cookie
-makes them same-origin and authenticated). `SET_ID` is the id of a published set
-with a time limit and at least two questions; take it from `/quiz/api/topics`.
+makes them same-origin and authenticated). `SET_ID` and `SET_ID_2` are the ids of
+two published sets with at least two questions each; take them from
+`/quiz/api/topics`. Starting an attempt consumes one of the set's
+`max_attempts` (if it has a limit), so use throwaway sets, or ones with no limit.
 
 If one fails, the "if not" note says where to look.
 
 **(a) `self.ctx.access` identity works.** After OTP sign-in, open
 `https://akshayprabhakant.com/quiz/api/me`. Expect JSON with your email and
-`role: admin`. *If not:* a 401 or a missing email means Python Workers do not
-expose `ctx.access` here; see `CloudflareAccessIdentity` in
-`backend/quiz_app/auth.py` and the archive's `access-limits.md` §8 for the
-fallback (verify the `Cf-Access-Jwt-Assertion` header).
+`role: admin`. *If not:* there is no fallback. `CloudflareAccessIdentity`
+(`backend/quiz_app/auth.py`) fails closed, so without `ctx.access` every
+`/quiz/api` route answers 401. (`ctx.access` in Python Workers is undocumented;
+the archive's `access-limits.md` §8 records that question.) The fix would be a new
+`IdentityProvider` that verifies the `Cf-Access-Jwt-Assertion` JWT against the
+team's JWKS. That is not implemented.
 
 **(b) A PUT answer returns 204.** The empty-body `Response("", status=204)` must
 be accepted by the runtime.
@@ -229,11 +244,14 @@ console.log(await (await fetch('/quiz/api/me')).json());  // display_name: "Depl
 afterwards.
 
 **(d) Starting the same set twice concurrently returns one attempt.** D1's UNIQUE
-error text must contain `UNIQUE constraint failed` (the code matches on it):
+error text must contain `UNIQUE constraint failed` (the code matches on it). Use
+`SET_ID_2`, a set you have no open attempt on, or the second request would just
+resume the open one and prove nothing. If `max_attempts` is set, this and (e)
+use up one attempt of it.
 
 ```js
 const r = await Promise.all([1, 2].map(() =>
-  fetch('/quiz/api/sets/SET_ID/attempts', {method: 'POST'}).then(x => x.json())));
+  fetch('/quiz/api/sets/SET_ID_2/attempts', {method: 'POST'}).then(x => x.json())));
 console.log(r[0].attempt.id === r[1].attempt.id);         // true
 ```
 
@@ -260,8 +278,9 @@ must return nothing for an `UPDATE … RETURNING` that matched no row.
 
 **(f) `/quiz/play/` with a trailing slash stays inside `/quiz`.** Visit
 `https://akshayprabhakant.com/quiz/play/` by hand. It must redirect to
-`/quiz/play` (or serve it), never to `akshayprabhakant.com/play` on GitHub Pages. Behind Access, `curl`
-only sees the login redirect, so watch the Network tab in the browser.
+`/quiz/play` (or serve it), never to `akshayprabhakant.com/play` on GitHub Pages.
+Behind Access, `curl` only sees the login redirect, so watch the Network tab in
+the browser.
 
 *If not:* `reprefixRedirect` in `frontend/worker.js` (covered by
 `frontend/worker.test.mjs`) is the place; compare the real `Location` header with
