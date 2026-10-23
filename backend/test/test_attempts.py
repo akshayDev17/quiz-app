@@ -363,7 +363,6 @@ class HistoryTest(AttemptCase):
         self.assertIsNone(await self.repo.open_for(other, BOB))
 
 
-
 class ArchivedSetTest(AttemptCase):
     async def archive(self):
         await self.authoring.archive(ADMIN, self.sid)

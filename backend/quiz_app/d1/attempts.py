@@ -88,11 +88,11 @@ class D1AttemptRepository(AttemptRepository):
     async def finish(self, attempt_id: str, status: str, finished_at: int, grade: GradeResult) -> bool:
         # Only the call that flips the row from in_progress writes results, so two
         # concurrent finishers can't both insert them.
-        outcome = await self._db.prepare(
+        finished = await self._db.prepare(
             "UPDATE attempts SET status = ?, finished_at = ?, score = ?, max_score = ? "
-            "WHERE id = ? AND status = 'in_progress'"
-        ).bind(status, finished_at, grade.score, grade.max_score, attempt_id).run()
-        if outcome.meta.changes != 1:
+            "WHERE id = ? AND status = 'in_progress' RETURNING id"
+        ).bind(status, finished_at, grade.score, grade.max_score, attempt_id).first()
+        if finished is None:
             return False
         if grade.results:
             insert = self._db.prepare(
