@@ -22,8 +22,11 @@ type SetRow = AdminSets['sets'][number];
 /* Outline icons, one set, recolored per state via currentColor (better-ui). */
 const Icons = {
   publish: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M12 19V6" /><path d="M5 12l7-7 7 7" />
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z" />
+      <path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z" />
+      <path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0" />
+      <path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5" />
     </svg>
   ),
   archive: (
@@ -33,7 +36,11 @@ const Icons = {
   ),
   clone: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <rect x="9" y="9" width="12" height="12" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h10" />
+      {/* "split" rotated 90° clockwise → a horizontal fork (stem left, branches right) */}
+      <g transform="rotate(90 12 12)">
+        <path d="M16 3h5v5" /><path d="M8 3H3v5" />
+        <path d="M12 22v-8.3a4 4 0 0 0-1.172-2.872L3 3" /><path d="m15 9 6-6" />
+      </g>
     </svg>
   ),
   trash: (
@@ -135,34 +142,32 @@ export default function AdminPage() {
           {notice && <p className="mc" style={{ marginBottom: 'var(--s4)' }}>{notice}</p>}
 
           <div className="import card">
-            <span className="kicker">Import</span>
-            <h3 className="import-title">Add a quiz set</h3>
-            <p className="import-desc">
-              Upload a quiz-set JSON. It lands as a draft — publish it once you’ve reviewed the questions and answer key.
-            </p>
-            <div className="import-pick">
-              <label className="import-btn" htmlFor="importFile">
-                {Icons.upload}
-                Choose a JSON file
-              </label>
-              <input
-                id="importFile"
-                type="file"
-                accept="application/json,.json"
-                disabled={busy}
-                hidden
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  // Clear the input so choosing the same file again (after fixing it) fires onChange.
-                  const input = e.target;
-                  if (file) {
-                    setImportName(file.name);
-                    importFile(file).finally(() => { input.value = ''; });
-                  }
-                }}
-              />
-              {importName && <span className="import-file">↳ {importName}</span>}
+            <div className="import-left">
+              <h3 className="import-title">Add a quiz set</h3>
+              <span className="import-sub">
+                {importName ? `↳ ${importName}` : 'Upload a JSON; it lands as a draft.'}
+              </span>
             </div>
+            <label className="import-btn" htmlFor="importFile">
+              {Icons.upload}
+              Choose file
+            </label>
+            <input
+              id="importFile"
+              type="file"
+              accept="application/json,.json"
+              disabled={busy}
+              hidden
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                // Clear the input so choosing the same file again (after fixing it) fires onChange.
+                const input = e.target;
+                if (file) {
+                  setImportName(file.name);
+                  importFile(file).finally(() => { input.value = ''; });
+                }
+              }}
+            />
           </div>
 
           <div className="shead">

@@ -169,24 +169,24 @@ code { font-family: var(--mono); font-size: .85em; background: var(--paper-2); p
 .iconbtn { display: inline-flex; align-items: center; justify-content: center; width: 2.1rem; height: 2.1rem;
            background: transparent; color: var(--ink); border: 1px solid var(--rule-2); border-radius: 4px;
            cursor: pointer; transition: color .15s var(--ease), border-color .15s var(--ease), background .15s var(--ease); }
-.iconbtn svg { width: 1.05rem; height: 1.05rem; }
+.iconbtn svg { width: 1.2rem; height: 1.2rem; }
 .iconbtn:hover { color: var(--accent); border-color: var(--accent); }
 .iconbtn:active { transform: scale(.96); }
 .iconbtn:disabled { opacity: .45; cursor: not-allowed; }
 .iconbtn.danger { color: var(--danger); }
 .iconbtn.danger:hover { border-color: var(--danger); background: color-mix(in oklab, var(--danger) 7%, transparent); }
 
-/* admin — import card */
-.import { padding: var(--s5); margin-bottom: var(--s5); }
-.import-title { font-size: 1.375rem; font-weight: 600; letter-spacing: -.015em; margin-bottom: var(--s2); }
-.import-desc { color: var(--muted); max-width: 62ch; margin-bottom: var(--s4); }
-.import-pick { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; }
+/* admin — import row */
+.import { display: flex; align-items: center; justify-content: space-between; gap: var(--s4);
+          flex-wrap: wrap; padding: var(--s4) var(--s5); margin-bottom: var(--s5); }
+.import-left { display: flex; flex-direction: column; gap: 2px; }
+.import-title { font-size: 1rem; font-weight: 600; letter-spacing: -.01em; line-height: 1.2; }
+.import-sub { font-family: var(--mono); font-size: .6875rem; letter-spacing: .04em; color: var(--muted); }
 .import-btn { display: inline-flex; align-items: center; gap: var(--s2); cursor: pointer;
-             font-family: var(--mono); font-size: .8125rem; letter-spacing: .02em;
+             font-family: var(--mono); font-size: .75rem; letter-spacing: .02em;
              background: var(--ink); color: var(--paper); border: 1px solid var(--ink); border-radius: 4px;
-             padding: .7rem 1.25rem; transition: background .2s var(--ease), color .2s var(--ease); }
+             padding: .55rem 1rem; transition: background .2s var(--ease), color .2s var(--ease); }
 .import-btn:hover { background: var(--accent); border-color: var(--accent); }
 .import-btn:active { transform: scale(.96); }
-.import-btn svg { width: 1rem; height: 1rem; }
-.import-file { font-family: var(--mono); font-size: .75rem; color: var(--muted); }
+.import-btn svg { width: .95rem; height: .95rem; }
 @media (prefers-reduced-motion: reduce) { .card, .opt { transition: none; } .set-card:hover { transform: none; } .timer.red { animation: none; } }

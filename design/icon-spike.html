@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Quiz admin — action icon spike</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,300..600;1,6..72,300..500&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+:root {
+  --paper:#eef1f8; --paper-2:#e2e8f4; --ink:#0f1220; --muted:#525a6b; --body:#232838;
+  --rule:#d3d9e6; --rule-2:#bcc4d6; --accent:#3a4bd8; --card:#ffffff; --card-line:#818a9f;
+  --card-line-hover:#5c6780; --danger:#b00020; --ok:#1f6b45;
+  --serif:"Newsreader", ui-serif, Georgia, serif; --mono:"IBM Plex Mono", ui-monospace, monospace;
+  --s1:.25rem; --s2:.5rem; --s3:.75rem; --s4:1rem; --s5:1.5rem; --s6:2rem; --s7:3rem; --r-card:.7rem;
+  --shadow-rest:0 1px 2px color-mix(in oklab, var(--ink) 7%, transparent), 0 8px 20px -14px color-mix(in oklab, var(--ink) 20%, transparent);
+  --shadow-hover:0 2px 4px color-mix(in oklab, var(--ink) 9%, transparent), 0 20px 40px -20px color-mix(in oklab, var(--ink) 28%, transparent);
+  --ease:cubic-bezier(.2,.7,.3,1);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--paper); color: var(--ink); font-family: var(--serif); font-size: 1.0625rem; line-height: 1.7; }
+.wrap { max-width: 58rem; margin: 0 auto; padding: var(--s7) var(--s4); }
+.mc { font-family: var(--mono); font-size: .6875rem; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.kicker { font-family: var(--mono); font-size: .6875rem; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); }
+h1 { font-weight: 600; font-size: clamp(1.6rem,4vw,2.2rem); line-height: 1.1; letter-spacing: -.02em; }
+.standfirst { color: var(--muted); max-width: 60ch; margin-top: var(--s2); }
+h2 { font-size: 1.1rem; font-weight: 600; letter-spacing: -.01em; margin: var(--s6) 0 var(--s3); padding-top: var(--s4); border-top: 1px solid var(--rule); }
+.card { background: var(--card); border: 1px solid var(--card-line); border-radius: var(--r-card); box-shadow: var(--shadow-rest); }
+.note { font-size: .8125rem; color: var(--muted); margin-bottom: var(--s4); }
+
+/* icon buttons (as shipped) */
+.actions { display: flex; gap: var(--s2); align-items: center; }
+.iconbtn { display: inline-flex; align-items: center; justify-content: center; width: 2.1rem; height: 2.1rem;
+  background: transparent; color: var(--ink); border: 1px solid var(--rule-2); border-radius: 4px; cursor: pointer;
+  transition: color .15s var(--ease), border-color .15s var(--ease), background .15s var(--ease); }
+.iconbtn svg { width: 1.2rem; height: 1.2rem; }
+.iconbtn:hover { color: var(--accent); border-color: var(--accent); }
+.iconbtn:active { transform: scale(.96); }
+.iconbtn.danger { color: var(--danger); }
+.iconbtn.danger:hover { border-color: var(--danger); background: color-mix(in oklab, var(--danger) 7%, transparent); }
+.iconbtn.ghost { border-color: transparent; }
+
+/* candidate grid */
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr)); gap: var(--s4); }
+.branch { display: flex; flex-direction: column; align-items: center; gap: var(--s2); padding: var(--s4) var(--s3);
+  border: 1px solid var(--rule); border-radius: var(--r-card); background: var(--card); cursor: pointer;
+  transition: border-color .15s var(--ease), box-shadow .15s var(--ease), transform .15s var(--ease); text-align: center; }
+.branch:hover { border-color: var(--card-line-hover); box-shadow: var(--shadow-hover); transform: translateY(-2px); }
+.branch.sel { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in oklab, var(--accent) 22%, transparent); }
+.branch .num { font-family: var(--mono); font-size: .5625rem; letter-spacing: .1em; color: var(--accent); }
+.branch .name { font-size: .8125rem; color: var(--body); line-height: 1.3; }
+.branch .read { font-family: var(--mono); font-size: .625rem; color: var(--muted); line-height: 1.35; }
+
+/* preview row */
+.preview { padding: var(--s4) var(--s5); display: flex; align-items: center; gap: var(--s4); }
+.preview .label { font-family: var(--mono); font-size: .6875rem; color: var(--muted); }
+.preview .pick { margin-left: auto; font-family: var(--mono); font-size: .75rem; color: var(--accent); }
+
+/* compact import row */
+.import { display: flex; align-items: center; justify-content: space-between; gap: var(--s4); flex-wrap: wrap;
+  padding: var(--s4) var(--s5); }
+.import-left { display: flex; flex-direction: column; gap: 2px; }
+.import-title { font-size: 1rem; font-weight: 600; letter-spacing: -.01em; line-height: 1.2; }
+.import-sub { font-family: var(--mono); font-size: .6875rem; letter-spacing: .04em; color: var(--muted); }
+.import-btn { display: inline-flex; align-items: center; gap: var(--s2); cursor: pointer;
+  font-family: var(--mono); font-size: .75rem; letter-spacing: .02em; background: var(--ink); color: var(--paper);
+  border: 1px solid var(--ink); border-radius: 4px; padding: .55rem 1rem; }
+.import-btn svg { width: .95rem; height: .95rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="kicker">Quiz admin · spike</p>
+  <h1>Action icons — pick a clone glyph</h1>
+  <p class="standfirst">Click a branching icon to try it in the action row below. Publish is a rocket; delete is a trash. Sizes and tokens match the shipped app.</p>
+
+  <h2>1 · Clone — branching candidates</h2>
+  <p class="note">The "fork" family AI chat UIs use to branch/forward a session.</p>
+  <div class="grid">
+    <div class="branch sel" data-id="git-fork">
+      <button class="iconbtn ghost" tabindex="-1" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><path d="M18 9v2c0 .6-.4 1-1 1H7c-.6 0-1-.4-1-1V9"/><path d="M12 12v3"/></svg></button>
+      <span class="num">01</span>
+      <span class="name">git-fork</span>
+      <span class="read">two nodes fork from one — canonical fork</span>
+    </div>
+    <div class="branch" data-id="git-branch">
+      <button class="iconbtn ghost" tabindex="-1" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg></button>
+      <span class="num">02</span>
+      <span class="name">git-branch</span>
+      <span class="read">one line branches off — "version branch"</span>
+    </div>
+    <div class="branch" data-id="split">
+      <button class="iconbtn ghost" tabindex="-1" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5"/><path d="M8 3H3v5"/><path d="M12 22v-8.3a4 4 0 0 0-1.172-2.872L3 3"/><path d="m15 9 6-6"/></svg></button>
+      <span class="num">03</span>
+      <span class="name">split</span>
+      <span class="read">one → two arrows — reads "share/expand"</span>
+    </div>
+    <div class="branch" data-id="y-branch">
+      <button class="iconbtn ghost" tabindex="-1" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22v-6"/><path d="M12 16C12 10 6 10 6 3"/><path d="M12 16c0-6 6-6 6-13"/></svg></button>
+      <span class="num">04</span>
+      <span class="name">y-branch</span>
+      <span class="read">clean Y — trunk forks into two, most legible</span>
+    </div>
+    <div class="branch" data-id="git-merge">
+      <button class="iconbtn ghost" tabindex="-1" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 0 0 9 9"/></svg></button>
+      <span class="num">05</span>
+      <span class="name">git-merge</span>
+      <span class="read">two → one — wrong direction for clone</span>
+    </div>
+  </div>
+
+  <h2>2 · Preview — the action row</h2>
+  <div class="preview card">
+    <span class="label">Actions</span>
+    <div class="actions">
+      <button class="iconbtn" title="Publish"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/><path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/></svg></button>
+      <button class="iconbtn" id="preview-clone" title="Clone"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><path d="M18 9v2c0 .6-.4 1-1 1H7c-.6 0-1-.4-1-1V9"/><path d="M12 12v3"/></svg></button>
+      <button class="iconbtn danger" title="Delete forever"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg></button>
+    </div>
+    <span class="pick" id="pick-label">clone: git-fork</span>
+  </div>
+
+  <h2>3 · Import row (applied shape)</h2>
+  <div class="import card">
+    <div class="import-left">
+      <h3 class="import-title">Add a quiz set</h3>
+      <span class="import-sub">Upload a JSON; it lands as a draft.</span>
+    </div>
+    <label class="import-btn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 9l5-5 5 5"/><path d="M12 4v12"/></svg>
+      Choose file
+    </label>
+  </div>
+</div>
+
+<script>
+  const cards = document.querySelectorAll('.branch');
+  const preview = document.getElementById('preview-clone');
+  const label = document.getElementById('pick-label');
+  cards.forEach((card) => {
+    card.addEventListener('click', () => {
+      cards.forEach((c) => c.classList.remove('sel'));
+      card.classList.add('sel');
+      preview.innerHTML = card.querySelector('.iconbtn svg').outerHTML;
+      label.textContent = 'clone: ' + card.dataset.id;
+    });
+  });
+</script>
+</body>
+</html>
