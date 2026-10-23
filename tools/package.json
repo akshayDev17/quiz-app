@@ -12,6 +12,7 @@
   "files": [
     "lib",
     "skills",
+    "quiz_validation.py",
     "plugin.json",
     ".claude-plugin/plugin.json",
     "cordis.patch.yml",

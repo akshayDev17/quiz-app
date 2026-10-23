@@ -23,18 +23,17 @@ import urllib.request
 from pathlib import Path
 
 
-def _repo_root() -> Path:
-    """quiz-app/, found by walking up to backend/quiz_app/validation.py."""
+def _plugin_root() -> Path:
+    """The quiz-tools plugin root, found by walking up to quiz_validation.py."""
     for parent in Path(__file__).resolve().parents:
-        if (parent / "backend" / "quiz_app" / "validation.py").exists():
+        if (parent / "quiz_validation.py").exists():
             return parent
-    raise SystemExit("could not locate quiz-app (backend/quiz_app/validation.py)")
+    raise SystemExit("could not locate the quiz-tools plugin root (quiz_validation.py)")
 
 
-sys.path.insert(0, str(_repo_root() / "backend"))
+sys.path.insert(0, str(_plugin_root()))
 
-from quiz_app.errors import Invalid  # noqa: E402
-from quiz_app.validation import QuizValidator  # noqa: E402
+from quiz_validation import Invalid, QuizValidator  # noqa: E402
 
 BASE = os.environ.get("QUIZ_BASE", "https://akshayprabhakant.com")
 CACHE = os.path.expanduser("~/.quiz/session.json")

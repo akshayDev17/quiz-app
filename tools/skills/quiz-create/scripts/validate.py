@@ -1,25 +1,24 @@
 #!/usr/bin/env python3
-"""Validate a quiz-set JSON against the app's own validator — no network.
+"""Validate a quiz-set JSON against the app's schema — no network.
 
-Single source of truth: imports backend/quiz_app/validation.py, the same module
-the server runs on upload, so a file that passes here cannot fail validation there.
+Uses quiz_validation.py, a self-contained copy of the backend validator, so a
+file that passes here cannot fail validation on upload.
 """
 import json
 import sys
 from pathlib import Path
 
-def _repo_root() -> Path:
-    """quiz-app/, found by walking up to backend/quiz_app/validation.py."""
+def _plugin_root() -> Path:
+    """The quiz-tools plugin root, found by walking up to quiz_validation.py."""
     for parent in Path(__file__).resolve().parents:
-        if (parent / "backend" / "quiz_app" / "validation.py").exists():
+        if (parent / "quiz_validation.py").exists():
             return parent
-    raise SystemExit("could not locate quiz-app (backend/quiz_app/validation.py)")
+    raise SystemExit("could not locate the quiz-tools plugin root (quiz_validation.py)")
 
 
-sys.path.insert(0, str(_repo_root() / "backend"))
+sys.path.insert(0, str(_plugin_root()))
 
-from quiz_app.errors import Invalid  # noqa: E402
-from quiz_app.validation import QuizValidator  # noqa: E402
+from quiz_validation import Invalid, QuizValidator  # noqa: E402
 
 
 def main() -> None:
