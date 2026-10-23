@@ -173,3 +173,56 @@ test('flush with nothing pending resolves at once', async () => {
   assert.equal(q.state(), 'idle');
   assert.deepEqual(calls, []);
 });
+
+for (const status of [409, 404, 422]) {
+  test(`${status} is terminal: not retried, entry dropped, state error`, async () => {
+    const { calls, save } = recorder(Infinity, new ApiError(status, `http ${status}`));
+    const q = new SaveQueue(save);
+    q.set(1, [4]);
+    mock.timers.tick(400);
+    await drain();
+    assert.equal(q.state(), 'error');
+    assert.ok(q.lastError instanceof ApiError && q.lastError.status === status);
+    mock.timers.tick(60_000);
+    await drain();
+    assert.equal(calls.length, 1);
+  });
+}
+
+test('5xx is retried with backoff', async () => {
+  const { calls, save } = recorder(1, new ApiError(503, 'unavailable'));
+  const q = new SaveQueue(save);
+  q.set(1, [4]);
+  mock.timers.tick(400);
+  await drain();
+  assert.equal(q.state(), 'error');
+  mock.timers.tick(1000);
+  await drain();
+  assert.equal(calls.length, 2);
+  assert.equal(q.state(), 'saved');
+});
+
+test('flush with a terminal failure settles without sending it again', async () => {
+  const { calls, save } = recorder(1, new ApiError(409, 'attempt finished'));
+  const q = new SaveQueue(save);
+  q.set(1, [4]);
+  q.set(2, [5]);
+  await q.flush(); // q1 fails terminally (dropped), q2 saves; flush resolves
+  assert.deepEqual(calls, [[1, [4]], [2, [5]]]);
+  assert.equal(q.state(), 'error');
+  await q.flush(); // nothing left to send
+  assert.equal(calls.length, 2);
+});
+
+test('a new answer clears that question\'s terminal failure', async () => {
+  const { save } = recorder(1, new ApiError(422, 'option is not in this question'));
+  const q = new SaveQueue(save);
+  q.set(1, [99]);
+  mock.timers.tick(400);
+  await drain();
+  assert.equal(q.state(), 'error');
+  q.set(1, [4]);
+  mock.timers.tick(400);
+  await drain();
+  assert.equal(q.state(), 'saved');
+});

@@ -13,7 +13,7 @@ import {
 } from '../../lib/api';
 import { clockOffset, TIMES_UP_OVERLAY_MS } from '../../lib/countdown';
 import { letter } from '../../lib/letters';
-import { SaveQueue, type SaveState } from '../../lib/saveQueue';
+import { isTerminal, SaveQueue, type SaveState } from '../../lib/saveQueue';
 import { clearReauthFlag } from '../../lib/session';
 import type { AttemptSession, Me } from '../../lib/types';
 import ConfirmDialog from '../components/ConfirmDialog';
@@ -47,6 +47,10 @@ function Play() {
   const [saveState, setSaveState] = useState<SaveState>('idle');
   /** "Saved" is dropped on moving to another question (as in the sketch); saving and errors stay. */
   const [savedHidden, setSavedHidden] = useState(false);
+  /** The save failure is terminal (dropped, not retrying) rather than waiting to retry. */
+  const [saveRejected, setSaveRejected] = useState(false);
+  /** A rejected answer (e.g. 422) — shown in a banner while the quiz stays usable. */
+  const [saveNotice, setSaveNotice] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   /** Inputs are locked while submitting and for good once time is up. */
   const [locked, setLocked] = useState(false);
@@ -62,16 +66,40 @@ function Play() {
   useEffect(() => {
     const queue = new SaveQueue((qid, ids) => saveAnswer(attemptId, qid, ids));
     queueRef.current = queue;
+    /** The failure already acted on; onChange fires on every change, the reaction once per failure. */
+    let handled: unknown = null;
     const off = queue.onChange(() => {
-      setSaveState(queue.state());
+      const state = queue.state();
+      const err = queue.lastError;
+      setSaveState(state);
+      setSaveRejected(state === 'error' && isTerminal(err));
       setSavedHidden(false);
-      if (queue.state() === 'error' && isSessionExpired(queue.lastError)) setSignInExpired(true);
+      if (state !== 'error') setSaveNotice(null);
+      if (state !== 'error' || err === handled) return;
+      handled = err;
+      if (isSessionExpired(err)) {
+        setSignInExpired(true);
+      } else if (err instanceof ApiError && (err.status === 409 || err.status === 404)) {
+        // Most likely finished elsewhere (another tab, or expired): if so, show the results.
+        getAttempt(attemptId).then(
+          (s) => {
+            if (s.attempt.status !== 'in_progress') router.replace(resultsUrl(s.attempt.id));
+            else setSaveNotice(`Answer not saved: ${err.message}`);
+          },
+          (e) => {
+            if (isSessionExpired(e)) setSignInExpired(true);
+            else setSaveNotice(`Answer not saved: ${err.message}`);
+          },
+        );
+      } else if (isTerminal(err)) {
+        setSaveNotice(`Answer not saved: ${message(err)}`);
+      }
     });
     return () => {
       off();
       queue.dispose();
     };
-  }, [attemptId]);
+  }, [attemptId, router]);
 
   useEffect(() => {
     if (!attemptId) {
@@ -117,14 +145,15 @@ function Play() {
    *
    * After a timeout, a failed save does not hold up the submit: the server keeps what reached it
    * and the deadline has passed anyway. On a submit by choice, a failed save stops the submit so
-   * no answer is silently dropped — except a 409, which means the attempt is already finished.
+   * no answer is silently dropped. (A terminally rejected save, e.g. 409, never makes flush reject:
+   * the submit itself then reports the attempt's real state.)
    */
   async function finishOnServer(afterTimeout: boolean) {
     const queue = queueRef.current;
     if (queue) {
       await queue.flush().catch((err: unknown) => {
         if (isSessionExpired(err)) throw err;
-        if (afterTimeout || (err instanceof ApiError && err.status === 409)) return;
+        if (afterTimeout) return;
         throw err;
       });
     }
@@ -202,7 +231,8 @@ function Play() {
   });
 
   const unanswered = questions.flatMap((_, i) => (answered[i] ? [] : [`Q${i + 1}`]));
-  const saveLabel = saveState === 'saved' && savedHidden ? '' : SAVE_LABEL[saveState];
+  const saveLabel =
+    saveState === 'saved' && savedHidden ? '' : saveRejected ? 'Not saved' : SAVE_LABEL[saveState];
 
   return (
     <div className="frame">
@@ -221,6 +251,7 @@ function Play() {
               Submit
             </button>
           </div>
+          {saveNotice && <div className="banner">{saveNotice}</div>}
           {submitError && (
             <div className="banner">
               {submitError}{' '}

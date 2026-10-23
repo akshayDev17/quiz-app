@@ -1,4 +1,4 @@
-import { isSessionExpired } from './api.ts';
+import { ApiError, isSessionExpired } from './api.ts';
 import { AUTOSAVE_DEBOUNCE_MS } from './countdown.ts';
 
 export type SaveState = 'idle' | 'saving' | 'saved' | 'error';
@@ -6,6 +6,19 @@ export type SaveFn = (qid: number, ids: number[]) => Promise<void>;
 
 /** Retry delays after the 1st, 2nd, 3rd… consecutive failure; the last one repeats. */
 const BACKOFF_MS = [1000, 2000, 4000, 8000];
+
+/** Network errors and 5xx may pass; they are retried. */
+export function isRetryable(error: unknown): boolean {
+  return !(error instanceof ApiError) || error.status >= 500;
+}
+
+/**
+ * A rejection retrying cannot fix (409 attempt finished, 404, 422, any other 4xx but 401): the
+ * entry is dropped. A 401 is not terminal: the value is kept for after the reader signs in again.
+ */
+export function isTerminal(error: unknown): boolean {
+  return !isRetryable(error) && !isSessionExpired(error);
+}
 
 /** One question's latest unsaved value and where it is in its save. */
 type Entry = {
@@ -24,8 +37,11 @@ type Entry = {
  * retry with backoff until the latest value is on the server.
  *
  * An entry exists while its question has a value the server has not confirmed. A newer `set`
- * replaces the value and supersedes a waiting retry. A save that fails because the sign-in
- * expired is not retried: retrying cannot succeed until the reader signs in again.
+ * replaces the value and supersedes a waiting retry. Only network errors and 5xx are retried.
+ * A save that fails because the sign-in expired keeps its entry but is not retried: retrying
+ * cannot succeed until the reader signs in again. Any other 4xx is terminal (`isTerminal`): the
+ * entry is dropped and its question reports 'error' until it is answered again; `flush` does not
+ * wait on or reject for it (the submit that follows gets the server's verdict itself).
  */
 export class SaveQueue {
   /** The error from the most recent failed save; read it when `state()` is `'error'`. */
@@ -34,6 +50,8 @@ export class SaveQueue {
   private readonly save: SaveFn;
   private readonly debounceMs: number;
   private readonly entries = new Map<number, Entry>();
+  /** Questions whose last save was rejected terminally, until they are answered again. */
+  private readonly rejected = new Set<number>();
   private readonly listeners = new Set<() => void>();
   private savedAny = false;
 
@@ -51,6 +69,7 @@ export class SaveQueue {
     entry.failures = 0;
     entry.error = null;
     this.entries.set(qid, entry);
+    this.rejected.delete(qid);
     this.schedule(qid, entry, this.debounceMs);
     this.notify();
   }
@@ -66,6 +85,7 @@ export class SaveQueue {
   }
 
   state(): SaveState {
+    if (this.rejected.size > 0) return 'error';
     if (this.entries.size === 0) return this.savedAny ? 'saved' : 'idle';
     for (const e of this.entries.values()) if (e.error !== null) return 'error';
     return 'saving';
@@ -132,11 +152,15 @@ export class SaveQueue {
         entry.inFlight = null;
         if (entry.version !== version) {
           if (entry.timer === null) this.send(qid, entry);
+        } else if (isTerminal(err)) {
+          this.entries.delete(qid);
+          this.rejected.add(qid);
+          this.lastError = err;
         } else {
           entry.failures += 1;
           entry.error = err;
           this.lastError = err;
-          if (!isSessionExpired(err)) {
+          if (isRetryable(err)) {
             this.schedule(qid, entry, BACKOFF_MS[Math.min(entry.failures, BACKOFF_MS.length) - 1]);
           }
         }
