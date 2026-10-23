@@ -45,6 +45,18 @@ export type History = { attempts: { id: string; set_id: number; name: string; to
 export type AdminSets = { sets: { id: number; topic: string; name: string; status: 'draft' | 'published' | 'archived';
   question_count: number; attempt_count: number }[] };
 
+export type AdminSetDetail = {
+  id: number; name: string; topic: string; subtopic: string | null;
+  status: 'draft' | 'published' | 'archived'; seq: number; question_count: number;
+  difficulty: 'easy' | 'medium' | 'hard' | null; style: 'standard' | 'scenario';
+  title: string | null; description: string | null;
+  time_limit_minutes: number | null; scoring_policy: 'all_or_nothing' | 'partial';
+  max_attempts: number | null;
+  shuffle_questions: boolean; shuffle_options: boolean; reveal_answers: boolean;
+  questions: { prompt: string; explanation: string | null; points: number;
+               options: { body: string; correct: boolean }[] }[];
+};
+
 // Small route responses the contract table gives inline.
 export type SubmitResult = { attempt_id: string; status: AttemptSession['attempt']['status'] };
 export type ImportResult = { id: number; name: string };

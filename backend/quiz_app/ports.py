@@ -14,7 +14,7 @@ from .models import (
     ReviewQuestion,
     User,
 )
-from .validation import SetImport
+from .validation import QuestionImport, SetImport
 
 
 class UserRepository(ABC):
@@ -73,6 +73,15 @@ class QuizAuthoring(ABC):
     @abstractmethod
     async def delete(self, set_id: int) -> None:
         """Hard-delete a set (questions/options cascade). Raises Conflict if it has attempts."""
+
+    @abstractmethod
+    async def update(self, set_id: int, imp: SetImport, now_ms: int) -> None:
+        """Replace the set's mutable props and its questions/options, in place. Raises
+        Conflict when the set has attempts (replacing questions would orphan them)."""
+
+    @abstractmethod
+    async def questions(self, set_id: int) -> list[QuestionImport]:
+        """The set's questions with correctness, for the editor."""
 
 
 class AttemptRepository(ABC):

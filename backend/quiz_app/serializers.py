@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from .models import Attempt, QuestionResult, QuizSetInfo, User
 from .services.attempts import AttemptSession, ResultsView
+from .validation import QuestionImport
 
 
 def me(user: User) -> dict:
@@ -179,4 +180,36 @@ def admin_sets(rows: list[tuple[QuizSetInfo, int]]) -> dict:
             }
             for info, attempt_count in rows
         ]
+    }
+
+
+def admin_set_detail(info: QuizSetInfo, questions: list[QuestionImport]) -> dict:
+    """Everything the editor needs: set props plus questions with their answer key."""
+    return {
+        "id": info.id,
+        "name": info.name,
+        "topic": info.topic_name,
+        "subtopic": info.subtopic_name,
+        "status": info.status,
+        "seq": info.seq,
+        "question_count": info.question_count,
+        "difficulty": info.difficulty,
+        "style": info.style,
+        "title": info.title,
+        "description": info.description,
+        "time_limit_minutes": info.time_limit_minutes,
+        "scoring_policy": info.scoring_policy,
+        "max_attempts": info.max_attempts,
+        "shuffle_questions": info.shuffle_questions,
+        "shuffle_options": info.shuffle_options,
+        "reveal_answers": info.reveal_answers,
+        "questions": [
+            {
+                "prompt": q.prompt,
+                "explanation": q.explanation,
+                "points": q.points,
+                "options": [{"body": body, "correct": correct} for body, correct in q.options],
+            }
+            for q in questions
+        ],
     }

@@ -88,6 +88,8 @@ class Api:
                 ("GET", f"/attempts/{aid}/results", self._results),
                 ("GET", "/admin/sets", self._admin_list),
                 ("POST", "/admin/sets", self._admin_import),
+                ("GET", f"/admin/sets/{sid}", self._admin_get_set),
+                ("PUT", f"/admin/sets/{sid}", self._admin_update),
                 ("POST", f"/admin/sets/{sid}/publish", self._admin_publish),
                 ("POST", f"/admin/sets/{sid}/archive", self._admin_archive),
                 ("POST", f"/admin/sets/{sid}/clone", self._admin_clone),
@@ -166,6 +168,14 @@ class Api:
         # The service checks the role before it looks at the payload.
         info = await self._authoring.import_set(user, body)
         return 201, {"id": info.id, "name": info.name}
+
+    async def _admin_get_set(self, user: User, body: object, set_id: str) -> Response:
+        info, questions = await self._authoring.detail(user, int(set_id))
+        return 200, serializers.admin_set_detail(info, questions)
+
+    async def _admin_update(self, user: User, body: object, set_id: str) -> Response:
+        info = await self._authoring.update(user, int(set_id), body)
+        return 200, {"id": info.id, "name": info.name}
 
     async def _admin_publish(self, user: User, body: object, set_id: str) -> Response:
         info = await self._authoring.publish(user, int(set_id))

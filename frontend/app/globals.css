@@ -50,6 +50,7 @@ a { color: inherit; }
 .btn.ghost:hover { background: var(--ink); color: var(--paper); }
 .btn:disabled { opacity: .55; cursor: not-allowed; }
 .btn.ghost:disabled:hover { background: transparent; color: var(--ink); }
+a.btn { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; line-height: 1.1; }
 
 .chip { display: inline-block; font-family: var(--mono); font-size: .6875rem; letter-spacing: .06em;
         padding: 2px 8px; border: 1px solid var(--rule-2); border-radius: 999px; color: var(--muted); }
@@ -70,9 +71,10 @@ a { color: inherit; }
 .subhead::after { content: ""; flex: 1; height: 1px; background: var(--rule); align-self: center; }
 .shead + .subhead { margin-top: 0; }
 .field { display: flex; flex-direction: column; gap: var(--s2); margin: var(--s4) 0 0; }
-.field input { font-family: var(--mono); font-size: .9375rem; color: var(--ink); background: var(--card);
-               border: 1px solid var(--card-line); border-radius: 4px; padding: .7rem .8rem; }
-.field input:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 18%, transparent); }
+.field input, .field textarea, .field select { font-family: var(--mono); font-size: .9375rem; color: var(--ink);
+               background: var(--card); border: 1px solid var(--card-line); border-radius: 4px; padding: .7rem .8rem; }
+.field textarea { resize: vertical; line-height: 1.5; }
+.field input:focus, .field textarea:focus, .field select:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 18%, transparent); }
 .who .uname { font-size: 1rem; }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: var(--s4); list-style: none; }
 .set-card { display: flex; text-decoration: none; flex-direction: column; padding: var(--s4); cursor: pointer; text-align: left; font: inherit; color: inherit; width: 100%; }
@@ -190,4 +192,31 @@ code { font-family: var(--mono); font-size: .85em; background: var(--paper-2); p
 .import-btn:hover { background: var(--accent); border-color: var(--accent); }
 .import-btn:active { transform: scale(.96); }
 .import-btn svg { width: .95rem; height: .95rem; }
+/* admin — in-place set editor */
+.editor-set { padding: var(--s5); }
+.editor-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+               gap: var(--s4); margin-top: var(--s4); }
+.editor-checks { display: flex; flex-wrap: wrap; gap: var(--s2) var(--s5); margin-top: var(--s5); }
+.editor-checks label { display: flex; align-items: center; gap: var(--s2); font-size: .9375rem; cursor: pointer; }
+.editor-checks input { margin: 0; accent-color: var(--accent); }
+.editor-q { padding: var(--s5); margin-bottom: var(--s4); }
+.editor-q-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s4); }
+.opt-row { display: flex; align-items: center; gap: var(--s2); margin-bottom: var(--s2); }
+.opt-row input[type="checkbox"] { flex: none; margin: 0; width: 1rem; height: 1rem; accent-color: var(--accent); cursor: pointer; }
+.opt-row input:not([type="checkbox"]) { flex: 1; min-width: 0; font-family: var(--mono); font-size: .9375rem; color: var(--ink);
+               background: var(--card); border: 1px solid var(--card-line); border-radius: 4px; padding: .5rem .7rem; }
+.opt-row input:not([type="checkbox"]):focus { border-color: var(--accent); outline: none;
+               box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 18%, transparent); }
+.opt-remove { flex: none; display: inline-flex; align-items: center; justify-content: center;
+              width: 2.1rem; height: 2.1rem; background: transparent; color: var(--muted);
+              border: 1px solid transparent; border-radius: 4px; cursor: pointer;
+              transition: color .15s var(--ease), border-color .15s var(--ease); }
+.opt-remove svg { width: .95rem; height: .95rem; }
+.opt-remove:hover { color: var(--danger); border-color: var(--danger); }
+.opt-remove:active { transform: scale(.96); }
+.opt-remove:disabled { opacity: .35; cursor: not-allowed; }
+.opt-remove:disabled:hover { color: var(--muted); border-color: transparent; }
+.linkbtn.danger:hover { color: var(--danger); }
+.editor-actions { display: flex; align-items: center; gap: var(--s3); margin: var(--s6) 0 var(--s7); }
+
 @media (prefers-reduced-motion: reduce) { .card, .opt { transition: none; } .set-card:hover { transform: none; } .timer.red { animation: none; } }

@@ -9,7 +9,7 @@ from ..clock import Clock
 from ..errors import Forbidden, NotFound
 from ..models import QuizSetInfo, User
 from ..ports import QuizAuthoring
-from ..validation import QuizValidator
+from ..validation import QuestionImport, QuizValidator
 
 
 def _require_admin(user: User) -> None:
@@ -44,6 +44,18 @@ class AuthoringService:
         _require_admin(user)
         await self._existing(set_id)
         await self._repo.delete(set_id)
+
+    async def update(self, user: User, set_id: int, payload: dict) -> QuizSetInfo:
+        _require_admin(user)
+        await self._existing(set_id)
+        imp = QuizValidator.parse_update(payload)
+        await self._repo.update(set_id, imp, self._clock.now_ms())
+        return await self._existing(set_id)
+
+    async def detail(self, user: User, set_id: int) -> tuple[QuizSetInfo, list[QuestionImport]]:
+        _require_admin(user)
+        info = await self._existing(set_id)
+        return info, await self._repo.questions(set_id)
 
     async def list_all(self, user: User) -> list[tuple[QuizSetInfo, int]]:
         _require_admin(user)

@@ -1,7 +1,8 @@
 """``QuizValidator``: a JSON import payload (spec §4) becomes a ``SetImport``.
 
 ``parse`` collects every problem and raises one ``Invalid`` joining them with
-``"; "``, so an author fixes the whole file in one pass.
+``"; "``, so an author fixes the whole file in one pass. ``parse_update`` validates
+an in-place edit: the set already owns its topic, so only the body is checked.
 """
 
 from __future__ import annotations
@@ -50,68 +51,82 @@ def _is_number(value) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
+def _parse_fields(payload: dict, errors: list[str]) -> dict:
+    """Everything except topic/subtopic — shared by import and edit."""
+    difficulty = payload.get("difficulty")
+    if difficulty is not None and difficulty not in DIFFICULTIES:
+        errors.append(f"difficulty must be one of {', '.join(DIFFICULTIES)}")
+    style = payload.get("style", "standard")
+    if style not in STYLES:
+        errors.append(f"style must be one of {', '.join(STYLES)}")
+    policy = payload.get("scoring_policy", "all_or_nothing")
+    if not (isinstance(policy, str) and policy in ScoringPolicyFactory.names()):
+        errors.append(f"scoring_policy must be one of {', '.join(sorted(ScoringPolicyFactory.names()))}")
+
+    time_limit = payload.get("time_limit_minutes")
+    if time_limit is not None and not (_is_int(time_limit) and time_limit > 0):
+        errors.append("time_limit_minutes must be a positive whole number or null")
+    max_attempts = payload.get("max_attempts")
+    if max_attempts is not None and not (_is_int(max_attempts) and max_attempts > 0):
+        errors.append("max_attempts must be a positive whole number or null")
+
+    flags = {}
+    for key, default in (("shuffle_questions", False), ("shuffle_options", False), ("reveal_answers", True)):
+        value = payload.get(key, default)
+        if not isinstance(value, bool):
+            errors.append(f"{key} must be true or false")
+        flags[key] = value
+
+    title = _optional_text(payload.get("title"), "title", errors)
+    description = _optional_text(payload.get("description"), "description", errors)
+
+    raw_questions = payload.get("questions")
+    questions: list[QuestionImport] = []
+    if not isinstance(raw_questions, list) or not raw_questions:
+        errors.append("a set needs at least 1 question")
+    else:
+        for number, raw in enumerate(raw_questions, start=1):
+            question = _parse_question(raw, number, errors)
+            if question is not None:
+                questions.append(question)
+
+    return {
+        "difficulty": difficulty,
+        "style": style,
+        "title": title,
+        "description": description,
+        "time_limit_minutes": time_limit,
+        "scoring_policy": policy,
+        "max_attempts": max_attempts,
+        "questions": tuple(questions),
+        **flags,
+    }
+
+
 class QuizValidator:
     @staticmethod
     def parse(payload: dict) -> SetImport:
         if not isinstance(payload, dict):
             raise Invalid("payload must be a JSON object")
         errors: list[str] = []
-
         topic = _parse_named(payload.get("topic"), "topic", errors, required=True)
         subtopic = _parse_named(payload.get("subtopic"), "subtopic", errors, required=False)
-
-        difficulty = payload.get("difficulty")
-        if difficulty is not None and difficulty not in DIFFICULTIES:
-            errors.append(f"difficulty must be one of {', '.join(DIFFICULTIES)}")
-        style = payload.get("style", "standard")
-        if style not in STYLES:
-            errors.append(f"style must be one of {', '.join(STYLES)}")
-        policy = payload.get("scoring_policy", "all_or_nothing")
-        if not (isinstance(policy, str) and policy in ScoringPolicyFactory.names()):
-            errors.append(f"scoring_policy must be one of {', '.join(sorted(ScoringPolicyFactory.names()))}")
-
-        time_limit = payload.get("time_limit_minutes")
-        if time_limit is not None and not (_is_int(time_limit) and time_limit > 0):
-            errors.append("time_limit_minutes must be a positive whole number or null")
-        max_attempts = payload.get("max_attempts")
-        if max_attempts is not None and not (_is_int(max_attempts) and max_attempts > 0):
-            errors.append("max_attempts must be a positive whole number or null")
-
-        flags = {}
-        for key, default in (("shuffle_questions", False), ("shuffle_options", False), ("reveal_answers", True)):
-            value = payload.get(key, default)
-            if not isinstance(value, bool):
-                errors.append(f"{key} must be true or false")
-            flags[key] = value
-
-        title = _optional_text(payload.get("title"), "title", errors)
-        description = _optional_text(payload.get("description"), "description", errors)
-
-        raw_questions = payload.get("questions")
-        questions: list[QuestionImport] = []
-        if not isinstance(raw_questions, list) or not raw_questions:
-            errors.append("a set needs at least 1 question")
-        else:
-            for number, raw in enumerate(raw_questions, start=1):
-                question = _parse_question(raw, number, errors)
-                if question is not None:
-                    questions.append(question)
-
+        fields = _parse_fields(payload, errors)
         if errors:
             raise Invalid("; ".join(errors))
-        return SetImport(
-            topic=topic,
-            subtopic=subtopic,
-            difficulty=difficulty,
-            style=style,
-            title=title,
-            description=description,
-            time_limit_minutes=time_limit,
-            scoring_policy=policy,
-            max_attempts=max_attempts,
-            questions=tuple(questions),
-            **flags,
-        )
+        return SetImport(topic=topic, subtopic=subtopic, **fields)
+
+    @staticmethod
+    def parse_update(payload: dict) -> SetImport:
+        """Validate an in-place edit. The set keeps its topic, so the payload has no
+        topic/subtopic; the returned ``SetImport`` carries an empty topic."""
+        if not isinstance(payload, dict):
+            raise Invalid("payload must be a JSON object")
+        errors: list[str] = []
+        fields = _parse_fields(payload, errors)
+        if errors:
+            raise Invalid("; ".join(errors))
+        return SetImport(topic=("", ""), subtopic=None, **fields)
 
 
 def _optional_text(value, label: str, errors: list[str]) -> str | None:

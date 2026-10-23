@@ -6,7 +6,7 @@ from ..clock import Clock
 from ..errors import Conflict, NotFound
 from ..models import QuizSetInfo
 from ..ports import QuizAuthoring
-from ..validation import SetImport
+from ..validation import QuestionImport, SetImport
 from ._rows import QUIZ_SET_COLUMNS, QUIZ_SET_FROM, QUIZ_SET_SELECT, quiz_set_from_row
 
 _NEXT_SEQ = (
@@ -53,23 +53,26 @@ class D1QuizAuthoring(QuizAuthoring):
         ).first())["id"]
 
         try:
-            for position, question in enumerate(imp.questions):
-                question_id = (await self._db.prepare(
-                    "INSERT INTO questions (set_id, position, prompt, explanation, points) "
-                    "VALUES (?, ?, ?, ?, ?) RETURNING id"
-                ).bind(set_id, position, question.prompt, question.explanation, question.points).first())["id"]
-                await self._db.batch([
-                    self._db.prepare(
-                        "INSERT INTO options (question_id, position, body, is_correct) VALUES (?, ?, ?, ?)"
-                    ).bind(question_id, index, body, int(correct))
-                    for index, (body, correct) in enumerate(question.options)
-                ])
+            await self._insert_questions(set_id, imp.questions)
         except BaseException:
             # Questions are inserted one by one (we need each id), so a failure part-way
             # would leave a half-built draft. Remove it; questions and options cascade.
             await self._db.prepare("DELETE FROM quiz_sets WHERE id = ?").bind(set_id).run()
             raise
         return set_id
+
+    async def _insert_questions(self, set_id: int, questions) -> None:
+        for position, question in enumerate(questions):
+            question_id = (await self._db.prepare(
+                "INSERT INTO questions (set_id, position, prompt, explanation, points) "
+                "VALUES (?, ?, ?, ?, ?) RETURNING id"
+            ).bind(set_id, position, question.prompt, question.explanation, question.points).first())["id"]
+            await self._db.batch([
+                self._db.prepare(
+                    "INSERT INTO options (question_id, position, body, is_correct) VALUES (?, ?, ?, ?)"
+                ).bind(question_id, index, body, int(correct))
+                for index, (body, correct) in enumerate(question.options)
+            ])
 
     async def set_status(self, set_id: int, status: str) -> None:
         await self._db.prepare(
@@ -136,3 +139,43 @@ class D1QuizAuthoring(QuizAuthoring):
             raise Conflict("set has attempts — archive it instead of deleting")
         # questions and options cascade; no attempts means nothing else references them.
         await self._db.prepare("DELETE FROM quiz_sets WHERE id = ?").bind(set_id).run()
+
+    async def update(self, set_id: int, imp: SetImport, now_ms: int) -> None:
+        attempts = (await self._db.prepare(
+            "SELECT COUNT(*) AS n FROM attempts WHERE set_id = ?"
+        ).bind(set_id).first())["n"]
+        if attempts:
+            raise Conflict("set has attempts — clone it to edit")
+        await self._db.prepare(
+            "UPDATE quiz_sets SET difficulty = ?, style = ?, title = ?, description = ?, "
+            "time_limit_minutes = ?, scoring_policy = ?, shuffle_questions = ?, shuffle_options = ?, "
+            "reveal_answers = ?, max_attempts = ?, updated_at = ? WHERE id = ?"
+        ).bind(
+            imp.difficulty, imp.style, imp.title, imp.description, imp.time_limit_minutes,
+            imp.scoring_policy, int(imp.shuffle_questions), int(imp.shuffle_options),
+            int(imp.reveal_answers), imp.max_attempts, now_ms, set_id,
+        ).run()
+        # Replace the questions; options cascade. Safe: the set has no attempts.
+        await self._db.prepare("DELETE FROM questions WHERE set_id = ?").bind(set_id).run()
+        await self._insert_questions(set_id, imp.questions)
+
+    async def questions(self, set_id: int) -> list[QuestionImport]:
+        rows = (await self._db.prepare(
+            "SELECT q.id AS question_id, q.prompt, q.explanation, q.points, "
+            "o.body, o.is_correct "
+            "FROM questions q JOIN options o ON o.question_id = q.id "
+            "WHERE q.set_id = ? ORDER BY q.position, o.position"
+        ).bind(set_id).all()).results
+        heads: dict[int, dict] = {}
+        options: dict[int, list[tuple[str, bool]]] = {}
+        for row in rows:
+            qid = row["question_id"]
+            heads.setdefault(qid, {
+                "prompt": row["prompt"], "explanation": row["explanation"], "points": row["points"],
+            })
+            options.setdefault(qid, []).append((row["body"], bool(row["is_correct"])))
+        return [
+            QuestionImport(prompt=head["prompt"], explanation=head["explanation"],
+                           points=head["points"], options=tuple(options[qid]))
+            for qid, head in heads.items()
+        ]

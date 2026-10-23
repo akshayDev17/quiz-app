@@ -1,4 +1,5 @@
 import type {
+  AdminSetDetail,
   AdminSets,
   AttemptSession,
   History,
@@ -126,6 +127,11 @@ export const adminSetStatus = (setId: number, action: 'publish' | 'archive') =>
 export const adminClone = (setId: number) =>
   send<SetStatusResult>('POST', `/admin/sets/${id(setId)}/clone`);
 export const adminDelete = (setId: number) => send<void>('DELETE', `/admin/sets/${id(setId)}`);
+/** The set with its questions and answer key, for the in-place editor. */
+export const getAdminSet = (setId: number) => request<AdminSetDetail>(`/admin/sets/${id(setId)}`);
+/** Replace the set's props and questions in place. */
+export const updateAdminSet = (setId: number, body: unknown) =>
+  send<ImportResult>('PUT', `/admin/sets/${id(setId)}`, body);
 
 /**
  * End the session.

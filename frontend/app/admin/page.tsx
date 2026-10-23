@@ -53,6 +53,11 @@ const Icons = {
       <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><path d="M7 9l5-5 5 5" /><path d="M12 4v12" />
     </svg>
   ),
+  edit: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+    </svg>
+  ),
 };
 
 export default function AdminPage() {
@@ -213,6 +218,9 @@ export default function AdminPage() {
                                 onClick={() => act(() => adminClone(s.id))}>
                           {Icons.clone}
                         </button>
+                        <Link className="iconbtn" href={`/admin/edit?id=${s.id}`} title="Edit" aria-label={`Edit ${s.name}`}>
+                          {Icons.edit}
+                        </Link>
                         <button className="iconbtn danger" disabled={busy} title="Delete forever" aria-label={`Delete ${s.name} forever`}
                                 onClick={() => remove(s.id, s.name)}>
                           {Icons.trash}

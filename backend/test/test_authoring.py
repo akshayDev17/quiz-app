@@ -313,6 +313,55 @@ class DeleteTest(AuthoringCase):
             await self.service.delete(ADMIN, 999)
 
 
+class UpdateTest(AuthoringCase):
+    async def test_detail_returns_questions_with_correctness(self):
+        info = await self.service.import_set(ADMIN, sample_import())
+        detail, questions = await self.service.detail(ADMIN, info.id)
+        self.assertEqual(detail.id, info.id)
+        self.assertEqual(len(questions), 3)
+        self.assertEqual(len(questions[0].options), 4)
+        self.assertEqual(sum(1 for _, correct in questions[0].options if correct), 3)
+
+    async def test_update_replaces_props_and_questions(self):
+        info = await self.service.import_set(ADMIN, sample_import())
+        edited = sample_import(
+            difficulty="hard",
+            time_limit_minutes=5,
+            questions=[{"prompt": "New prompt", "options": [
+                {"body": "a", "correct": True}, {"body": "b", "correct": False},
+            ]}],
+        )
+        updated = await self.service.update(ADMIN, info.id, edited)
+        self.assertEqual(updated.difficulty, "hard")
+        self.assertEqual(updated.time_limit_minutes, 5)
+        self.assertEqual(updated.question_count, 1)
+        _, questions = await self.service.detail(ADMIN, info.id)
+        self.assertEqual(questions[0].prompt, "New prompt")
+        self.assertEqual(len(questions[0].options), 2)
+
+    async def test_update_refuses_a_set_with_attempts(self):
+        info = await self.service.import_set(ADMIN, sample_import())
+        await self.users.get_or_create(SOLVER.email)
+        await self.db.prepare(
+            "INSERT INTO attempts (id, set_id, user_email, started_at) VALUES ('att-1', ?, ?, ?)"
+        ).bind(info.id, SOLVER.email, START).run()
+        with self.assertRaises(Conflict):
+            await self.service.update(ADMIN, info.id, sample_import())
+
+    async def test_update_validates_the_payload(self):
+        info = await self.service.import_set(ADMIN, sample_import())
+        bad = sample_import(questions=[{"prompt": "Only one option", "options": [
+            {"body": "a", "correct": True},
+        ]}])
+        with self.assertRaises(Invalid):
+            await self.service.update(ADMIN, info.id, bad)
+
+    async def test_solver_cannot_update(self):
+        info = await self.service.import_set(ADMIN, sample_import())
+        with self.assertRaises(Forbidden):
+            await self.service.update(SOLVER, info.id, sample_import())
+
+
 class UserServiceTest(AuthoringCase):
     def service_for(self, admins=("admin@example.com",)):
         return UserService(self.users, frozenset(admins))
