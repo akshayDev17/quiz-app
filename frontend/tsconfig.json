@@ -11,16 +11,17 @@
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "isolatedModules": true,
+    // Lets lib modules that tests import at runtime (saveQueue.ts) name their own imports with
+    // `.ts`, which node's strip-types ESM loader needs; the bundler resolves them either way.
+    "allowImportingTsExtensions": true,
     "jsx": "preserve",
     "incremental": true,
     "plugins": [{ "name": "next" }],
     "paths": { "@/*": ["./*"] }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts", ".next-build/types/**/*.ts"],
-  // Test files are excluded from the app typecheck because they run under
-  // `node --test --experimental-strip-types`, which resolves ESM and therefore
-  // needs the explicit `.ts` extension on imports — something tsc rejects
-  // (TS5097). They are still checked, by being run: `npm run test:lib` fails on
-  // a type error.
+  // Test files are excluded from the app typecheck: they run under
+  // `node --test --experimental-strip-types` (hence the explicit `.ts` extension
+  // on their imports) and are exercised by `npm run test:lib`, not the build.
   "exclude": ["node_modules", "**/*.test.ts"]
 }

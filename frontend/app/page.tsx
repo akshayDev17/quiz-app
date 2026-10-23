@@ -3,26 +3,31 @@
 import { Fragment, useEffect, useState } from 'react';
 import { getMe, getTopics, isSessionExpired, signOut } from '../lib/api';
 import { pluralize, subtopicGroupLabel } from '../lib/names';
+import { clearReauthFlag, handleSessionExpired } from '../lib/session';
 import type { Me, TopicsResponse } from '../lib/types';
 import Masthead from './components/Masthead';
 import NamePrompt from './components/NamePrompt';
 import SetCard from './components/SetCard';
+import SignInAgain from './components/SignInAgain';
 
 export default function Home() {
   const [me, setMe] = useState<Me | null>(null);
   const [topics, setTopics] = useState<TopicsResponse['topics'] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [expired, setExpired] = useState(false);
 
   useEffect(() => {
     Promise.all([getMe(), getTopics()]).then(
       ([m, t]) => {
+        clearReauthFlag();
         setMe(m);
         setTopics(t.topics);
       },
       (err) => {
-        // Access re-authenticates on navigation, so a reload is the way back in.
-        if (isSessionExpired(err)) window.location.reload();
-        else setError(err instanceof Error ? err.message : 'Something went wrong');
+        if (isSessionExpired(err)) {
+          setExpired(true);
+          handleSessionExpired();
+        } else setError(err instanceof Error ? err.message : 'Something went wrong');
       },
     );
   }, []);
@@ -30,8 +35,9 @@ export default function Home() {
   return (
     <div className="frame">
       <Masthead me={me} onSignOut={signOut} />
+      {expired && <SignInAgain />}
       {error && <div className="banner">{error}</div>}
-      {!error && !topics && <p className="mc">Loading…</p>}
+      {!error && !expired && !topics && <p className="mc">Loading…</p>}
       {topics && topics.length === 0 && <p className="mc">No quizzes yet</p>}
       {topics?.map((topic, i) => (
         <section key={topic.id}>

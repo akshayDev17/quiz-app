@@ -6,7 +6,9 @@ import { Suspense, useEffect, useState } from 'react';
 import { getMe, getSet, isSessionExpired, signOut, startAttempt } from '../../lib/api';
 import { pluralize } from '../../lib/names';
 import type { Me, SetIntro } from '../../lib/types';
+import { clearReauthFlag, handleSessionExpired } from '../../lib/session';
 import Masthead from '../components/Masthead';
+import SignInAgain from '../components/SignInAgain';
 
 function Intro() {
   const router = useRouter();
@@ -16,11 +18,13 @@ function Intro() {
   const [intro, setIntro] = useState<SetIntro | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
+  const [expired, setExpired] = useState(false);
 
   function fail(err: unknown) {
-    // Access re-authenticates on navigation, so a reload is the way back in.
-    if (isSessionExpired(err)) window.location.reload();
-    else setError(err instanceof Error ? err.message : 'Something went wrong');
+    if (isSessionExpired(err)) {
+      setExpired(true);
+      handleSessionExpired();
+    } else setError(err instanceof Error ? err.message : 'Something went wrong');
   }
 
   useEffect(() => {
@@ -29,6 +33,7 @@ function Intro() {
       return;
     }
     Promise.all([getMe(), getSet(setId)]).then(([m, s]) => {
+      clearReauthFlag();
       setMe(m);
       setIntro(s);
     }, fail);
@@ -56,8 +61,9 @@ function Intro() {
       <p style={{ marginBottom: 'var(--s4)' }}>
         <Link className="linkbtn" href="/">← All quizzes</Link>
       </p>
+      {expired && <SignInAgain />}
       {error && <div className="banner">{error}</div>}
-      {!error && !intro && <p className="mc">Loading…</p>}
+      {!error && !expired && !intro && <p className="mc">Loading…</p>}
       {intro && (
         <div className="card intro">
           <div className="kicker">{intro.topic + (intro.subtopic ? ` › ${intro.subtopic}` : '')}</div>
