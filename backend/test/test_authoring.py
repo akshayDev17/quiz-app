@@ -187,6 +187,12 @@ class ValidatorTest(unittest.TestCase):
             dict(BASE, max_attempts=0),
             dict(BASE, shuffle_options="yes"),
             dict(BASE, style="quiz"),
+            dict(BASE, scoring_policy=[]),
+            dict(BASE, scoring_policy={}),
+            dict(BASE, difficulty=[]),
+            dict(BASE, style={}),
+            dict(BASE, topic={"slug": [], "name": {}}),
+            dict(BASE, subtopic=[]),
             q(points=0),
             q(options=[("a", True), ("", False)]),
         ]:

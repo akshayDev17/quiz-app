@@ -67,7 +67,7 @@ class QuizValidator:
         if style not in STYLES:
             errors.append(f"style must be one of {', '.join(STYLES)}")
         policy = payload.get("scoring_policy", "all_or_nothing")
-        if policy not in ScoringPolicyFactory.names():
+        if not (isinstance(policy, str) and policy in ScoringPolicyFactory.names()):
             errors.append(f"scoring_policy must be one of {', '.join(sorted(ScoringPolicyFactory.names()))}")
 
         time_limit = payload.get("time_limit_minutes")
