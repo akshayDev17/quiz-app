@@ -156,4 +156,11 @@ code { font-family: var(--mono); font-size: .85em; background: var(--paper-2); p
 .expl { font-size: .9375rem; color: var(--muted); margin-top: var(--s3); padding-top: var(--s3); border-top: 1px solid var(--rule); }
 .banner { font-family: var(--mono); font-size: .75rem; letter-spacing: .06em; text-transform: uppercase; color: var(--danger);
           border-left: 2px solid var(--danger); padding: var(--s1) var(--s3); margin-bottom: var(--s4); }
+/* tables (history, admin): hairline rules, mono headers */
+.table { width: 100%; border-collapse: collapse; font-size: 1rem; }
+.table th { text-align: left; font-weight: 400; padding: var(--s2) var(--s3); border-bottom: 1px solid var(--rule-2); }
+.table td { padding: var(--s3); border-bottom: 1px solid var(--rule); vertical-align: baseline; }
+.table .num { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.table th.num { font-family: var(--mono); }
+.table td .btn { padding: .35rem .7rem; font-size: .75rem; margin-right: var(--s2); }
 @media (prefers-reduced-motion: reduce) { .card, .opt { transition: none; } .set-card:hover { transform: none; } .timer.red { animation: none; } }
