@@ -7,7 +7,7 @@ it is reachable only for a finished attempt.
 
 from __future__ import annotations
 
-from .models import Attempt, QuizSetInfo, User
+from .models import Attempt, QuestionResult, QuizSetInfo, User
 from .services.attempts import AttemptSession, ResultsView
 
 
@@ -111,7 +111,8 @@ def results(view: ResultsView) -> dict:
     reveal = info.reveal_answers
     questions = []
     for q in view.questions:
-        graded = view.results[q.id]
+        # Defensive: a missing result row reads as unanswered rather than failing the page.
+        graded = view.results.get(q.id) or QuestionResult(q.id, 0, False)
         picked = view.selections.get(q.id, frozenset())
         questions.append({
             "id": q.id,

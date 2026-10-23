@@ -22,6 +22,7 @@ from quiz_app.d1.authoring import D1QuizAuthoring  # noqa: E402
 from quiz_app.d1.catalog import D1AnswerKey, D1Catalog  # noqa: E402
 from quiz_app.d1.users import D1UserRepository  # noqa: E402
 from quiz_app.errors import Conflict, Invalid, NotFound  # noqa: E402
+from quiz_app import serializers  # noqa: E402
 from quiz_app.models import GradeResult, QuestionResult, User  # noqa: E402
 from quiz_app.services.attempts import AttemptService  # noqa: E402
 from quiz_app.services.authoring import AuthoringService  # noqa: E402
@@ -137,13 +138,22 @@ class StartTest(AttemptCase):
         self.assertEqual(caught.exception.message, "no attempts left")
         await self.svc.start_or_resume(BOB, sid)  # the limit is per person
 
-    async def test_due_open_attempt_is_expired_and_a_new_one_started(self):
-        aid = await self.start()
+    async def test_due_open_attempt_is_expired_and_returned_not_replaced(self):
+        sid = await self.seed(max_attempts=2)
+        aid = await self.start(set_id=sid)
         self.clock.advance(LIMIT_MS)
-        session = await self.svc.start_or_resume(ALICE, self.sid)
-        self.assertNotEqual(session.attempt.id, aid)
-        self.assertTrue(session.created)
-        self.assertEqual((await self.repo.get(aid)).status, "expired")
+        session = await self.svc.start_or_resume(ALICE, sid)
+        self.assertEqual(session.attempt.id, aid)
+        self.assertEqual(session.attempt.status, "expired")
+        self.assertFalse(session.created)
+        # No new attempt was opened: only the expired one counts against max_attempts.
+        self.assertEqual(await self.repo.count_finished(sid, ALICE), 1)
+        self.assertIsNone(await self.repo.open_for(sid, ALICE))
+        self.assertEqual(len(await self.repo.for_user(ALICE)), 1)
+        # The next start, with no open attempt, opens a fresh one.
+        again = await self.svc.start_or_resume(ALICE, sid)
+        self.assertNotEqual(again.attempt.id, aid)
+        self.assertTrue(again.created)
 
     async def test_unpublished_set_not_found(self):
         draft = await self.seed(publish=False)
@@ -226,6 +236,32 @@ class SubmitTest(AttemptCase):
         self.assertEqual(await self.repo.get(aid), attempt)
         self.assertEqual(await self.count_results(aid), 3)
 
+    async def test_finish_is_atomic_results_and_status_together(self):
+        aid = await self.start()
+        broken = GradeResult(1, 4, (
+            QuestionResult(self.q1.question_id, 1, True),
+            QuestionResult(999_999, 0, False),  # no such question: the FK fails mid-batch
+        ))
+        with self.assertRaises(Exception):
+            await self.repo.finish(aid, "submitted", START + 1, broken)
+        self.assertEqual((await self.repo.get(aid)).status, "in_progress")
+        self.assertEqual(await self.count_results(aid), 0)
+        await self.svc.submit(ALICE, aid)  # still finishable afterwards
+        self.assertEqual(await self.count_results(aid), 3)
+
+    async def test_first_finish_reports_true_and_writes_everything(self):
+        aid = await self.start()
+        graded = GradeResult(1, 4, (
+            QuestionResult(self.q1.question_id, 1, True),
+            QuestionResult(self.q2.question_id, 0, False),
+            QuestionResult(self.q3.question_id, 0, False),
+        ))
+        self.assertTrue(await self.repo.finish(aid, "submitted", START + 1, graded))
+        attempt = await self.repo.get(aid)
+        self.assertEqual((attempt.status, attempt.finished_at, attempt.score, attempt.max_score),
+                         ("submitted", START + 1, 1, 4))
+        self.assertEqual(await self.count_results(aid), 3)
+
     async def test_submit_after_deadline_is_expired_at_deadline(self):
         aid = await self.start()
         self.clock.advance(LIMIT_MS + 5_000)
@@ -286,6 +322,17 @@ class ResultsTest(AttemptCase):
         self.assertEqual(view.results[self.q1.question_id].awarded_points, 1)
         self.assertFalse(view.results[self.q2.question_id].is_correct)
         self.assertEqual(view.results[self.q3.question_id].awarded_points, 0)
+
+    async def test_results_serialize_with_a_missing_result_row(self):
+        aid = await self.start()
+        await self.svc.save(ALICE, aid, self.q1.question_id, list(self.q1.correct))
+        await self.svc.submit(ALICE, aid)
+        await self.db.prepare(
+            "DELETE FROM attempt_results WHERE attempt_id = ? AND question_id = ?"
+        ).bind(aid, self.q1.question_id).run()
+        body = serializers.results(await self.svc.results(ALICE, aid))
+        missing = next(q for q in body["questions"] if q["id"] == self.q1.question_id)
+        self.assertEqual((missing["awarded_points"], missing["is_correct"]), (0, False))
 
     async def test_results_lazily_expire(self):
         aid = await self.start()

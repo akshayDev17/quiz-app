@@ -86,24 +86,35 @@ class D1AttemptRepository(AttemptRepository):
         await self._db.batch(statements)
 
     async def finish(self, attempt_id: str, status: str, finished_at: int, grade: GradeResult) -> bool:
-        # Only the call that flips the row from in_progress writes results, so two
-        # concurrent finishers can't both insert them.
-        finished = await self._db.prepare(
-            "UPDATE attempts SET status = ?, finished_at = ?, score = ?, max_score = ? "
-            "WHERE id = ? AND status = 'in_progress' RETURNING id"
-        ).bind(status, finished_at, grade.score, grade.max_score, attempt_id).first()
-        if finished is None:
+        # One batch (one transaction): the results, then the status flip. Every statement is
+        # guarded on the attempt still being in_progress, so a second finisher writes nothing,
+        # and a failure anywhere leaves the attempt open with no results.
+        #
+        # Did *this* call finish it? D1's run().meta.changes is unproven on Python Workers, so
+        # instead: it was open before the batch, and afterwards the row holds exactly what this
+        # call wrote. (Two finishers writing identical values could both see True; they leave
+        # the same state, and the service does not act on the result.)
+        before = await self.get(attempt_id)
+        if before is None or before.status != "in_progress":
             return False
-        if grade.results:
-            insert = self._db.prepare(
-                "INSERT INTO attempt_results (attempt_id, question_id, awarded_points, is_correct) "
-                "VALUES (?, ?, ?, ?)"
-            )
-            await self._db.batch([
-                insert.bind(attempt_id, r.question_id, r.awarded_points, int(r.is_correct))
-                for r in grade.results
-            ])
-        return True
+        still_open = "EXISTS (SELECT 1 FROM attempts WHERE id = ? AND status = 'in_progress')"
+        insert = self._db.prepare(
+            "INSERT INTO attempt_results (attempt_id, question_id, awarded_points, is_correct) "
+            f"SELECT ?, ?, ?, ? WHERE {still_open}"
+        )
+        statements = [
+            insert.bind(attempt_id, r.question_id, r.awarded_points, int(r.is_correct), attempt_id)
+            for r in grade.results
+        ]
+        statements.append(self._db.prepare(
+            "UPDATE attempts SET status = ?, finished_at = ?, score = ?, max_score = ? "
+            "WHERE id = ? AND status = 'in_progress'"
+        ).bind(status, finished_at, grade.score, grade.max_score, attempt_id))
+        await self._db.batch(statements)
+        after = await self.get(attempt_id)
+        return (after.status, after.finished_at, after.score, after.max_score) == (
+            status, finished_at, grade.score, grade.max_score
+        )
 
     async def results(self, attempt_id: str) -> dict[int, QuestionResult]:
         rows = (await self._db.prepare(

@@ -9,6 +9,7 @@ import json
 import sys
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 BACKEND = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND))
@@ -17,7 +18,7 @@ sys.path.insert(0, str(BACKEND / "test"))
 from helpers import fresh_db, sample_import  # noqa: E402
 
 from quiz_app.api import MALFORMED, decode_body  # noqa: E402
-from quiz_app.auth import Identity, parse_emails  # noqa: E402
+from quiz_app.auth import CloudflareAccessIdentity, Identity, parse_emails  # noqa: E402
 from quiz_app.clock import FakeClock  # noqa: E402
 from quiz_app.composition import build_api  # noqa: E402
 from quiz_app.d1.catalog import D1AnswerKey  # noqa: E402
@@ -120,6 +121,27 @@ class AuthAndMeTest(ApiCase):
         self.assertIsNone(decode_body("  "))
         self.assertEqual(decode_body('{"a": 1}'), {"a": 1})
         self.assertIs(decode_body("{nope"), MALFORMED)
+
+    async def test_cloudflare_access_fails_closed_when_get_identity_raises(self):
+        class _Access:
+            async def getIdentity(self):
+                raise RuntimeError("Access lookup failed")
+
+        provider = CloudflareAccessIdentity(SimpleNamespace(access=_Access()))
+        self.assertIsNone(await provider.identify(None))
+
+    async def test_cloudflare_access_fails_closed_on_an_unreadable_identity(self):
+        class _Identity:
+            @property
+            def email(self):
+                raise RuntimeError("proxy gone")
+
+        class _Access:
+            async def getIdentity(self):
+                return _Identity()
+
+        provider = CloudflareAccessIdentity(SimpleNamespace(access=_Access()))
+        self.assertIsNone(await provider.identify(None))
 
     def test_parse_emails(self):
         self.assertEqual(parse_emails(" A@x.com, ,b@Y.com,"), frozenset({"a@x.com", "b@y.com"}))

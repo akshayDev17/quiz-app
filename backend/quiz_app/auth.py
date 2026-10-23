@@ -118,12 +118,14 @@ class CloudflareAccessIdentity(IdentityProvider):
         self._ctx = ctx
 
     async def identify(self, request) -> Identity | None:
-        access = getattr(self._ctx, "access", None)
-        if access is None:
-            return None
-
-        identity = await access.getIdentity()
-        email = getattr(identity, "email", None)
-        if not email:
-            return None
-        return Identity(email)
+        try:
+            access = getattr(self._ctx, "access", None)
+            if access is None:
+                return None
+            identity = await access.getIdentity()
+            email = getattr(identity, "email", None)
+            if not email:
+                return None
+            return Identity(email)
+        except Exception:
+            return None  # fail closed: any surprise from the binding is a 401, never an identity

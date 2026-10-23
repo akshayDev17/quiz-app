@@ -83,8 +83,10 @@ class AttemptService:
         now = self._clock.now_ms()
         attempt = await self._attempts.open_for(set_id, email)
         if attempt is not None and attempt.is_due(now):
+            # Its time ran out: hand back the now-expired attempt (the caller shows its results)
+            # rather than spend another of max_attempts on a start nobody saw coming.
             await self._expire(attempt, info)
-            attempt = None
+            attempt = await self._attempts.get(attempt.id)
         if attempt is not None:
             return await self._session(attempt, info, created=False)
         if info.max_attempts is not None and await self._attempts.count_finished(set_id, email) >= info.max_attempts:
