@@ -68,8 +68,17 @@ function Play() {
   const timedOut = useRef(false);
 
   useEffect(() => {
-    const queue = new SaveQueue((qid, ids, signal) => saveAnswer(attemptId, qid, ids, signal));
+    const queue = new SaveQueue((qid, ids, signal, keepalive) =>
+      saveAnswer(attemptId, qid, ids, signal, keepalive),
+    );
     queueRef.current = queue;
+    // Leaving or hiding the tab: send pending answers now, as requests that outlive the page.
+    const sendNow = () => queue.flushKeepalive();
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') sendNow();
+    };
+    window.addEventListener('pagehide', sendNow);
+    document.addEventListener('visibilitychange', onVisibility);
     /** The failure already acted on; onChange fires on every change, the reaction once per failure. */
     let handled: unknown = null;
     const off = queue.onChange(() => {
@@ -100,6 +109,8 @@ function Play() {
       }
     });
     return () => {
+      window.removeEventListener('pagehide', sendNow);
+      document.removeEventListener('visibilitychange', onVisibility);
       off();
       queue.dispose();
     };

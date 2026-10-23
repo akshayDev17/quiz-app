@@ -2,8 +2,11 @@ import { ApiError, isSessionExpired } from './api.ts';
 import { AUTOSAVE_DEBOUNCE_MS } from './countdown.ts';
 
 export type SaveState = 'idle' | 'saving' | 'saved' | 'error';
-/** Saves one answer. The queue aborts `signal` when the save outlives `SAVE_TIMEOUT_MS`. */
-export type SaveFn = (qid: number, ids: number[], signal: AbortSignal) => Promise<void>;
+/**
+ * Saves one answer. The queue aborts `signal` when the save outlives `SAVE_TIMEOUT_MS`, except for
+ * a `keepalive` save (sent as the page goes away), which is left to finish on its own.
+ */
+export type SaveFn = (qid: number, ids: number[], signal: AbortSignal, keepalive?: boolean) => Promise<void>;
 
 /** Retry delays after the 1st, 2nd, 3rd… consecutive failure; the last one repeats. */
 const BACKOFF_MS = [1000, 2000, 4000, 8000];
@@ -129,6 +132,15 @@ export class SaveQueue {
     }
   }
 
+  /**
+   * Sends every pending value now as a keepalive request, without waiting: for `pagehide` and the
+   * tab being hidden, when debounce and retry timers may never fire. A value already in flight is
+   * left alone; a newer value behind it follows on the usual path.
+   */
+  flushKeepalive(): void {
+    for (const [qid, entry] of this.entries) this.send(qid, entry, true);
+  }
+
   /** Questions whose latest answer the server has not confirmed (rejected ones excluded). */
   unsaved(): number[] {
     return [...this.entries.keys()];
@@ -196,19 +208,21 @@ export class SaveQueue {
   }
 
   /** Starts a save of the entry's current value, unless one is already in flight (it resends on landing). */
-  private send(qid: number, entry: Entry): void {
+  private send(qid: number, entry: Entry, keepalive = false): void {
     this.clearTimer(entry);
     if (entry.inFlight) return;
     const version = entry.version;
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
+    // A keepalive save is never aborted (it is meant to outlive the page), but the queue still
+    // stops waiting on it after the timeout, so flush cannot hang.
     const timedOut = new Promise<never>((_, reject) => {
       timer = setTimeout(() => {
-        controller.abort();
+        if (!keepalive) controller.abort();
         reject(new SaveTimeoutError());
       }, SAVE_TIMEOUT_MS);
     });
-    const attempt = Promise.race([this.save(qid, entry.ids, controller.signal), timedOut]);
+    const attempt = Promise.race([this.save(qid, entry.ids, controller.signal, keepalive), timedOut]);
     entry.inFlight = attempt.finally(() => clearTimeout(timer)).then(
       () => {
         entry.inFlight = null;

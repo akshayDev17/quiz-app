@@ -326,3 +326,51 @@ test('an expired session at the buzzer is not swallowed', async () => {
   await check;
   assert.equal(submitted, false);
 });
+
+test('flushKeepalive sends pending values at once, marked keepalive', async () => {
+  const sent: [number, number[], boolean][] = [];
+  const save = async (qid: number, ids: number[], _signal: AbortSignal, keepalive = false) => {
+    sent.push([qid, ids, keepalive]);
+  };
+  const q = new SaveQueue(save);
+  q.set(1, [4]);
+  q.set(2, [5, 6]);
+  q.flushKeepalive(); // no debounce wait
+  assert.deepEqual(sent, [[1, [4], true], [2, [5, 6], true]]);
+  await drain();
+  assert.equal(q.state(), 'saved');
+  mock.timers.tick(400);
+  await drain();
+  assert.equal(sent.length, 2); // the debounce timers were cancelled
+});
+
+test('a keepalive save is never aborted, yet the queue still times it out and retries', async () => {
+  const calls: { signal: AbortSignal; keepalive: boolean }[] = [];
+  const save = (_qid: number, _ids: number[], signal: AbortSignal, keepalive = false) => {
+    calls.push({ signal, keepalive });
+    return new Promise<void>(() => {}); // never settles
+  };
+  const q = new SaveQueue(save);
+  q.set(1, [4]);
+  q.flushKeepalive();
+  await advance(5000);
+  assert.equal(q.state(), 'error');
+  assert.equal(calls[0].keepalive, true);
+  assert.equal(calls[0].signal.aborted, false); // the request outlives the page; only the queue gives up
+  await advance(1000); // backoff resend is an ordinary save
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].keepalive, false);
+});
+
+test('flushKeepalive leaves a save already in flight alone', async () => {
+  const sent: boolean[] = [];
+  const save = (_qid: number, _ids: number[], _signal: AbortSignal, keepalive = false) => {
+    sent.push(keepalive);
+    return new Promise<void>(() => {});
+  };
+  const q = new SaveQueue(save);
+  q.set(1, [4]);
+  mock.timers.tick(400);
+  q.flushKeepalive();
+  assert.deepEqual(sent, [false]);
+});

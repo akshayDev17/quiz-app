@@ -43,7 +43,9 @@ function Intro() {
     setStarting(true);
     try {
       const session = await startAttempt(setId);
-      router.push(`/play?attempt=${encodeURIComponent(session.attempt.id)}`);
+      const attempt = encodeURIComponent(session.attempt.id);
+      // An open attempt whose time had run out comes back expired: show its results.
+      router.push(session.attempt.status === 'in_progress' ? `/play?attempt=${attempt}` : `/results?attempt=${attempt}`);
     } catch (err) {
       setStarting(false);
       fail(err);
@@ -52,8 +54,8 @@ function Intro() {
 
   const minutes = intro?.time_limit_minutes ?? null;
   const resuming = intro?.open_attempt_id != null;
-  const noAttemptsLeft =
-    intro !== null && !resuming && intro.max_attempts !== null && intro.attempts_used >= intro.max_attempts;
+  const attemptsLeft = intro?.max_attempts != null ? intro.max_attempts - intro.attempts_used : null;
+  const noAttemptsLeft = intro !== null && !resuming && attemptsLeft !== null && attemptsLeft <= 0;
 
   return (
     <div className="frame">
@@ -77,6 +79,9 @@ function Intro() {
                 : 'No time limit.'}
             </li>
             <li>You won’t see whether an answer is right until you submit.</li>
+            {attemptsLeft !== null && attemptsLeft > 0 && (
+              <li>{`${attemptsLeft} of ${intro.max_attempts} attempts left.`}</li>
+            )}
           </ul>
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--s4)', flexWrap: 'wrap' }}>
             {noAttemptsLeft ? (

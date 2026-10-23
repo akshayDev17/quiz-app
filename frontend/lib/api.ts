@@ -60,10 +60,17 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return data;
 }
 
-function send<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+function send<T>(
+  method: string,
+  path: string,
+  body?: unknown,
+  signal?: AbortSignal,
+  keepalive?: boolean,
+): Promise<T> {
   return request<T>(path, {
     method,
     signal,
+    ...(keepalive ? { keepalive: true } : {}),
     ...(body === undefined
       ? {}
       : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
@@ -82,13 +89,23 @@ export const getSet = (setId: number) => request<SetIntro>(`/sets/${id(setId)}`)
 export const startAttempt = (setId: number) =>
   send<AttemptSession>('POST', `/sets/${id(setId)}/attempts`);
 export const getAttempt = (attemptId: string) => request<AttemptSession>(`/attempts/${id(attemptId)}`);
-/** `signal` lets the autosave queue abort a save that has stalled. */
-export const saveAnswer = (attemptId: string, questionId: number, optionIds: number[], signal?: AbortSignal) =>
+/**
+ * `signal` lets the autosave queue abort a save that has stalled. `keepalive` lets the request
+ * outlive the page, for the saves sent as it is hidden or unloaded.
+ */
+export const saveAnswer = (
+  attemptId: string,
+  questionId: number,
+  optionIds: number[],
+  signal?: AbortSignal,
+  keepalive?: boolean,
+) =>
   send<void>(
     'PUT',
     `/attempts/${id(attemptId)}/answers/${id(questionId)}`,
     { option_ids: optionIds },
     signal,
+    keepalive,
   );
 export const submitAttempt = (attemptId: string) =>
   send<SubmitResult>('POST', `/attempts/${id(attemptId)}/submit`);
