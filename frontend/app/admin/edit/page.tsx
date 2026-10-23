@@ -355,7 +355,7 @@ function Editor() {
                         {points(q.points)} points · {correct} of {q.options.length} correct
                       </span>
                       {!q.removed && (
-                        <button className="ed-btn ghost ed-remove" disabled={lastLive}
+                        <button className="ed-btn ed-remove" disabled={lastLive}
                                 title={lastLive ? 'A set needs at least one question' : undefined}
                                 onClick={() => setQuestion(qi, { removed: true })}>
                           Remove
@@ -364,20 +364,22 @@ function Editor() {
                     </header>
 
                     <div className="ed-pb" inert={q.removed || undefined}>
-                      <div className="ed-field">
-                        <label className="lab">Prompt</label>
-                        <textarea rows={2} value={q.prompt}
-                                  onChange={(e) => setQuestion(qi, { prompt: e.target.value })} />
+                      <div className="ed-promptrow">
+                        <div className="ed-field">
+                          <label className="lab">Prompt</label>
+                          <textarea rows={2} value={q.prompt}
+                                    onChange={(e) => setQuestion(qi, { prompt: e.target.value })} />
+                        </div>
+                        <div className="ed-field ed-pts">
+                          <label className="lab">Points</label>
+                          <input inputMode="decimal" value={String(q.points)}
+                                 onChange={(e) => setQuestion(qi, { points: Number(e.target.value) })} />
+                        </div>
                       </div>
                       <div className="ed-field">
                         <label className="lab">Explanation (blank = none)</label>
                         <textarea rows={2} value={q.explanation}
                                   onChange={(e) => setQuestion(qi, { explanation: e.target.value })} />
-                      </div>
-                      <div className="ed-field ed-pts">
-                        <label className="lab">Points</label>
-                        <input inputMode="decimal" value={String(q.points)}
-                               onChange={(e) => setQuestion(qi, { points: Number(e.target.value) })} />
                       </div>
 
                       <div className="ed-field">

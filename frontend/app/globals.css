@@ -247,7 +247,11 @@ code { font-family: var(--mono); font-size: .85em; background: var(--paper-2); p
   border-color: var(--accent); outline: none;
   box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 18%, transparent); }
 .editor-page input[type="checkbox"] { margin: 0; width: 1rem; height: 1rem; accent-color: var(--accent); cursor: pointer; }
-.ed-pts { max-width: 6rem; }
+.ed-promptrow { display: grid; grid-template-columns: minmax(0, 1fr) 5.5rem; gap: .5rem;
+  align-items: start; margin-bottom: .6rem; }
+.ed-promptrow > .ed-field { margin-bottom: 0; }
+.ed-pts { min-width: 0; }
+.editor-page .ed-pts input { font-variant-numeric: tabular-nums; }
 .ed-grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .5rem; }
 .ed-grid3 + .ed-grid3 { margin-top: .6rem; }
 .ed-checks { display: flex; flex-wrap: wrap; gap: .3rem 1.1rem; }
@@ -260,10 +264,10 @@ code { font-family: var(--mono); font-size: .85em; background: var(--paper-2); p
 .ed-opt .idx { width: .9rem; flex: none; font-size: .6875rem; color: #5a6069; font-variant-numeric: tabular-nums; }
 .ed-opt input:not([type="checkbox"]) { flex: 1; min-width: 0; }
 .ed-x { flex: none; display: inline-flex; align-items: center; justify-content: center;
-  width: 1.5rem; height: 1.5rem; background: none; border: 0; border-radius: 4px;
-  color: #5a6069; cursor: pointer; }
-.ed-x svg { width: .7rem; height: .7rem; }
-.ed-x:hover:not(:disabled) { background: #e2e4e9; color: #a3282a; }
+  width: 1.75rem; height: 1.75rem; background: none; border: 1px solid transparent; border-radius: 4px;
+  color: #4a5058; cursor: pointer; }
+.ed-x svg { width: .8rem; height: .8rem; }
+.ed-x:hover:not(:disabled) { background: #fdf3f2; color: #a3282a; border-color: #e0b4b0; }
 .ed-x:disabled { opacity: .3; cursor: not-allowed; }
 
 /* buttons */
@@ -279,7 +283,8 @@ code { font-family: var(--mono); font-size: .85em; background: var(--paper-2); p
 .ed-btn.ghost:hover:not(:disabled) { background: #e2e4e9; color: #a3282a; }
 
 /* a question marked for removal: blurred, inert, undoable — deleted only on save */
-.ed-remove { padding: .15rem .5rem; margin-left: .35rem; }
+.ed-btn.ed-remove { padding: .15rem .5rem; margin-left: .35rem; color: #4a5058; border-color: #ccd1d8; }
+.ed-btn.ed-remove:hover:not(:disabled) { background: #fdf3f2; color: #a3282a; border-color: #e0b4b0; }
 .ed-panel.gone .ed-pb { filter: blur(2px) grayscale(1); opacity: .5; pointer-events: none; user-select: none; }
 .ed-panel.gone .ed-ph b { color: #5a6069; }
 .ed-gone { position: absolute; inset: 0; display: grid; place-items: center; }
@@ -308,6 +313,7 @@ code { font-family: var(--mono); font-size: .85em; background: var(--paper-2); p
 
 @media (max-width: 40rem) {
   .ed-grid3 { grid-template-columns: 1fr 1fr; }
+  .ed-promptrow { grid-template-columns: minmax(0, 1fr) 4.5rem; }
   .ed-bar-title span { display: block; margin-left: 0; }
   .ed-pager .range { display: none; }
   .editor-page input[type="text"], .editor-page input:not([type]), .editor-page textarea,
