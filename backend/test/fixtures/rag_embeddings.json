@@ -1,0 +1,48 @@
+{
+  "topic": {"slug": "rag", "name": "RAG"},
+  "subtopic": {"slug": "embeddings", "name": "Embeddings and vector space"},
+  "difficulty": null, "style": "standard",
+  "time_limit_minutes": 15, "scoring_policy": "all_or_nothing",
+  "questions": [
+    {"prompt": "You swap the embedding model behind an existing index. What has to change?",
+     "explanation": "Vectors from different models live in different spaces: re-embed everything, expect a possible dimension change, and re-tune any similarity thresholds. Chunk boundaries are independent of the model.",
+     "options": [
+       {"body": "Every stored vector must be re-embedded", "correct": true},
+       {"body": "The vector dimension may change", "correct": true},
+       {"body": "Chunk boundaries must be recomputed", "correct": false},
+       {"body": "Similarity thresholds need re-tuning", "correct": true},
+       {"body": "Nothing, if both models are from the same vendor", "correct": false}]},
+    {"prompt": "Cosine similarity and dot product rank results identically when...",
+     "explanation": "On unit-normalised vectors, the dot product equals the cosine.",
+     "options": [
+       {"body": "vectors are L2-normalised", "correct": true},
+       {"body": "the index is HNSW", "correct": false},
+       {"body": "the query is short", "correct": false}]},
+    {"prompt": "Which are typical causes of poor recall from a dense retriever?",
+     "explanation": "Domain shift, rare exact-match terms (IDs, codes), and asymmetric query/passage encoding without the right prefixes all hurt recall.",
+     "options": [
+       {"body": "Domain shift from the model's training data", "correct": true},
+       {"body": "Exact-match identifiers like SKUs", "correct": true},
+       {"body": "Using `float32` vectors", "correct": false},
+       {"body": "Missing query/passage instruction prefixes", "correct": true},
+       {"body": "Too few CPU cores", "correct": false},
+       {"body": "Storing metadata alongside vectors", "correct": false}]},
+    {"prompt": "Matryoshka embeddings let you...",
+     "explanation": "Matryoshka training makes leading sub-vectors usable on their own, so you can truncate dimensions for cost.",
+     "options": [
+       {"body": "truncate to fewer dimensions with graceful quality loss", "correct": true},
+       {"body": "skip normalisation", "correct": false},
+       {"body": "store several resolutions from one model", "correct": true},
+       {"body": "avoid re-embedding on model change", "correct": false}]},
+    {"prompt": "Is `<script>alert(1)</script>` shown as text, not executed, when a prompt is rendered?",
+     "explanation": "Prompts are Markdown rendered without raw HTML, so inline code and stray tags are plain text.",
+     "options": [
+       {"body": "Yes, inline code is rendered as literal text", "correct": true},
+       {"body": "No, the script runs", "correct": false}]},
+    {"prompt": "A prompt contains a raw tag outside code: <img src=x onerror=alert(1)> Does it become an element?",
+     "explanation": "Without rehype-raw, raw HTML is not parsed into elements; it is shown as text.",
+     "options": [
+       {"body": "No, it is rendered as text", "correct": true},
+       {"body": "Yes, an image element is created", "correct": false}]}
+  ]
+}

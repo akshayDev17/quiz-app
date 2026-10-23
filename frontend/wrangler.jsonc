@@ -1,0 +1,25 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "quiz-app-frontend",
+  "main": "worker.js",
+  "compatibility_date": "2026-10-10",
+
+  // The Worker answers on the quiz's paths only. The root stays the personal
+  // site (GitHub Pages) and /quiz/api/* stays the Python Worker.
+  "workers_dev": false,
+  "routes": [
+    // The bare path needs its own entry: `quiz/*` matches everything *under*
+    // /quiz/ but not /quiz itself.
+    { "pattern": "akshayprabhakant.com/quiz", "zone_name": "akshayprabhakant.com" },
+    { "pattern": "akshayprabhakant.com/quiz/*", "zone_name": "akshayprabhakant.com" }
+    // No /_next/* route: basePath keeps the chunks under /quiz/_next/.
+  ],
+
+  // The Next.js static export (produced by `npm run build`). `run_worker_first`
+  // so the /quiz prefix is always stripped before the assets lookup.
+  "assets": {
+    "directory": "./out",
+    "binding": "ASSETS",
+    "run_worker_first": true
+  }
+}

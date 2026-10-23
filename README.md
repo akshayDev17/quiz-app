@@ -11,6 +11,8 @@ Access (email one-time PIN) as the only way in.
 
 - `docs/design.md` — the design: topology, auth, schema, backend, frontend
 - `backend/migrations/0001_init.sql` — the D1 schema
+- `docs/deploy.md` — the deploy runbook: Access, D1, secrets, CI, first-deploy checks
 - `design/sparks.html` — clickable frontend sketch (open it in a browser)
 
-Status: design only; no application code yet.
+Status: Implemented; deploy per docs/deploy.md. Do not push to main before completing
+docs/deploy.md §A–C (Access, D1, ADMIN_EMAILS) — CI deploys on every push to main.

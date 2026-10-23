@@ -1,0 +1,27 @@
+[project]
+name = "quiz-app-backend"
+version = "0.1.0"
+description = "Python Cloudflare Worker + D1 backend for an invite-only timed multi-answer MCQ quiz app."
+requires-python = ">=3.11"
+
+# Development dependencies, as a PEP 735 dependency group rather than an
+# optional-dependencies extra.
+#
+# The difference is not cosmetic: `uv run` installs the `dev` *group* by
+# default and does NOT install optional extras, so a `[project.optional-
+# dependencies]` entry would leave `uv run pywrangler deploy` unable to find
+# pywrangler.
+#
+# workers-py is what provides the `pywrangler` command:
+#   "This will create a pyproject.toml file with workers-py as a development
+#    dependency." — https://developers.cloudflare.com/workers/languages/python/
+[dependency-groups]
+dev = [
+  "workers-py",
+  "pytest>=8",
+]
+
+[tool.pytest.ini_options]
+# `"."` — the backend root, which is what makes `import quiz_app` resolve.
+pythonpath = ["."]
+testpaths = ["test"]

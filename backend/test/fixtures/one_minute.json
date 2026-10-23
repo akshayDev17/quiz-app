@@ -1,0 +1,25 @@
+{
+  "topic": {"slug": "rag", "name": "RAG"},
+  "subtopic": {"slug": "embeddings", "name": "Embeddings and vector space"},
+  "title": "One-minute timer check",
+  "difficulty": "easy", "style": "standard",
+  "time_limit_minutes": 1, "scoring_policy": "all_or_nothing",
+  "questions": [
+    {"prompt": "Which of these are embedding similarity measures?",
+     "explanation": "Cosine and dot product compare vectors; BM25 scores terms.",
+     "options": [
+       {"body": "Cosine similarity", "correct": true},
+       {"body": "Dot product", "correct": true},
+       {"body": "BM25", "correct": false}]},
+    {"prompt": "An embedding maps text to...",
+     "explanation": "A fixed-length dense vector.",
+     "options": [
+       {"body": "a fixed-length dense vector", "correct": true},
+       {"body": "a sparse bag of words", "correct": false}]},
+    {"prompt": "Re-embedding is needed when you change the embedding model.",
+     "explanation": "Vectors from different models are not comparable.",
+     "options": [
+       {"body": "True", "correct": true},
+       {"body": "False", "correct": false}]}
+  ]
+}
