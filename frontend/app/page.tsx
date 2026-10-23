@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { getMe, getTopics, isSessionExpired, signOut } from '../lib/api';
 import { pluralize, subtopicGroupLabel } from '../lib/names';
 import type { Me, TopicsResponse } from '../lib/types';
@@ -43,7 +43,7 @@ export default function Home() {
             </span>
           </div>
           {topic.groups.map((group) => (
-            <div key={group.subtopic?.id ?? 'whole'}>
+            <Fragment key={group.subtopic?.id ?? 'whole'}>
               <div className="subhead mc">{subtopicGroupLabel(group.subtopic)}</div>
               <ul className="cards">
                 {group.sets.map((card) => (
@@ -52,7 +52,7 @@ export default function Home() {
                   </li>
                 ))}
               </ul>
-            </div>
+            </Fragment>
           ))}
         </section>
       ))}
