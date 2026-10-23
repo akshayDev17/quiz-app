@@ -6,7 +6,7 @@ from ..models import Attempt, GradeResult, QuestionResult
 from ..ports import AttemptRepository
 
 _SELECT = (
-    "SELECT id, set_id, user_email, started_at, deadline_at, finished_at, status, score, max_score "
+    "SELECT id, set_id, user_email, started_at, deadline_at, finished_at, status, score, max_score, paused_at "
     "FROM attempts"
 )
 
@@ -22,6 +22,7 @@ def _attempt(row: dict) -> Attempt:
         status=row["status"],
         score=row["score"],
         max_score=row["max_score"],
+        paused_at=row["paused_at"],
     )
 
 
@@ -63,6 +64,20 @@ class D1AttemptRepository(AttemptRepository):
             "WHERE set_id = ? AND user_email = ? AND status <> 'in_progress'"
         ).bind(set_id, email).first()
         return row["n"]
+
+    async def pause(self, attempt_id: str, paused_at: int) -> None:
+        await self._db.prepare(
+            "UPDATE attempts SET paused_at = ? "
+            "WHERE id = ? AND status = 'in_progress' AND paused_at IS NULL"
+        ).bind(paused_at, attempt_id).run()
+
+    async def resume(self, attempt_id: str, now_ms: int) -> None:
+        # Extend the deadline by the paused duration; an untimed attempt just unpauses.
+        await self._db.prepare(
+            "UPDATE attempts SET "
+            "deadline_at = CASE WHEN deadline_at IS NULL THEN NULL ELSE deadline_at + (? - paused_at) END, "
+            "paused_at = NULL WHERE id = ? AND paused_at IS NOT NULL"
+        ).bind(now_ms, attempt_id).run()
 
     async def selections(self, attempt_id: str) -> dict[int, frozenset[int]]:
         rows = (await self._db.prepare(

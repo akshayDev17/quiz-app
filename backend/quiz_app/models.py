@@ -119,16 +119,23 @@ class Attempt:
     status: str
     score: float | None
     max_score: float | None
+    paused_at: int | None = None
 
     @property
     def is_open(self) -> bool:
         return self.status == "in_progress"
 
+    @property
+    def is_paused(self) -> bool:
+        return self.paused_at is not None
+
     def is_due(self, now_ms: int) -> bool:
-        return self.deadline_at is not None and now_ms >= self.deadline_at
+        # A paused attempt's clock is frozen, so it is never due.
+        return self.deadline_at is not None and self.paused_at is None and now_ms >= self.deadline_at
 
     def accepts_writes(self, now_ms: int, grace_ms: int) -> bool:
-        return self.is_open and (
+        # No writes while paused: the solver resumes before answering again.
+        return self.is_open and self.paused_at is None and (
             self.deadline_at is None or now_ms <= self.deadline_at + grace_ms
         )
 

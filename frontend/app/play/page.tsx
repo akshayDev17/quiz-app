@@ -7,6 +7,8 @@ import {
   getAttempt,
   getMe,
   isSessionExpired,
+  pauseAttempt,
+  resumeAttempt,
   saveAnswer,
   signOut,
   submitAttempt,
@@ -57,6 +59,8 @@ function Play() {
   const [timesUp, setTimesUp] = useState(false);
   const [signInExpired, setSignInExpired] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  /** A pause/resume request is in flight. */
+  const [pauseBusy, setPauseBusy] = useState(false);
   /** Submitted after the buzzer, but these questions' latest answers never reached the server. */
   const [unsavedAtBuzzer, setUnsavedAtBuzzer] = useState<{ attemptId: string; labels: string[] } | null>(
     null,
@@ -148,11 +152,37 @@ function Play() {
   const question = questions[cur];
   const answered = questions.map((q) => (sel[q.id]?.length ?? 0) > 0);
   const answeredCount = answered.filter(Boolean).length;
-  const inputsOff = locked || confirmOpen || signInExpired;
+  /** A paused attempt freezes the clock and locks the answers until resumed. */
+  const paused = session?.attempt.paused_at != null;
+  const inputsOff = locked || confirmOpen || signInExpired || paused;
 
   function reportFinishError(err: unknown) {
     if (isSessionExpired(err)) setSignInExpired(true);
     else setSubmitError(`Could not submit: ${message(err)}`);
+  }
+
+  /** Freeze the clock (saving pending answers first) or resume it. */
+  async function togglePause() {
+    if (!session || pauseBusy) return;
+    setPauseBusy(true);
+    setSubmitError(null);
+    try {
+      if (session.attempt.paused_at != null) {
+        const s = await resumeAttempt(attemptId);
+        setOffsetMs(clockOffset(s.server_now, Date.now()));
+        setSession(s);
+      } else {
+        await queueRef.current?.flush(); // save pending answers before freezing
+        const s = await pauseAttempt(attemptId);
+        setOffsetMs(clockOffset(s.server_now, Date.now()));
+        setSession(s);
+      }
+    } catch (err) {
+      if (isSessionExpired(err)) setSignInExpired(true);
+      else setSubmitError(message(err));
+    } finally {
+      setPauseBusy(false);
+    }
   }
 
   const submitOnServer = async () => (await submitAttempt(attemptId)).attempt_id;
@@ -265,7 +295,21 @@ function Play() {
             <span className="title">{session.set.name}</span>
             <span className="mc">{answeredCount} / {questions.length} answered</span>
             {session.attempt.deadline_at !== null && (
-              <Timer deadlineAt={session.attempt.deadline_at} offsetMs={offsetMs} onExpire={onTimeUp} />
+              <Timer
+                deadlineAt={session.attempt.deadline_at}
+                offsetMs={offsetMs}
+                pausedAt={session.attempt.paused_at}
+                onExpire={onTimeUp}
+              />
+            )}
+            {session.attempt.deadline_at !== null && (
+              <button
+                className="btn ghost"
+                onClick={togglePause}
+                disabled={locked || confirmOpen || signInExpired || pauseBusy}
+              >
+                {paused ? 'Resume' : 'Pause'}
+              </button>
             )}
             <button className="btn" onClick={() => setConfirmOpen(true)} disabled={inputsOff}>
               Submit

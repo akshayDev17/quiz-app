@@ -109,6 +109,12 @@ export const saveAnswer = (
   );
 export const submitAttempt = (attemptId: string) =>
   send<SubmitResult>('POST', `/attempts/${id(attemptId)}/submit`);
+/** Freeze the clock (timed attempts only); returns the session with paused_at set. */
+export const pauseAttempt = (attemptId: string) =>
+  send<AttemptSession>('POST', `/attempts/${id(attemptId)}/pause`);
+/** Extend the deadline by the paused duration and restart the clock. */
+export const resumeAttempt = (attemptId: string) =>
+  send<AttemptSession>('POST', `/attempts/${id(attemptId)}/resume`);
 export const getResults = (attemptId: string) => request<Results>(`/attempts/${id(attemptId)}/results`);
 export const getHistory = () => request<History>('/attempts');
 

@@ -22,7 +22,7 @@ export type SetIntro = { id: number; topic: string; subtopic: string | null; nam
 
 export type AttemptSession = {
   attempt: { id: string; set_id: number; status: 'in_progress' | 'submitted' | 'expired';
-             started_at: number; deadline_at: number | null };
+             started_at: number; deadline_at: number | null; paused_at: number | null };
   server_now: number;
   set: { name: string; topic: string; subtopic: string | null };
   questions: { id: number; prompt: string; options: { id: number; body: string }[] }[];  // display order

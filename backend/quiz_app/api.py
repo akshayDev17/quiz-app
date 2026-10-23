@@ -83,6 +83,8 @@ class Api:
                 ("GET", f"/attempts/{aid}", self._attempt),
                 ("PUT", f"/attempts/{aid}/answers/{qid}", self._answer),
                 ("POST", f"/attempts/{aid}/submit", self._submit),
+                ("POST", f"/attempts/{aid}/pause", self._pause),
+                ("POST", f"/attempts/{aid}/resume", self._resume),
                 ("GET", f"/attempts/{aid}/results", self._results),
                 ("GET", "/admin/sets", self._admin_list),
                 ("POST", "/admin/sets", self._admin_import),
@@ -148,6 +150,12 @@ class Api:
 
     async def _results(self, user: User, body: object, attempt_id: str) -> Response:
         return 200, serializers.results(await self._attempts.results(user.email, attempt_id))
+
+    async def _pause(self, user: User, body: object, attempt_id: str) -> Response:
+        return 200, serializers.attempt_session(await self._attempts.pause(user.email, attempt_id))
+
+    async def _resume(self, user: User, body: object, attempt_id: str) -> Response:
+        return 200, serializers.attempt_session(await self._attempts.resume(user.email, attempt_id))
 
     # -- admin ---------------------------------------------------------------
 

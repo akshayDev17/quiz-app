@@ -112,7 +112,7 @@ class AttemptService:
     async def save(self, email: str, attempt_id: str, question_id: int, option_ids: list[int]) -> None:
         attempt = await self._owned(email, attempt_id)
         if not attempt.accepts_writes(self._clock.now_ms(), self._grace_ms):
-            raise Conflict("attempt finished")
+            raise Conflict("attempt paused" if attempt.is_paused else "attempt finished")
         questions = {q.id: q for q in await self._catalog.questions_for_solver(attempt.set_id)}
         question = questions.get(question_id)
         if question is None:
@@ -151,6 +151,28 @@ class AttemptService:
             selections=await self._attempts.selections(attempt.id),
             results=await self._attempts.results(attempt.id),
         )
+
+    async def pause(self, email: str, attempt_id: str) -> AttemptSession:
+        """Freeze the clock. Idempotent; only for an open, timed attempt."""
+        attempt = await self._owned(email, attempt_id)
+        if not attempt.is_open:
+            raise Conflict("attempt finished")
+        if attempt.deadline_at is None:
+            raise Conflict("untimed quiz has no timer to pause")
+        info = await self._set_for(attempt)
+        if not attempt.is_paused:
+            await self._attempts.pause(attempt_id, self._clock.now_ms())
+        return await self._session(await self._owned(email, attempt_id), info, created=False)
+
+    async def resume(self, email: str, attempt_id: str) -> AttemptSession:
+        """Extend the deadline by the paused duration and unfreeze. Idempotent."""
+        attempt = await self._owned(email, attempt_id)
+        if not attempt.is_open:
+            raise Conflict("attempt finished")
+        info = await self._set_for(attempt)
+        if attempt.is_paused:
+            await self._attempts.resume(attempt_id, self._clock.now_ms())
+        return await self._session(await self._owned(email, attempt_id), info, created=False)
 
     async def expire_due_for(self, email: str) -> None:
         now = self._clock.now_ms()

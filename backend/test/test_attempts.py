@@ -83,6 +83,65 @@ class AttemptCase(unittest.IsolatedAsyncioTestCase):
         return row["n"]
 
 
+class PauseTest(AttemptCase):
+    async def test_pause_freezes_the_clock(self):
+        attempt_id = await self.start()
+        await self.svc.pause(ALICE, attempt_id)
+        attempt = await self.repo.get(attempt_id)
+        self.assertTrue(attempt.is_paused)
+        self.assertEqual(attempt.deadline_at, START + LIMIT_MS)
+        # Even past the original deadline, a paused attempt is not due.
+        self.clock.advance(LIMIT_MS + 60_000)
+        self.assertFalse(attempt.is_due(self.clock.now_ms()))
+
+    async def test_resume_extends_the_deadline_by_the_paused_duration(self):
+        attempt_id = await self.start()
+        await self.svc.pause(ALICE, attempt_id)
+        self.clock.advance(10 * 60_000)  # paused for ten minutes
+        await self.svc.resume(ALICE, attempt_id)
+        attempt = await self.repo.get(attempt_id)
+        self.assertFalse(attempt.is_paused)
+        # A 15-minute deadline with 10 minutes paused → 25 minutes from start.
+        self.assertEqual(attempt.deadline_at, START + LIMIT_MS + 10 * 60_000)
+
+    async def test_saves_are_rejected_while_paused(self):
+        attempt_id = await self.start()
+        await self.svc.pause(ALICE, attempt_id)
+        with self.assertRaises(Conflict):
+            await self.svc.save(ALICE, attempt_id, self.q1.question_id, [next(iter(self.q1.correct))])
+
+    async def test_paused_attempt_is_not_expired_by_reads(self):
+        attempt_id = await self.start()
+        await self.svc.pause(ALICE, attempt_id)
+        self.clock.advance(LIMIT_MS + 60_000)
+        await self.svc.overview(ALICE)  # runs expire_due_for
+        self.assertEqual((await self.repo.get(attempt_id)).status, "in_progress")
+
+    async def test_untimed_attempt_cannot_pause(self):
+        set_id = await self.seed(time_limit_minutes=None)
+        attempt_id = (await self.svc.start_or_resume(ALICE, set_id)).attempt.id
+        with self.assertRaises(Conflict):
+            await self.svc.pause(ALICE, attempt_id)
+
+    async def test_pause_and_resume_are_idempotent(self):
+        attempt_id = await self.start()
+        await self.svc.pause(ALICE, attempt_id)
+        paused_at = (await self.repo.get(attempt_id)).paused_at
+        await self.svc.pause(ALICE, attempt_id)
+        self.assertEqual((await self.repo.get(attempt_id)).paused_at, paused_at)
+
+        await self.svc.resume(ALICE, attempt_id)
+        deadline = (await self.repo.get(attempt_id)).deadline_at
+        await self.svc.resume(ALICE, attempt_id)
+        self.assertEqual((await self.repo.get(attempt_id)).deadline_at, deadline)
+
+    async def test_session_round_trips_paused_at(self):
+        attempt_id = await self.start()
+        await self.svc.pause(ALICE, attempt_id)
+        payload = serializers.attempt_session(await self.svc.session(ALICE, attempt_id))
+        self.assertIsNotNone(payload["attempt"]["paused_at"])
+
+
 class StartTest(AttemptCase):
     async def test_start_then_start_again_resumes(self):
         a = await self.svc.start_or_resume(ALICE, self.sid)

@@ -46,7 +46,8 @@ def open_db(path: Path) -> SqliteD1:
     # One connection shared by the handler threads; requests are serialised by LOCK.
     db = SqliteD1(sqlite3.connect(str(path), check_same_thread=False))
     if fresh:
-        db.executescript((HERE / "migrations" / "0001_init.sql").read_text())
+        for migration in sorted((HERE / "migrations").glob("*.sql")):
+            db.executescript(migration.read_text())
     return db
 
 

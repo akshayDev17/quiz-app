@@ -97,6 +97,7 @@ a { color: inherit; }
          padding: .45rem .7rem; border-radius: 4px; background: var(--card); border: 1px solid var(--card-line); }
 .timer.amber { color: var(--warn); border-color: var(--warn); }
 .timer.red { color: var(--danger); border-color: var(--danger); animation: live 1.2s ease-in-out infinite; }
+.timer.paused { color: var(--muted); border-color: var(--rule-2); border-style: dashed; animation: none; }
 @keyframes live { 50% { opacity: .45; } }
 .layout { display: grid; grid-template-columns: minmax(0, 1fr) 11rem; gap: var(--s5); }
 @media (max-width: 680px) { .layout { grid-template-columns: 1fr; } .qnav { order: -1; } }

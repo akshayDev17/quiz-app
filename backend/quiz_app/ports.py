@@ -102,6 +102,14 @@ class AttemptRepository(ABC):
         """Close an open attempt and write its results once. False if it was already closed."""
 
     @abstractmethod
+    async def pause(self, attempt_id: str, paused_at: int) -> None:
+        """Freeze the clock: set paused_at on an open attempt."""
+
+    @abstractmethod
+    async def resume(self, attempt_id: str, now_ms: int) -> None:
+        """Extend deadline_at by the paused duration and clear paused_at."""
+
+    @abstractmethod
     async def results(self, attempt_id: str) -> dict[int, QuestionResult]: ...
 
     @abstractmethod

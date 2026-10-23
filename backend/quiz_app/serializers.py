@@ -91,6 +91,7 @@ def attempt_session(session: AttemptSession) -> dict:
             "status": attempt.status,
             "started_at": attempt.started_at,
             "deadline_at": attempt.deadline_at,
+            "paused_at": attempt.paused_at,
         },
         "server_now": session.server_now,
         "set": {"name": info.name, "topic": info.topic_name, "subtopic": info.subtopic_name},

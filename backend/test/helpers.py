@@ -14,7 +14,7 @@ if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
 
 
-MIGRATION = BACKEND / "migrations" / "0001_init.sql"
+MIGRATIONS = BACKEND / "migrations"
 
 
 def fresh_db():
@@ -22,7 +22,8 @@ def fresh_db():
     from quiz_app.d1.sqlite_binding import SqliteD1
 
     db = SqliteD1(":memory:")
-    db.executescript(MIGRATION.read_text())
+    for path in sorted(MIGRATIONS.glob("*.sql")):
+        db.executescript(path.read_text())
     return db
 
 
