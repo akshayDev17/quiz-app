@@ -1,0 +1,39 @@
+{
+  "name": "quiz-tools",
+  "version": "0.1.0",
+  "description": "DSH skills for the quiz app: author a quiz-set JSON (quiz-create) and upload it to /quiz (quiz-upload).",
+  "type": "module",
+  "license": "MIT",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "skills",
+    "plugin.json",
+    ".claude-plugin/plugin.json",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "engines": {
+    "dsh": ">=0.1.0-rc.6"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/akshayDev17/quiz-app.git",
+    "directory": "tools"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "keywords": [
+    "quiz",
+    "quiz-app",
+    "authoring",
+    "upload"
+  ]
+}

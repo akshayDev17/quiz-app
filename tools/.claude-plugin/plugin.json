@@ -1,0 +1,10 @@
+{
+  "name": "quiz-tools",
+  "version": "0.1.0",
+  "description": "Skills for the quiz app: author a quiz-set JSON (quiz-create) and upload it (quiz-upload).",
+  "author": { "name": "Akshay Prabhakant" },
+  "license": "MIT",
+  "homepage": "https://github.com/akshayDev17/quiz-app",
+  "repository": "https://github.com/akshayDev17/quiz-app",
+  "keywords": ["quiz", "quiz-app", "authoring", "upload"]
+}
