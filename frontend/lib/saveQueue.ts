@@ -2,10 +2,38 @@ import { ApiError, isSessionExpired } from './api.ts';
 import { AUTOSAVE_DEBOUNCE_MS } from './countdown.ts';
 
 export type SaveState = 'idle' | 'saving' | 'saved' | 'error';
-export type SaveFn = (qid: number, ids: number[]) => Promise<void>;
+/** Saves one answer. The queue aborts `signal` when the save outlives `SAVE_TIMEOUT_MS`. */
+export type SaveFn = (qid: number, ids: number[], signal: AbortSignal) => Promise<void>;
 
 /** Retry delays after the 1st, 2nd, 3rd… consecutive failure; the last one repeats. */
 const BACKOFF_MS = [1000, 2000, 4000, 8000];
+/** A save still pending after this long is aborted and counted as a (retryable) failure. */
+export const SAVE_TIMEOUT_MS = 5000;
+/**
+ * How long the timeout sequence keeps retrying unsaved answers before it submits anyway. The
+ * server accepts writes for GRACE_MS (10 s) after the deadline; this stays under it with room for
+ * the submit itself.
+ */
+export const TIMEOUT_SAVE_BUDGET_MS = 8000;
+
+/** A save that did not answer within `SAVE_TIMEOUT_MS`. */
+export class SaveTimeoutError extends Error {
+  constructor() {
+    super('save timed out');
+    this.name = 'SaveTimeoutError';
+  }
+}
+
+/** `flush(budgetMs)` ran out of time; these questions' latest answers are not on the server. */
+export class UnsavedAnswers extends Error {
+  readonly questionIds: number[];
+
+  constructor(questionIds: number[]) {
+    super(`answers not saved for questions ${questionIds.join(', ')}`);
+    this.name = 'UnsavedAnswers';
+    this.questionIds = questionIds;
+  }
+}
 
 /** Network errors and 5xx may pass; they are retried. */
 export function isRetryable(error: unknown): boolean {
@@ -75,13 +103,35 @@ export class SaveQueue {
   }
 
   /**
-   * Sends every pending value now and resolves once all of them are saved.
+   * Sends every pending value now and resolves once all of them are saved. It cannot hang: every
+   * save times out after `SAVE_TIMEOUT_MS`.
    *
-   * A value that has already failed gets one immediate retry here; if that fails too, flush
-   * rejects with its error so the caller can show it. An expired sign-in rejects at once.
+   * Without a budget, a value that has already failed gets one immediate retry here; if that
+   * fails too, flush rejects with its error so the caller can show it.
+   * With `budgetMs`, failed values keep retrying on the queue's backoff until they land or the
+   * budget runs out; then flush rejects with `UnsavedAnswers` naming the questions left.
+   * Either way an expired sign-in rejects at once, and terminally rejected values are not waited on.
    */
-  async flush(): Promise<void> {
-    await Promise.all([...this.entries.keys()].map((qid) => this.flushOne(qid)));
+  async flush(budgetMs = 0): Promise<void> {
+    const all = Promise.all([...this.entries.keys()].map((qid) => this.flushOne(qid, budgetMs > 0)));
+    if (budgetMs <= 0) {
+      await all;
+      return;
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const outOfTime = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new UnsavedAnswers(this.unsaved())), budgetMs);
+    });
+    try {
+      await Promise.race([all, outOfTime]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /** Questions whose latest answer the server has not confirmed (rejected ones excluded). */
+  unsaved(): number[] {
+    return [...this.entries.keys()];
   }
 
   state(): SaveState {
@@ -103,7 +153,7 @@ export class SaveQueue {
     this.listeners.clear();
   }
 
-  private async flushOne(qid: number): Promise<void> {
+  private async flushOne(qid: number, keepRetrying: boolean): Promise<void> {
     let sentHere = false;
     for (;;) {
       const entry = this.entries.get(qid);
@@ -112,10 +162,24 @@ export class SaveQueue {
         await entry.inFlight;
         continue;
       }
-      if (entry.error !== null && (sentHere || isSessionExpired(entry.error))) throw entry.error;
+      if (isSessionExpired(entry.error)) throw entry.error;
+      if (entry.error !== null && sentHere) {
+        if (!keepRetrying) throw entry.error;
+        await this.nextChange(); // the backoff timer resends; the caller's budget bounds the wait
+        continue;
+      }
       sentHere = true;
       this.send(qid, entry);
     }
+  }
+
+  private nextChange(): Promise<void> {
+    return new Promise((resolve) => {
+      const off = this.onChange(() => {
+        off();
+        resolve();
+      });
+    });
   }
 
   private schedule(qid: number, entry: Entry, delayMs: number): void {
@@ -136,7 +200,16 @@ export class SaveQueue {
     this.clearTimer(entry);
     if (entry.inFlight) return;
     const version = entry.version;
-    entry.inFlight = this.save(qid, entry.ids).then(
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timedOut = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        reject(new SaveTimeoutError());
+      }, SAVE_TIMEOUT_MS);
+    });
+    const attempt = Promise.race([this.save(qid, entry.ids, controller.signal), timedOut]);
+    entry.inFlight = attempt.finally(() => clearTimeout(timer)).then(
       () => {
         entry.inFlight = null;
         if (entry.version === version) {
@@ -173,4 +246,24 @@ export class SaveQueue {
   private notify(): void {
     for (const cb of this.listeners) cb();
   }
+}
+
+/**
+ * The save half of the timeout sequence: retry what is unsaved within `TIMEOUT_SAVE_BUDGET_MS`
+ * (the server's grace period lets those writes land), then submit regardless — the clock has run
+ * out. Resolves with the attempt id from `submit` and the questions whose answers did not make it.
+ * An expired sign-in is rethrown without submitting: nothing can be sent until it is renewed.
+ */
+export async function submitAfterTimeout(
+  queue: SaveQueue,
+  submit: () => Promise<string>,
+): Promise<{ attemptId: string; unsaved: number[] }> {
+  let unsaved: number[] = [];
+  try {
+    await queue.flush(TIMEOUT_SAVE_BUDGET_MS);
+  } catch (err) {
+    if (isSessionExpired(err)) throw err;
+    unsaved = err instanceof UnsavedAnswers ? err.questionIds : queue.unsaved();
+  }
+  return { attemptId: await submit(), unsaved };
 }

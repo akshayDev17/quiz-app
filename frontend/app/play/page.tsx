@@ -13,7 +13,7 @@ import {
 } from '../../lib/api';
 import { clockOffset, TIMES_UP_OVERLAY_MS } from '../../lib/countdown';
 import { letter } from '../../lib/letters';
-import { isTerminal, SaveQueue, type SaveState } from '../../lib/saveQueue';
+import { isTerminal, SaveQueue, submitAfterTimeout, type SaveState } from '../../lib/saveQueue';
 import { clearReauthFlag } from '../../lib/session';
 import type { AttemptSession, Me } from '../../lib/types';
 import ConfirmDialog from '../components/ConfirmDialog';
@@ -57,6 +57,10 @@ function Play() {
   const [timesUp, setTimesUp] = useState(false);
   const [signInExpired, setSignInExpired] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  /** Submitted after the buzzer, but these questions' latest answers never reached the server. */
+  const [unsavedAtBuzzer, setUnsavedAtBuzzer] = useState<{ attemptId: string; labels: string[] } | null>(
+    null,
+  );
 
   const queueRef = useRef<SaveQueue | null>(null);
   /** True while a flush + submit is under way: the finish sequence never runs twice at once. */
@@ -64,7 +68,7 @@ function Play() {
   const timedOut = useRef(false);
 
   useEffect(() => {
-    const queue = new SaveQueue((qid, ids) => saveAnswer(attemptId, qid, ids));
+    const queue = new SaveQueue((qid, ids, signal) => saveAnswer(attemptId, qid, ids, signal));
     queueRef.current = queue;
     /** The failure already acted on; onChange fires on every change, the reaction once per failure. */
     let handled: unknown = null;
@@ -140,27 +144,13 @@ function Play() {
     else setSubmitError(`Could not submit: ${message(err)}`);
   }
 
-  /**
-   * Saves what is pending, submits, and moves to the results.
-   *
-   * After a timeout, a failed save does not hold up the submit: the server keeps what reached it
-   * and the deadline has passed anyway. On a submit by choice, a failed save stops the submit so
-   * no answer is silently dropped. (A terminally rejected save, e.g. 409, never makes flush reject:
-   * the submit itself then reports the attempt's real state.)
-   */
-  async function finishOnServer(afterTimeout: boolean) {
-    const queue = queueRef.current;
-    if (queue) {
-      await queue.flush().catch((err: unknown) => {
-        if (isSessionExpired(err)) throw err;
-        if (afterTimeout) return;
-        throw err;
-      });
-    }
-    const result = await submitAttempt(attemptId);
-    return result.attempt_id;
-  }
+  const submitOnServer = async () => (await submitAttempt(attemptId)).attempt_id;
 
+  /**
+   * Submit by choice: save what is pending, submit, move to the results. A save that still fails
+   * stops the submit, so no answer is silently dropped. (A terminally rejected save, e.g. 409,
+   * never makes flush reject: the submit itself then reports the attempt's real state.)
+   */
   async function submit() {
     if (finishing.current) return;
     finishing.current = true;
@@ -168,34 +158,53 @@ function Play() {
     setLocked(true);
     setSubmitError(null);
     try {
-      router.replace(resultsUrl(await finishOnServer(timedOut.current)));
+      await queueRef.current?.flush();
+      router.replace(resultsUrl(await submitOnServer()));
     } catch (err) {
       finishing.current = false;
-      if (!timedOut.current) setLocked(false);
+      // Time ran out while this was on its way: hand over to the timeout sequence.
+      if (timedOut.current && !isSessionExpired(err)) return void finishAfterTimeout();
+      setLocked(false);
+      reportFinishError(err);
+    }
+  }
+
+  /**
+   * After the buzzer: keep retrying unsaved answers within the grace budget, submit regardless,
+   * and if some answers never made it, say which before moving on.
+   */
+  async function finishAfterTimeout() {
+    if (finishing.current) return;
+    finishing.current = true;
+    setTimesUp(true);
+    setSubmitError(null);
+    const overlay = sleep(TIMES_UP_OVERLAY_MS);
+    try {
+      const { attemptId: id, unsaved } = await submitAfterTimeout(queueRef.current!, submitOnServer);
+      // Submitted: stop retrying, or a late 409 would whisk the reader past the notice below.
+      queueRef.current?.dispose();
+      await overlay;
+      if (unsaved.length === 0) {
+        router.replace(resultsUrl(id));
+        return;
+      }
+      const labels = unsaved.map((qid) => `Q${questions.findIndex((q) => q.id === qid) + 1}`);
+      setUnsavedAtBuzzer({ attemptId: id, labels });
+    } catch (err) {
+      await overlay;
+      finishing.current = false;
       setTimesUp(false);
       reportFinishError(err);
     }
   }
 
   /** The timeout sequence. `<Timer>` calls it once; `finishing` keeps it off a submit in flight. */
-  async function onTimeUp() {
+  function onTimeUp() {
     timedOut.current = true;
     setLocked(true);
     setConfirmOpen(false);
     setTimesUp(true);
-    if (finishing.current) return; // a submit by choice is already on its way
-    finishing.current = true;
-    const overlay = sleep(TIMES_UP_OVERLAY_MS);
-    try {
-      const id = await finishOnServer(true);
-      await overlay;
-      router.replace(resultsUrl(id));
-    } catch (err) {
-      await overlay;
-      finishing.current = false;
-      setTimesUp(false);
-      reportFinishError(err);
-    }
+    void finishAfterTimeout();
   }
 
   function toggle(optionId: number) {
@@ -255,7 +264,9 @@ function Play() {
           {submitError && (
             <div className="banner">
               {submitError}{' '}
-              <button className="linkbtn" onClick={submit}>Try again</button>
+              <button className="linkbtn" onClick={timedOut.current ? finishAfterTimeout : submit}>
+                Try again
+              </button>
             </div>
           )}
           <div className="layout">
@@ -311,7 +322,24 @@ function Play() {
       {timesUp && (
         <div className="scrim on" role="alert">
           <div className="timesup">
-            Time’s up<span className="mc">Submitting your saved answers</span>
+            Time’s up
+            {unsavedAtBuzzer ? (
+              <>
+                <span className="mc">
+                  Not saved: {unsavedAtBuzzer.labels.join(', ')}. Your other answers were submitted.
+                </span>
+                <button
+                  className="btn"
+                  style={{ marginTop: 'var(--s4)' }}
+                  onClick={() => router.replace(resultsUrl(unsavedAtBuzzer.attemptId))}
+                  autoFocus
+                >
+                  See results
+                </button>
+              </>
+            ) : (
+              <span className="mc">Submitting your saved answers</span>
+            )}
           </div>
         </div>
       )}

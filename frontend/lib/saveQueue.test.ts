@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { afterEach, beforeEach, mock, test } from 'node:test';
 
 import { ApiError } from './api.ts';
-import { SaveQueue } from './saveQueue.ts';
+import { SaveQueue, submitAfterTimeout, TIMEOUT_SAVE_BUDGET_MS, UnsavedAnswers } from './saveQueue.ts';
 
 type Call = [number, number[]];
 
@@ -225,4 +225,104 @@ test('a new answer clears that question\'s terminal failure', async () => {
   mock.timers.tick(400);
   await drain();
   assert.equal(q.state(), 'saved');
+});
+
+/** Advances fake time in small steps, letting promise handlers run between them. */
+async function advance(ms: number, step = 100) {
+  for (let t = 0; t < ms; t += step) {
+    mock.timers.tick(Math.min(step, ms - t));
+    await drain();
+  }
+}
+
+test('a stalled save times out after 5 s, is aborted, and is retried', async () => {
+  const signals: AbortSignal[] = [];
+  const save = (_qid: number, _ids: number[], signal: AbortSignal) => {
+    signals.push(signal);
+    return new Promise<void>(() => {}); // never settles
+  };
+  const q = new SaveQueue(save);
+  q.set(1, [4]);
+  mock.timers.tick(400);
+  await drain();
+  assert.equal(q.state(), 'saving');
+  await advance(4900);
+  assert.equal(q.state(), 'saving');
+  await advance(100);
+  assert.equal(q.state(), 'error');
+  assert.equal(signals[0].aborted, true);
+  await advance(1000); // retryable: backoff resend
+  assert.equal(signals.length, 2);
+});
+
+test('flush never hangs on a stalled save', async () => {
+  const save = () => new Promise<void>(() => {});
+  const q = new SaveQueue(save);
+  q.set(1, [4]);
+  let outcome: unknown = 'pending';
+  q.flush().then(() => (outcome = 'resolved'), (err) => (outcome = err));
+  await advance(4900);
+  assert.equal(outcome, 'pending');
+  await advance(100); // flush's own send times out: it rejects rather than waiting forever
+  assert.ok(outcome instanceof Error && /timed out/.test(outcome.message));
+});
+
+test('5xx at the buzzer, success within the budget: answer sent before submit', async () => {
+  const { calls, save } = recorder(2, new ApiError(503, 'unavailable'));
+  const q = new SaveQueue(save);
+  q.set(1, [4]);
+  const order: string[] = [];
+  const done = submitAfterTimeout(q, async () => {
+    order.push(`submit after ${calls.length} saves`);
+    return 'a1';
+  });
+  await advance(3500); // fail now, fail at +1 s, succeed at +3 s
+  const result = await done;
+  assert.deepEqual(result, { attemptId: 'a1', unsaved: [] });
+  assert.equal(calls.length, 3);
+  assert.deepEqual(order, ['submit after 3 saves']);
+  assert.equal(q.state(), 'saved');
+});
+
+test('persistent failure at the buzzer: submit proceeds within the budget, unsaved reported', async () => {
+  const { save } = recorder(Infinity, new ApiError(502, 'bad gateway'));
+  const q = new SaveQueue(save);
+  q.set(1, [4]);
+  q.set(2, [5]);
+  let submitted = false;
+  let result: unknown = null;
+  submitAfterTimeout(q, async () => {
+    submitted = true;
+    return 'a1';
+  }).then((r) => (result = r));
+  await advance(TIMEOUT_SAVE_BUDGET_MS - 100);
+  assert.equal(submitted, false); // still trying inside the budget
+  await advance(200);
+  assert.equal(submitted, true);
+  assert.deepEqual(result, { attemptId: 'a1', unsaved: [1, 2] });
+});
+
+test('flush with a budget rejects with the unsaved questions', async () => {
+  const { save } = recorder(Infinity);
+  const q = new SaveQueue(save);
+  q.set(7, [1]);
+  const p = q.flush(3000);
+  const check = assert.rejects(p, (err) => err instanceof UnsavedAnswers && err.questionIds.join() === '7');
+  await advance(3000);
+  await check;
+});
+
+test('an expired session at the buzzer is not swallowed', async () => {
+  const { save } = recorder(Infinity, new ApiError(401, 'session expired'));
+  const q = new SaveQueue(save);
+  q.set(1, [4]);
+  let submitted = false;
+  const p = submitAfterTimeout(q, async () => {
+    submitted = true;
+    return 'a1';
+  });
+  const check = assert.rejects(p, /session expired/);
+  await advance(500);
+  await check;
+  assert.equal(submitted, false);
 });

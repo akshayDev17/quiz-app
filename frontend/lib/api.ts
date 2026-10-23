@@ -60,9 +60,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return data;
 }
 
-function send<T>(method: string, path: string, body?: unknown): Promise<T> {
+function send<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   return request<T>(path, {
     method,
+    signal,
     ...(body === undefined
       ? {}
       : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
@@ -81,10 +82,14 @@ export const getSet = (setId: number) => request<SetIntro>(`/sets/${id(setId)}`)
 export const startAttempt = (setId: number) =>
   send<AttemptSession>('POST', `/sets/${id(setId)}/attempts`);
 export const getAttempt = (attemptId: string) => request<AttemptSession>(`/attempts/${id(attemptId)}`);
-export const saveAnswer = (attemptId: string, questionId: number, optionIds: number[]) =>
-  send<void>('PUT', `/attempts/${id(attemptId)}/answers/${id(questionId)}`, {
-    option_ids: optionIds,
-  });
+/** `signal` lets the autosave queue abort a save that has stalled. */
+export const saveAnswer = (attemptId: string, questionId: number, optionIds: number[], signal?: AbortSignal) =>
+  send<void>(
+    'PUT',
+    `/attempts/${id(attemptId)}/answers/${id(questionId)}`,
+    { option_ids: optionIds },
+    signal,
+  );
 export const submitAttempt = (attemptId: string) =>
   send<SubmitResult>('POST', `/attempts/${id(attemptId)}/submit`);
 export const getResults = (attemptId: string) => request<Results>(`/attempts/${id(attemptId)}/results`);
