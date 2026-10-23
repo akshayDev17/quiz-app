@@ -14,6 +14,60 @@ if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
 
 
+MIGRATION = BACKEND / "migrations" / "0001_init.sql"
+
+
 def fresh_db():
-    """Return a migrated, empty ``SqliteD1``. Implemented in Task 3."""
-    raise NotImplementedError("Task 3")
+    """A migrated, empty ``SqliteD1`` over ``:memory:``."""
+    from quiz_app.d1.sqlite_binding import SqliteD1
+
+    db = SqliteD1(":memory:")
+    db.executescript(MIGRATION.read_text())
+    return db
+
+
+def sample_import(**overrides) -> dict:
+    """A valid import payload (spec section 4): RAG > Embeddings and vector space, 3 questions.
+
+    Keyword overrides replace top-level keys, e.g. ``sample_import(difficulty="easy")``.
+    """
+    payload = {
+        "topic": {"slug": "rag", "name": "RAG"},
+        "subtopic": {"slug": "embeddings", "name": "Embeddings and vector space"},
+        "difficulty": None,
+        "style": "standard",
+        "time_limit_minutes": 15,
+        "scoring_policy": "all_or_nothing",
+        "questions": [
+            {
+                "prompt": "Which of these change when you swap the embedding model?",
+                "explanation": "Vectors from different models are not comparable.",
+                "options": [
+                    {"body": "Every stored vector must be re-embedded", "correct": True},
+                    {"body": "The vector dimension may change", "correct": True},
+                    {"body": "The chunking boundaries", "correct": False},
+                    {"body": "Similarity thresholds need re-tuning", "correct": True},
+                ],
+            },
+            {
+                "prompt": "Which similarity measures are common for text embeddings?",
+                "explanation": "Cosine and dot product are the usual choices.",
+                "points": 2,
+                "options": [
+                    {"body": "Cosine similarity", "correct": True},
+                    {"body": "Dot product", "correct": True},
+                    {"body": "Levenshtein distance", "correct": False},
+                ],
+            },
+            {
+                "prompt": "What does normalising embeddings to unit length change?",
+                "explanation": None,
+                "options": [
+                    {"body": "Dot product equals cosine similarity", "correct": True},
+                    {"body": "The dimension drops by one", "correct": False},
+                ],
+            },
+        ],
+    }
+    payload.update(overrides)
+    return payload
