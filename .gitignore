@@ -10,3 +10,7 @@ __pycache__/
 .env
 *.db
 .superpowers/
+
+# Quiz content — scratch input artifacts, never version-controlled
+quiz-sets/
+*-quiz.json
