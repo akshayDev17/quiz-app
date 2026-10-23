@@ -1,5 +1,13 @@
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Pin the tracing root to this directory. Without it Next walks up looking
+  // for a lockfile and, finding a stray one in a parent directory, warns about
+  // "multiple lockfiles" and traces from the wrong root.
+  outputFileTracingRoot: dirname(fileURLToPath(import.meta.url)),
+
   // The backend (Python Worker) shares the site's origin in production; locally
   // it is a separate origin, reached via NEXT_PUBLIC_API_BASE (see lib/api.ts).
 

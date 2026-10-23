@@ -25,7 +25,6 @@ body { background: var(--paper); font-family: var(--serif); font-optical-sizing:
 a { color: inherit; }
 
 .frame { max-width: 54.8rem; margin: 0 auto; padding: var(--s7) var(--s4); }
-.screen { display: none; } .screen.on { display: block; }
 
 /* micro-caps: the mono label voice used across both sites */
 .mc { font-family: var(--mono); font-size: .6875rem; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
@@ -76,7 +75,7 @@ a { color: inherit; }
 .field input:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 18%, transparent); }
 .who .uname { font-size: 1rem; }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: var(--s4); list-style: none; }
-.set-card { display: flex; flex-direction: column; padding: var(--s4); cursor: pointer; text-align: left; font: inherit; color: inherit; width: 100%; }
+.set-card { display: flex; text-decoration: none; flex-direction: column; padding: var(--s4); cursor: pointer; text-align: left; font: inherit; color: inherit; width: 100%; }
 @media (hover: hover) and (pointer: fine) {
   .set-card:hover { border-color: var(--card-line-hover); box-shadow: var(--shadow-hover); transform: translateY(-4px); }
 }
