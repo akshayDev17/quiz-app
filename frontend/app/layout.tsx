@@ -4,8 +4,10 @@ import './globals.css';
 
 const newsreader = Newsreader({
   subsets: ['latin'],
-  weight: ['300', '400', '500', '600', '700'],
   style: ['normal', 'italic'],
+  // Variable font (no static `weight`) with the optical-size axis, so the
+  // `font-optical-sizing: auto` in globals.css has an axis to act on.
+  axes: ['opsz'],
   variable: '--font-newsreader',
 });
 
