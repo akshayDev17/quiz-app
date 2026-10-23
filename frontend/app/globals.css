@@ -255,6 +255,8 @@ code { font-family: var(--mono); font-size: .85em; background: var(--paper-2); p
 
 /* options */
 .ed-opt { display: flex; align-items: center; gap: .45rem; padding: .12rem 0; }
+/* Add option sits a little off the last row, not flush against it. */
+.ed-opt + .ed-btn { margin-top: .35rem; }
 .ed-opt .idx { width: .9rem; flex: none; font-size: .6875rem; color: #5a6069; font-variant-numeric: tabular-nums; }
 .ed-opt input:not([type="checkbox"]) { flex: 1; min-width: 0; }
 .ed-x { flex: none; display: inline-flex; align-items: center; justify-content: center;
