@@ -8,6 +8,7 @@ result is usable through the repositories.
 
 from __future__ import annotations
 
+import re
 import unittest
 
 import helpers  # noqa: F401  (sys.path)
@@ -57,6 +58,41 @@ def _pre_migration_db() -> SqliteD1:
     db.executescript(SEED)
     db.executescript((MIGRATIONS / "0003_attempt_papers.sql").read_text())
     return db
+
+
+class MigrationFileTest(unittest.TestCase):
+    """The rules every migration file has to obey to run on D1 at all.
+
+    Learned the hard way: an explicit BEGIN in 0003 failed the deploy with
+    "To execute a transaction, please use state.storage.transaction() …" (code
+    7500). `PRAGMA foreign_keys = OFF` is not a way out either — D1 always
+    enforces foreign keys, so a rebuild has to be ordered instead.
+    """
+
+    def statements(self, path) -> str:
+        """The file with comment-only lines stripped."""
+        return "\n".join(
+            line for line in path.read_text().splitlines()
+            if not line.lstrip().startswith("--")
+        )
+
+    def test_no_explicit_transactions(self):
+        for path in sorted(MIGRATIONS.glob("*.sql")):
+            body = self.statements(path)
+            for keyword in ("BEGIN", "COMMIT", "ROLLBACK", "SAVEPOINT"):
+                found = re.search(rf"^\s*{keyword}\b", body, re.IGNORECASE | re.MULTILINE)
+                self.assertIsNone(
+                    found, f"{path.name}: D1 rejects explicit {keyword}; order the statements instead"
+                )
+
+    def test_foreign_keys_are_never_disabled(self):
+        # Enabling it (0001 does) is harmless; disabling it is impossible on D1.
+        for path in sorted(MIGRATIONS.glob("*.sql")):
+            found = re.search(
+                r"PRAGMA\s+foreign_keys\s*=\s*(OFF|0)\b",
+                self.statements(path), re.IGNORECASE,
+            )
+            self.assertIsNone(found, f"{path.name}: D1 cannot disable foreign keys")
 
 
 class MigrationTest(unittest.IsolatedAsyncioTestCase):

@@ -16,41 +16,47 @@
 -- `source_*_id` is provenance only — deliberately NOT a foreign key, because the
 -- whole point is that the source may be deleted.
 --
--- Table rebuilds are needed for the nullable FK and the rewired child FKs.
--- `foreign_keys = OFF` is the documented SQLite procedure; `defer_foreign_keys`
--- covers D1, which does not allow turning enforcement off. Either way the end
--- state is checked by `PRAGMA foreign_key_check` (see the note at the bottom).
+-- Written for D1, which will not run an explicit BEGIN/COMMIT from SQL ("use
+-- state.storage.transaction() instead") and always enforces foreign keys. So
+-- there is no transaction and no `PRAGMA foreign_keys = OFF` here; instead every
+-- step is ordered so that nothing references a table at the moment it is dropped:
+--
+--   1. copy the two child tables into FK-free scratch tables,
+--   2. drop the children (nothing references `attempts` any more),
+--   3. rebuild `attempts` with a nullable set_id plus the frozen label and policy,
+--   4. create the paper,
+--   5. recreate the children against the paper,
+--   6. backfill the paper from the live set,
+--   7. restore the answers and the grades, mapping source ids onto paper ids.
+--
+-- If a statement fails part-way the scratch tables hold the only copy of the
+-- answers; nothing before step 2 is destructive.
 
-PRAGMA foreign_keys = OFF;
-BEGIN;
-PRAGMA defer_foreign_keys = true;
+-- 1. Set aside what the solver ticked and what they were graded, without FKs ----
 
--- 1. The paper ------------------------------------------------------------------
-
-CREATE TABLE attempt_questions (
-  id                  INTEGER PRIMARY KEY,
-  attempt_id          TEXT NOT NULL REFERENCES attempts(id) ON DELETE CASCADE,
-  source_question_id  INTEGER,                          -- provenance only; no FK on purpose
-  position            INTEGER NOT NULL,                 -- served order, 0-based
-  prompt              TEXT NOT NULL,
-  explanation         TEXT,
-  points              REAL NOT NULL CHECK (points > 0),
-  UNIQUE (attempt_id, position)
+CREATE TABLE _attempt_selections_backup (
+  attempt_id  TEXT NOT NULL,
+  question_id INTEGER NOT NULL,
+  option_id   INTEGER NOT NULL
 );
-CREATE INDEX idx_attempt_questions_attempt ON attempt_questions(attempt_id);
+INSERT INTO _attempt_selections_backup (attempt_id, question_id, option_id)
+SELECT attempt_id, question_id, option_id FROM attempt_selections;
 
-CREATE TABLE attempt_options (
-  id                  INTEGER PRIMARY KEY,
-  attempt_question_id INTEGER NOT NULL REFERENCES attempt_questions(id) ON DELETE CASCADE,
-  source_option_id    INTEGER,                          -- provenance only; no FK on purpose
-  position            INTEGER NOT NULL,                 -- served order, 0-based
-  body                TEXT NOT NULL,
-  is_correct          INTEGER NOT NULL CHECK (is_correct IN (0, 1)),
-  UNIQUE (attempt_question_id, position)
+CREATE TABLE _attempt_results_backup (
+  attempt_id      TEXT NOT NULL,
+  question_id     INTEGER NOT NULL,
+  awarded_points  REAL NOT NULL,
+  is_correct      INTEGER NOT NULL
 );
-CREATE INDEX idx_attempt_options_question ON attempt_options(attempt_question_id);
+INSERT INTO _attempt_results_backup (attempt_id, question_id, awarded_points, is_correct)
+SELECT attempt_id, question_id, awarded_points, is_correct FROM attempt_results;
 
--- 2. attempts: nullable set_id + the frozen name/policy it is shown and graded by -
+-- 2. Drop the children so `attempts` can be replaced ---------------------------
+
+DROP TABLE attempt_selections;
+DROP TABLE attempt_results;
+
+-- 3. attempts: nullable set_id + the frozen name/policy it is shown and graded by
 --
 -- The name ingredients (topic, subtopic, difficulty, style, seq, title) are copied
 -- rather than the computed string, so `models.set_name` stays the single place that
@@ -103,12 +109,54 @@ CREATE UNIQUE INDEX uq_attempts_one_open
   ON attempts(set_id, user_email) WHERE status = 'in_progress';
 CREATE INDEX idx_attempts_user ON attempts(user_email, started_at DESC);
 
--- 3. Backfill a paper for every attempt that already exists -----------------------
+-- 4. The paper ----------------------------------------------------------------
+
+CREATE TABLE attempt_questions (
+  id                  INTEGER PRIMARY KEY,
+  attempt_id          TEXT NOT NULL REFERENCES attempts(id) ON DELETE CASCADE,
+  source_question_id  INTEGER,                          -- provenance only; no FK on purpose
+  position            INTEGER NOT NULL,                 -- served order, 0-based
+  prompt              TEXT NOT NULL,
+  explanation         TEXT,
+  points              REAL NOT NULL CHECK (points > 0),
+  UNIQUE (attempt_id, position)
+);
+CREATE INDEX idx_attempt_questions_attempt ON attempt_questions(attempt_id);
+
+CREATE TABLE attempt_options (
+  id                  INTEGER PRIMARY KEY,
+  attempt_question_id INTEGER NOT NULL REFERENCES attempt_questions(id) ON DELETE CASCADE,
+  source_option_id    INTEGER,                          -- provenance only; no FK on purpose
+  position            INTEGER NOT NULL,                 -- served order, 0-based
+  body                TEXT NOT NULL,
+  is_correct          INTEGER NOT NULL CHECK (is_correct IN (0, 1)),
+  UNIQUE (attempt_question_id, position)
+);
+CREATE INDEX idx_attempt_options_question ON attempt_options(attempt_question_id);
+
+-- 5. The children, now pointing at the paper ----------------------------------
+
+CREATE TABLE attempt_selections (
+  attempt_id          TEXT NOT NULL REFERENCES attempts(id) ON DELETE CASCADE,
+  attempt_question_id INTEGER NOT NULL REFERENCES attempt_questions(id) ON DELETE CASCADE,
+  attempt_option_id   INTEGER NOT NULL REFERENCES attempt_options(id) ON DELETE CASCADE,
+  PRIMARY KEY (attempt_id, attempt_question_id, attempt_option_id)
+);
+
+CREATE TABLE attempt_results (
+  attempt_id          TEXT NOT NULL REFERENCES attempts(id) ON DELETE CASCADE,
+  attempt_question_id INTEGER NOT NULL REFERENCES attempt_questions(id) ON DELETE CASCADE,
+  awarded_points      REAL NOT NULL,
+  is_correct          INTEGER NOT NULL CHECK (is_correct IN (0, 1)),
+  PRIMARY KEY (attempt_id, attempt_question_id)
+);
+
+-- 6. A paper for every attempt that already exists ----------------------------
 --
--- Safe because the live set could never have been edited after an attempt (that was
--- exactly the restriction this migration removes), so live questions still are what
--- each attempt was served. Served order = authored order: shuffle is applied at read
--- time today and is not recoverable, and every stored selection is by id, not order.
+-- Read from the live set because it is still what those attempts were served: the
+-- old guard meant a set with attempts could never be edited. Served order = authored
+-- order, since a shuffle was only ever applied at read time and every stored
+-- selection is by id, not by position.
 
 INSERT INTO attempt_questions (attempt_id, source_question_id, position, prompt, explanation, points)
 SELECT a.id, q.id, q.position, q.prompt, q.explanation, q.points
@@ -120,45 +168,25 @@ SELECT aq.id, o.id, o.position, o.body, o.is_correct
 FROM attempt_questions aq
 JOIN options o ON o.question_id = aq.source_question_id;
 
--- 4. Rewire what the solver ticked and what was graded onto the paper -------------
+-- 7. Put the answers and the grades back, on paper ids -------------------------
 
-CREATE TABLE attempt_selections_new (
-  attempt_id          TEXT NOT NULL REFERENCES attempts(id) ON DELETE CASCADE,
-  attempt_question_id INTEGER NOT NULL REFERENCES attempt_questions(id) ON DELETE CASCADE,
-  attempt_option_id   INTEGER NOT NULL REFERENCES attempt_options(id) ON DELETE CASCADE,
-  PRIMARY KEY (attempt_id, attempt_question_id, attempt_option_id)
-);
-
-INSERT INTO attempt_selections_new (attempt_id, attempt_question_id, attempt_option_id)
-SELECT s.attempt_id, aq.id, ao.id
-FROM attempt_selections s
+INSERT INTO attempt_selections (attempt_id, attempt_question_id, attempt_option_id)
+SELECT b.attempt_id, aq.id, ao.id
+FROM _attempt_selections_backup b
 JOIN attempt_questions aq
-  ON aq.attempt_id = s.attempt_id AND aq.source_question_id = s.question_id
+  ON aq.attempt_id = b.attempt_id AND aq.source_question_id = b.question_id
 JOIN attempt_options ao
-  ON ao.attempt_question_id = aq.id AND ao.source_option_id = s.option_id;
+  ON ao.attempt_question_id = aq.id AND ao.source_option_id = b.option_id;
 
-DROP TABLE attempt_selections;
-ALTER TABLE attempt_selections_new RENAME TO attempt_selections;
-
-CREATE TABLE attempt_results_new (
-  attempt_id          TEXT NOT NULL REFERENCES attempts(id) ON DELETE CASCADE,
-  attempt_question_id INTEGER NOT NULL REFERENCES attempt_questions(id) ON DELETE CASCADE,
-  awarded_points      REAL NOT NULL,
-  is_correct          INTEGER NOT NULL CHECK (is_correct IN (0, 1)),
-  PRIMARY KEY (attempt_id, attempt_question_id)
-);
-
-INSERT INTO attempt_results_new (attempt_id, attempt_question_id, awarded_points, is_correct)
-SELECT r.attempt_id, aq.id, r.awarded_points, r.is_correct
-FROM attempt_results r
+INSERT INTO attempt_results (attempt_id, attempt_question_id, awarded_points, is_correct)
+SELECT b.attempt_id, aq.id, b.awarded_points, b.is_correct
+FROM _attempt_results_backup b
 JOIN attempt_questions aq
-  ON aq.attempt_id = r.attempt_id AND aq.source_question_id = r.question_id;
+  ON aq.attempt_id = b.attempt_id AND aq.source_question_id = b.question_id;
 
-DROP TABLE attempt_results;
-ALTER TABLE attempt_results_new RENAME TO attempt_results;
-
-COMMIT;
-PRAGMA foreign_keys = ON;
+DROP TABLE _attempt_selections_backup;
+DROP TABLE _attempt_results_backup;
 
 -- Verified by test/test_migration.py, which applies 0001–0002, seeds attempts, then
--- applies this file and asserts papers, selections, results and labels all survive.
+-- applies this file with foreign keys ON and no wrapping transaction — the same
+-- constraints D1 runs under.
