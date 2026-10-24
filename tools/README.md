@@ -66,7 +66,8 @@ server from `.mcp.json` here.
 | Gmail MCP server definition | yes — `npx -y @jessicaoy89/gmail-mcp` |
 | `GMAIL_OAUTH_PATH` / `GMAIL_CREDENTIALS_PATH` / `GMAIL_ACCOUNT_NAME` | **no** — prompted at install |
 | The Gmail OAuth grant itself | **no** — one-time, in a browser |
-| `python3` and Playwright | **no** — see prerequisites |
+| Playwright (package + Chromium) | yes — provisioned on first use into `~/.quiz/venv` |
+| `python3` | **no** — see prerequisites |
 
 The two paths are `userConfig` values, so you never run `claude mcp add`: the install
 asks for them, and a shell install prints the options it still needs. Set them later
@@ -80,10 +81,19 @@ credentials file is created on first authorisation, so it need not exist yet.
 ## Prerequisites
 
 - **`python3`** — the two skills run their `scripts/` with it.
-- **Playwright** — `pip install playwright && playwright install chromium`. The
-  Cloudflare Access login step drives a browser; the app cannot install this for
-  you.
 - **`node`/`npx`** — to start the Gmail MCP server.
+
+**Playwright is not a prerequisite.** The Cloudflare Access login step needs it, so
+`upload.py` provisions it on first use: if the running interpreter cannot import
+Playwright, `scripts/bootstrap.py` builds a virtualenv at `~/.quiz/venv` (override
+with `QUIZ_VENV`), installs Playwright into it, downloads Chromium, and re-execs.
+That is a one-time, well-over-100 MB download, after which the check costs
+milliseconds. `python3 <scripts>/bootstrap.py --dry-run` prints what it would do
+without doing it.
+
+The virtualenv is deliberately outside the plugin: it survives plugin updates and is
+the same on DSH and Claude Code. It also survives an uninstall — delete
+`~/.quiz/venv` by hand if you want the space back.
 
 ## The two skills
 

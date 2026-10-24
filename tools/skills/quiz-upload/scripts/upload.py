@@ -47,12 +47,33 @@ _HINTS = {
 
 # --- auth -------------------------------------------------------------------
 
-def request_otp(email: str) -> None:
-    """Open the Access login in a headless browser and request a code."""
+def _with_playwright():
+    """The Playwright entry point, installing it on first use rather than up front.
+
+    Playwright is a package plus a downloaded Chromium, so it cannot ship in the
+    plugin; bootstrap.py provisions it into ~/.quiz/venv once, then this re-execs
+    under that interpreter. The env guard stops a re-exec loop if the install did
+    not actually take.
+    """
     try:
         from playwright.sync_api import sync_playwright
+        return sync_playwright
     except ImportError:
-        sys.exit("playwright not installed — run: pip install playwright && playwright install chromium")
+        pass
+    if os.environ.get("QUIZ_PLAYWRIGHT_READY"):
+        sys.exit("playwright is installed but will not import — run: pip install --force-reinstall playwright")
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import bootstrap  # noqa: PLC0415 — only needed on this path
+
+    interpreter = bootstrap.ensure()
+    os.environ["QUIZ_PLAYWRIGHT_READY"] = "1"
+    os.execve(interpreter, [interpreter, str(Path(__file__).resolve()), *sys.argv[1:]], os.environ)
+    raise AssertionError("unreachable: os.execve replaces this process")
+
+
+def request_otp(email: str) -> None:
+    """Open the Access login in a headless browser and request a code."""
+    sync_playwright = _with_playwright()
     udd = os.path.expanduser("~/.quiz/access-browser")
     with sync_playwright() as p:
         ctx = p.chromium.launch_persistent_context(udd, headless=True)

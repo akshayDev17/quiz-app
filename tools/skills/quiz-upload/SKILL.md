@@ -19,6 +19,10 @@ Resolve `<scripts>` as the `scripts/` directory beside this SKILL.md — in Clau
 2. **Request a login code** (skip if `~/.quiz/session.json` already has a fresh
    cookie):
    `python3 <scripts>/upload.py --request-otp --email <admin-email>`.
+   The first run that needs a browser provisions Playwright into `~/.quiz/venv` by
+   itself and then re-execs — expect a one-time, well-over-100 MB Chromium download
+   and a minute or two before `Login code sent to …` appears. Do not install
+   Playwright by hand; do not interrupt it.
    Completion: it prints `Login code sent to …`.
 3. **Read the code email** with the Gmail MCP (`mcp__gmail__search_emails` for
    `from:noreply@notify.cloudflare.com`, then `mcp__gmail__read_email`). Copy the
