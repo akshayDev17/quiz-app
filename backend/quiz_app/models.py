@@ -110,9 +110,25 @@ class ReviewQuestion:
 
 @dataclass(frozen=True)
 class Attempt:
+    """An attempt and the quiz as it was when the attempt started.
+
+    The name ingredients and the grading policy are copied at start, not read live:
+    renaming, editing, archiving or deleting the set must never rewrite an attempt.
+    ``set_id`` is ``None`` once the set has been deleted; everything needed to show
+    and regrade the attempt is already here and in its paper.
+    """
+
     id: str
-    set_id: int
+    set_id: int | None
     user_email: str
+    topic_name: str
+    subtopic_name: str | None
+    difficulty: str | None
+    style: str
+    seq: int
+    title: str | None
+    scoring_policy: str
+    reveal_answers: bool
     started_at: int
     deadline_at: int | None
     finished_at: int | None
@@ -120,6 +136,11 @@ class Attempt:
     score: float | None
     max_score: float | None
     paused_at: int | None = None
+
+    @property
+    def name(self) -> str:
+        """The set's name as it was when this attempt started."""
+        return set_name(self.subtopic_name, self.difficulty, self.style, self.seq, self.title)
 
     @property
     def is_open(self) -> bool:

@@ -89,7 +89,8 @@ class Handler(BaseHTTPRequestHandler):
             status, payload = 500, {"error": "internal error"}
         self._send(status, payload)
 
-    do_GET = do_POST = do_PUT = do_PATCH = _handle
+    # DELETE is a real route (/admin/sets/{id}); the dev server must speak it too.
+    do_GET = do_POST = do_PUT = do_PATCH = do_DELETE = _handle
 
     def do_OPTIONS(self) -> None:
         self.send_response(204)

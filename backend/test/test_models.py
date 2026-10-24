@@ -32,18 +32,38 @@ class SetNameTest(unittest.TestCase):
         self.assertEqual(set_name("Ranking", None, "standard", 1, "Final exam"), "Final exam")
 
 
+def attempt(**overrides) -> Attempt:
+    """An attempt with everything the paper pins filled in; override what a test cares about."""
+    fields = dict(
+        id="a", set_id=1, user_email="u@x.com", topic_name="RAG", subtopic_name="Ranking",
+        difficulty="medium", style="standard", seq=1, title=None,
+        scoring_policy="all_or_nothing", reveal_answers=True, started_at=0, deadline_at=None,
+        finished_at=None, status="in_progress", score=None, max_score=None,
+    )
+    fields.update(overrides)
+    return Attempt(**fields)
+
+
 class AttemptTest(unittest.TestCase):
     def test_attempt_due_and_writes(self):
-        a = Attempt("a", 1, "u@x.com", 0, 60_000, None, "in_progress", None, None)
+        a = attempt(deadline_at=60_000)
         self.assertFalse(a.is_due(59_999)); self.assertTrue(a.is_due(60_000))
         self.assertTrue(a.accepts_writes(69_999, GRACE_MS)); self.assertFalse(a.accepts_writes(70_001, GRACE_MS))
-        untimed = Attempt("b", 1, "u@x.com", 0, None, None, "in_progress", None, None)
+        untimed = attempt(id="b")
         self.assertFalse(untimed.is_due(10**15)); self.assertTrue(untimed.accepts_writes(10**15, GRACE_MS))
-        self.assertFalse(Attempt("c", 1, "u", 0, None, 5, "submitted", 1, 1).accepts_writes(1, GRACE_MS))
+        self.assertFalse(attempt(id="c", status="submitted", finished_at=5, score=1, max_score=1)
+                         .accepts_writes(1, GRACE_MS))
 
     def test_is_open_only_while_in_progress(self):
-        self.assertTrue(Attempt("a", 1, "u", 0, None, None, "in_progress", None, None).is_open)
-        self.assertFalse(Attempt("a", 1, "u", 0, None, 5, "submitted", 1, 1).is_open)
+        self.assertTrue(attempt().is_open)
+        self.assertFalse(attempt(status="submitted", finished_at=5, score=1, max_score=1).is_open)
+
+    def test_name_is_the_one_the_attempt_started_under(self):
+        # Frozen at start: renaming or deleting the set cannot rewrite it.
+        self.assertEqual(attempt().name, "Ranking · Medium · Set 1")
+        self.assertEqual(attempt(title="Final exam").name, "Final exam")
+        self.assertEqual(attempt(subtopic_name=None, difficulty=None).name, "Set 1")
+        self.assertEqual(attempt(set_id=None).name, "Ranking · Medium · Set 1")
 
 
 class SolverShapeTest(unittest.TestCase):

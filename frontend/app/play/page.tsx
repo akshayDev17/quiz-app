@@ -35,6 +35,20 @@ const resultsUrl = (attemptId: string) => `/results?attempt=${encodeURIComponent
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 const message = (err: unknown) => (err instanceof Error ? err.message : 'Something went wrong');
 
+/** Longer than a slow save, short enough that a dead connection cannot hang the button. */
+const PAUSE_TIMEOUT_MS = 10_000;
+
+/** Reject if `promise` has not settled within `ms`, so Pause always resolves one way or another. */
+function withTimeout<T>(promise: Promise<T>, ms: number, reason: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(reason)), ms);
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      (err) => { clearTimeout(timer); reject(err); },
+    );
+  });
+}
+
 function Play() {
   const router = useRouter();
   const attemptId = useSearchParams().get('attempt') ?? '';
@@ -172,8 +186,15 @@ function Play() {
         setOffsetMs(clockOffset(s.server_now, Date.now()));
         setSession(s);
       } else {
-        await queueRef.current?.flush(); // save pending answers before freezing
-        const s = await pauseAttempt(attemptId);
+        // Everything the queue still holds goes in the pause request itself, so the
+        // server freezes the clock and writes those answers in one transaction. Once
+        // paused nothing can be written, so an answer left behind here would be lost.
+        const pending = queueRef.current?.pendingAnswers() ?? [];
+        const s = await withTimeout(
+          pauseAttempt(attemptId, pending),
+          PAUSE_TIMEOUT_MS,
+          "Pausing timed out — check your connection and try again.",
+        );
         setOffsetMs(clockOffset(s.server_now, Date.now()));
         setSession(s);
       }

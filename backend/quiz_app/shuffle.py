@@ -7,16 +7,25 @@ from __future__ import annotations
 
 import dataclasses
 import random
+from typing import Protocol, TypeVar
 
-from .models import QuestionForSolver
+
+class _Orderable(Protocol):
+    """A question-shaped value: an id and an ordered tuple of options, each with an id."""
+
+    id: int
+    options: tuple
+
+
+Q = TypeVar("Q", bound=_Orderable)
 
 
 def display_order(
     attempt_id: str,
-    questions: list[QuestionForSolver],
+    questions: list[Q],
     shuffle_questions: bool,
     shuffle_options: bool,
-) -> list[QuestionForSolver]:
+) -> list[Q]:
     out = list(questions)
     if shuffle_questions:
         random.Random(attempt_id).shuffle(out)

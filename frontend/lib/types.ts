@@ -21,7 +21,7 @@ export type SetIntro = { id: number; topic: string; subtopic: string | null; nam
   open_attempt_id: string | null };
 
 export type AttemptSession = {
-  attempt: { id: string; set_id: number; status: 'in_progress' | 'submitted' | 'expired';
+  attempt: { id: string; set_id: number | null; status: 'in_progress' | 'submitted' | 'expired';
              started_at: number; deadline_at: number | null; paused_at: number | null };
   server_now: number;
   set: { name: string; topic: string; subtopic: string | null };
@@ -32,13 +32,13 @@ export type AttemptSession = {
 export type Results = {
   attempt: { id: string; status: 'submitted' | 'expired'; started_at: number; finished_at: number;
              score: number; max_score: number };
-  set: { id: number; name: string; topic: string; scoring_policy: 'all_or_nothing' | 'partial'; reveal_answers: boolean };
+  set: { id: number | null; name: string; topic: string; scoring_policy: 'all_or_nothing' | 'partial'; reveal_answers: boolean };
   questions: { id: number; prompt: string; points: number; awarded_points: number; is_correct: boolean;
                explanation: string | null;                          // null when !reveal_answers
                options: { id: number; body: string; selected: boolean; correct: boolean | null }[] }[];  // correct null when !reveal_answers
 };
 
-export type History = { attempts: { id: string; set_id: number; name: string; topic: string;
+export type History = { attempts: { id: string; set_id: number | null; name: string; topic: string;
   status: 'in_progress' | 'submitted' | 'expired'; started_at: number; finished_at: number | null;
   score: number | null; max_score: number | null }[] };            // newest first
 

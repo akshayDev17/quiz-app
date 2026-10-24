@@ -141,6 +141,18 @@ export class SaveQueue {
     for (const [qid, entry] of this.entries) this.send(qid, entry, true);
   }
 
+  /**
+   * The answers this queue still holds: values the server has not confirmed. A pause
+   * sends these so the freeze and the answers commit together rather than the freeze
+   * landing first and the autosave being refused behind it.
+   */
+  pendingAnswers(): { question_id: number; option_ids: number[] }[] {
+    return [...this.entries].map(([questionId, entry]) => ({
+      question_id: questionId,
+      option_ids: [...entry.ids],
+    }));
+  }
+
   /** Questions whose latest answer the server has not confirmed (rejected ones excluded). */
   unsaved(): number[] {
     return [...this.entries.keys()];

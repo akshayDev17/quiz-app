@@ -42,6 +42,35 @@ test('debounces per question, last value wins', async () => {
   assert.equal(q.state(), 'saved');
 });
 
+test('pendingAnswers is exactly what a pause must carry', async () => {
+  const calls: Call[] = [];
+  const releases: (() => void)[] = [];
+  const save = (qid: number, ids: number[]) => {
+    calls.push([qid, ids]);
+    return new Promise<void>((r) => releases.push(r));
+  };
+  const q = new SaveQueue(save);
+
+  assert.deepEqual(q.pendingAnswers(), []); // nothing held, nothing to carry
+
+  q.set(1, [4]);
+  q.set(2, [7, 8]);
+  assert.deepEqual(q.pendingAnswers(), [
+    { question_id: 1, option_ids: [4] },
+    { question_id: 2, option_ids: [7, 8] },
+  ]);
+
+  const flushed = q.flush();
+  await drain();
+  releases.forEach((r) => r()); // both saves confirmed
+  await flushed;
+  mock.timers.tick(1000);
+
+  // Confirmed answers are no longer pending: a pause has nothing to carry.
+  assert.deepEqual(q.pendingAnswers(), []);
+  assert.deepEqual(calls, [[1, [4]], [2, [7, 8]]]);
+});
+
 test('flush sends pending immediately and awaits it', async () => {
   const calls: Call[] = [];
   let release!: () => void;

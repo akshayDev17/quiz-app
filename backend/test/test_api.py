@@ -21,7 +21,7 @@ from quiz_app.api import MALFORMED, decode_body  # noqa: E402
 from quiz_app.auth import CloudflareAccessIdentity, Identity, parse_emails  # noqa: E402
 from quiz_app.clock import FakeClock  # noqa: E402
 from quiz_app.composition import build_api  # noqa: E402
-from quiz_app.d1.catalog import D1AnswerKey  # noqa: E402
+from quiz_app.d1.attempts import D1AttemptRepository  # noqa: E402
 
 ADMIN = Identity("admin@example.com")
 ALICE = Identity("alice@example.com")
@@ -54,8 +54,9 @@ class ApiCase(unittest.IsolatedAsyncioTestCase):
     async def start(self, sid, ident=ALICE) -> dict:
         return await self.ok("POST", f"/sets/{sid}/attempts", None, ident, 201)
 
-    async def key(self, sid):
-        return await D1AnswerKey(self.db).answer_key(sid)
+    async def key(self, aid):
+        """The paper's questions with their correct options, keyed by paper id."""
+        return await D1AttemptRepository(self.db).answer_key(aid)
 
     async def answer(self, aid, qid, option_ids, ident=ALICE):
         return await self.call("PUT", f"/attempts/{aid}/answers/{qid}", {"option_ids": sorted(option_ids)}, ident)
@@ -195,7 +196,7 @@ class FlowTest(ApiCase):
         resumed = await self.ok("POST", f"/sets/{sid}/attempts")
         self.assertEqual(resumed["attempt"]["id"], aid)
 
-        q1, q2, q3 = await self.key(sid)
+        q1, q2, q3 = await self.key(aid)
         status, body = await self.answer(aid, q1.question_id, q1.correct)
         self.assertEqual((status, body), (204, None))
         await self.answer(aid, q2.question_id, q2.correct)
@@ -260,7 +261,7 @@ class FlowTest(ApiCase):
     async def test_answer_validation(self):
         sid = await self.publish()
         aid = (await self.start(sid))["attempt"]["id"]
-        q1, q2, _ = await self.key(sid)
+        q1, q2, _ = await self.key(aid)
         for bad in (None, {}, {"option_ids": "x"}, {"option_ids": [1.5]}, {"option_ids": [True]}, [1]):
             status, _ = await self.call("PUT", f"/attempts/{aid}/answers/{q1.question_id}", bad)
             self.assertEqual(status, 422, bad)
@@ -285,7 +286,7 @@ class FlowTest(ApiCase):
     async def test_timeout_flow(self):
         sid = await self.publish()
         aid = (await self.start(sid))["attempt"]["id"]
-        q1, _, _ = await self.key(sid)
+        q1, _, _ = await self.key(aid)
         await self.answer(aid, q1.question_id, q1.correct)
         self.clock.advance(LIMIT_MS)
         fetched = await self.ok("GET", f"/attempts/{aid}")
@@ -295,6 +296,46 @@ class FlowTest(ApiCase):
         self.assertEqual((results["attempt"]["score"], results["attempt"]["finished_at"]), (1, START + LIMIT_MS))
         [row] = (await self.ok("GET", "/attempts"))["attempts"]
         self.assertEqual(row["status"], "expired")
+
+    async def test_pause_carries_the_pending_answers(self):
+        # The browser's unsaved answers ride along with the pause, so the freeze and
+        # the answers commit together and nothing is lost behind the paused state.
+        sid = await self.publish()
+        aid = (await self.start(sid))["attempt"]["id"]
+        q1, q2, _ = await self.key(aid)
+
+        paused = await self.ok("POST", f"/attempts/{aid}/pause", {"answers": [
+            {"question_id": q1.question_id, "option_ids": sorted(q1.correct)},
+            {"question_id": q2.question_id, "option_ids": sorted(q2.correct)},
+        ]})
+
+        self.assertIsNotNone(paused["attempt"]["paused_at"])
+        self.assertEqual(paused["selections"][str(q1.question_id)], sorted(q1.correct))
+        self.assertEqual(paused["selections"][str(q2.question_id)], sorted(q2.correct))
+
+        # A write that arrives after the freeze is still refused.
+        self.assertEqual(await self.call("PUT", f"/attempts/{aid}/answers/{q1.question_id}",
+                                         {"option_ids": []}), (409, {"error": "attempt paused"}))
+
+    async def test_pause_with_a_bad_answer_is_rejected_and_does_not_freeze(self):
+        sid = await self.publish()
+        aid = (await self.start(sid))["attempt"]["id"]
+        q1, q2, _ = await self.key(aid)
+
+        status, _ = await self.call("POST", f"/attempts/{aid}/pause", {"answers": [
+            {"question_id": q1.question_id, "option_ids": sorted(q2.correct)},  # wrong question's options
+        ]})
+        self.assertEqual(status, 422)
+
+        session = await self.ok("GET", f"/attempts/{aid}")
+        self.assertIsNone(session["attempt"]["paused_at"])
+        self.assertEqual(session["selections"], {})
+
+    async def test_pause_without_a_body_still_freezes(self):
+        sid = await self.publish()
+        aid = (await self.start(sid))["attempt"]["id"]
+        paused = await self.ok("POST", f"/attempts/{aid}/pause", None)
+        self.assertIsNotNone(paused["attempt"]["paused_at"])
 
     async def test_topics_runs_lazy_expiry(self):
         sid = await self.publish()
@@ -311,7 +352,7 @@ class SecrecyTest(ApiCase):
         other = await self.publish()
         started = await self.start(sid)
         aid = started["attempt"]["id"]
-        q1, _, _ = await self.key(sid)
+        q1, _, _ = await self.key(aid)
         await self.answer(aid, q1.question_id, q1.correct)
         bodies = [
             await self.ok("GET", "/topics"),
@@ -334,7 +375,7 @@ class SecrecyTest(ApiCase):
     async def test_foreign_attempt_is_404_everywhere(self):
         sid = await self.publish()
         aid = (await self.start(sid))["attempt"]["id"]
-        q1, _, _ = await self.key(sid)
+        q1, _, _ = await self.key(aid)
         mine_before = await self.ok("GET", f"/attempts/{aid}")
         probes = [
             ("GET", f"/attempts/{aid}", None),
@@ -351,7 +392,7 @@ class SecrecyTest(ApiCase):
     async def test_reveal_answers_false_hides_correct_and_explanation(self):
         sid = await self.publish(reveal_answers=False)
         aid = (await self.start(sid))["attempt"]["id"]
-        q1, _, _ = await self.key(sid)
+        q1, _, _ = await self.key(aid)
         await self.answer(aid, q1.question_id, q1.correct)
         await self.ok("POST", f"/attempts/{aid}/submit")
         results = await self.ok("GET", f"/attempts/{aid}/results")

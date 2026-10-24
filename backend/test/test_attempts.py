@@ -19,11 +19,11 @@ from helpers import fresh_db, sample_import  # noqa: E402
 from quiz_app.clock import FakeClock  # noqa: E402
 from quiz_app.d1.attempts import D1AttemptRepository  # noqa: E402
 from quiz_app.d1.authoring import D1QuizAuthoring  # noqa: E402
-from quiz_app.d1.catalog import D1AnswerKey, D1Catalog  # noqa: E402
+from quiz_app.d1.catalog import D1Catalog, D1PaperSource  # noqa: E402
 from quiz_app.d1.users import D1UserRepository  # noqa: E402
 from quiz_app.errors import Conflict, Invalid, NotFound  # noqa: E402
 from quiz_app import serializers  # noqa: E402
-from quiz_app.models import GradeResult, QuestionResult, User  # noqa: E402
+from quiz_app.models import QuestionKey, GradeResult, QuestionResult, User  # noqa: E402
 from quiz_app.services.attempts import AttemptService  # noqa: E402
 from quiz_app.services.authoring import AuthoringService  # noqa: E402
 from quiz_app.shuffle import display_order  # noqa: E402
@@ -58,14 +58,26 @@ class AttemptCase(unittest.IsolatedAsyncioTestCase):
             await users.get_or_create(email)
         self.authoring = AuthoringService(D1QuizAuthoring(self.db, self.clock), self.clock)
         self.catalog = D1Catalog(self.db)
-        self.keys = D1AnswerKey(self.db)
+        self.papers = D1PaperSource(self.db)
         self.repo = D1AttemptRepository(self.db)
         self.svc = self.service(self.repo)
         self.sid = await self.seed()
-        self.q1, self.q2, self.q3 = await self.keys.answer_key(self.sid)
+        self.q1, self.q2, self.q3 = await self.key(self.sid)
 
     def service(self, repo):
-        return AttemptService(self.catalog, self.keys, repo, self.clock)
+        return AttemptService(self.catalog, self.papers, repo, self.clock)
+
+    async def key(self, set_id):
+        """(id, points, correct) per question, in authored order — the set's own ids.
+
+        Used to describe what an attempt *should* have been served. Anything passed
+        back to ``save``/``pause`` must use the attempt's paper ids; ``start``
+        refreshes q1–q3 to those.
+        """
+        return [
+            QuestionKey(q.id, q.points, frozenset(o.id for o in q.options if o.is_correct))
+            for q in await self.papers.paper_source(set_id)
+        ]
 
     async def seed(self, publish=True, **overrides) -> int:
         info = await self.authoring.import_set(ADMIN, sample_import(**overrides))
@@ -74,7 +86,10 @@ class AttemptCase(unittest.IsolatedAsyncioTestCase):
         return info.id
 
     async def start(self, email=ALICE, set_id=None) -> str:
-        return (await self.svc.start_or_resume(email, set_id or self.sid)).attempt.id
+        aid = (await self.svc.start_or_resume(email, set_id or self.sid)).attempt.id
+        # The paper's ids are new per attempt; answer by those, never by the source's.
+        self.q1, self.q2, self.q3 = (await self.repo.answer_key(aid) + [None, None, None])[:3]
+        return aid
 
     async def count_results(self, attempt_id) -> int:
         row = await self.db.prepare(
@@ -175,7 +190,7 @@ class StartTest(AttemptCase):
         session = await self.svc.start_or_resume(ALICE, self.sid)
         self.assertEqual([q.id for q in session.questions], [self.q1.question_id, self.q2.question_id, self.q3.question_id])
         self.assertEqual(session.selections, {})
-        self.assertEqual(session.set.id, self.sid)
+        self.assertEqual(session.attempt.set_id, self.sid)
 
     async def test_untimed_set_has_no_deadline_and_never_expires(self):
         sid = await self.seed(time_limit_minutes=None)
@@ -238,7 +253,7 @@ class SaveTest(AttemptCase):
         with self.assertRaises(Invalid):
             await self.svc.save(ALICE, aid, self.q1.question_id, [option_of_q2])
         other_set = await self.seed()
-        [foreign_q, *_] = await self.keys.answer_key(other_set)
+        [foreign_q, *_] = await self.key(other_set)
         with self.assertRaises(Invalid):
             await self.svc.save(ALICE, aid, foreign_q.question_id, list(foreign_q.correct))
         self.assertEqual((await self.svc.session(ALICE, aid)).selections, {})
@@ -374,7 +389,7 @@ class ResultsTest(AttemptCase):
         await self.svc.submit(ALICE, aid)
         view = await self.svc.results(ALICE, aid)
         self.assertEqual(view.attempt.status, "submitted")
-        self.assertEqual(view.set.id, self.sid)
+        self.assertEqual(view.attempt.set_id, self.sid)
         self.assertEqual([q.id for q in view.questions], [self.q1.question_id, self.q2.question_id, self.q3.question_id])
         self.assertEqual(view.selections[self.q2.question_id], frozenset(wrong))
         self.assertTrue(view.results[self.q1.question_id].is_correct)
@@ -387,7 +402,7 @@ class ResultsTest(AttemptCase):
         await self.svc.save(ALICE, aid, self.q1.question_id, list(self.q1.correct))
         await self.svc.submit(ALICE, aid)
         await self.db.prepare(
-            "DELETE FROM attempt_results WHERE attempt_id = ? AND question_id = ?"
+            "DELETE FROM attempt_results WHERE attempt_id = ? AND attempt_question_id = ?"
         ).bind(aid, self.q1.question_id).run()
         body = serializers.results(await self.svc.results(ALICE, aid))
         missing = next(q for q in body["questions"] if q["id"] == self.q1.question_id)
@@ -416,21 +431,29 @@ class OwnershipAndOrderTest(AttemptCase):
         self.assertEqual((await self.repo.get(aid)).status, "in_progress")
         self.assertEqual(await self.repo.selections(aid), {})
 
-    async def test_display_order_used_when_shuffling(self):
+    async def test_display_order_is_materialized_at_start(self):
+        # Shuffle is applied once, when the paper is written, so every later read —
+        # session, resume, review — gets the same order without re-deriving it.
         sid = await self.seed(shuffle_questions=True, shuffle_options=True)
+        source = await self.papers.paper_source(sid)
         aids = [await self._start_and_finish(sid) for _ in range(4)]
-        solver = await self.catalog.questions_for_solver(sid)
         orders = set()
         for aid in aids:
-            expected = display_order(aid, solver, True, True)
+            expected = display_order(aid, source, True, True)
             session = await self.svc.session(ALICE, aid)
-            self.assertEqual(session.questions, expected)
+            self.assertEqual(
+                [q.prompt for q in session.questions], [q.prompt for q in expected]
+            )
+            self.assertEqual(
+                [[o.body for o in q.options] for q in session.questions],
+                [[o.body for o in q.options] for q in expected],
+            )
             view = await self.svc.results(ALICE, aid)
             self.assertEqual(
-                [(q.id, [o.id for o in q.options]) for q in view.questions],
-                [(q.id, [o.id for o in q.options]) for q in expected],
+                [[o.body for o in q.options] for q in view.questions],
+                [[o.body for o in q.options] for q in expected],
             )
-            orders.add(tuple((q.id, tuple(o.id for o in q.options)) for q in expected))
+            orders.add(tuple(q.prompt for q in session.questions))
         self.assertGreater(len(orders), 1)  # the shuffle actually varies by attempt
 
     async def _start_and_finish(self, sid) -> str:
@@ -448,9 +471,10 @@ class HistoryTest(AttemptCase):
         await self.start(BOB)
         self.clock.advance(LIMIT_MS)
         history = await self.svc.history(ALICE)
-        self.assertEqual([a.id for a, _ in history], [a2, a1])
-        self.assertEqual([s.id for _, s in history], [other, self.sid])
-        self.assertEqual({a.status for a, _ in history}, {"expired"})
+        self.assertEqual([a.id for a in history], [a2, a1])
+        self.assertEqual([a.set_id for a in history], [other, self.sid])
+        self.assertEqual({a.status for a in history}, {"expired"})
+        self.assertEqual([a.name for a in history], [history[0].name, history[1].name])
 
     async def test_repository_user_queries(self):
         other = await self.seed()
@@ -483,7 +507,7 @@ class ArchivedSetTest(AttemptCase):
         attempt = await self.svc.submit(ALICE, aid)
         self.assertEqual((attempt.status, attempt.score), ("submitted", 1))
         view = await self.svc.results(ALICE, aid)
-        self.assertEqual(view.set.status, "archived")
+        self.assertEqual(view.attempt.set_id, self.sid)
         self.assertEqual(len(view.questions), 3)
         self.assertTrue(view.results[self.q1.question_id].is_correct)
 
@@ -502,7 +526,7 @@ class ArchivedSetTest(AttemptCase):
         await self.svc.submit(ALICE, aid)
         await self.archive()
         history = await self.svc.history(ALICE)
-        self.assertEqual([(a.id, s.id) for a, s in history], [(aid, self.sid)])
+        self.assertEqual([(a.id, a.set_id) for a in history], [(aid, self.sid)])
 
     async def test_cannot_start_on_archived_set(self):
         await self.archive()

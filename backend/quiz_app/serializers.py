@@ -84,7 +84,7 @@ def set_intro(info: QuizSetInfo, attempts_used: int, open_attempt_id: str | None
 
 
 def attempt_session(session: AttemptSession) -> dict:
-    attempt, info = session.attempt, session.set
+    attempt = session.attempt
     return {
         "attempt": {
             "id": attempt.id,
@@ -95,7 +95,8 @@ def attempt_session(session: AttemptSession) -> dict:
             "paused_at": attempt.paused_at,
         },
         "server_now": session.server_now,
-        "set": {"name": info.name, "topic": info.topic_name, "subtopic": info.subtopic_name},
+        # The name the attempt started under, not the set's current one.
+        "set": {"name": attempt.name, "topic": attempt.topic_name, "subtopic": attempt.subtopic_name},
         "questions": [
             {
                 "id": q.id,
@@ -109,8 +110,9 @@ def attempt_session(session: AttemptSession) -> dict:
 
 
 def results(view: ResultsView) -> dict:
-    attempt, info = view.attempt, view.set
-    reveal = info.reveal_answers
+    attempt = view.attempt
+    # Pinned at start: flipping reveal_answers later cannot expose an old attempt's key.
+    reveal = attempt.reveal_answers
     questions = []
     for q in view.questions:
         # Defensive: a missing result row reads as unanswered rather than failing the page.
@@ -138,31 +140,31 @@ def results(view: ResultsView) -> dict:
             "max_score": attempt.max_score,
         },
         "set": {
-            "id": info.id,
-            "name": info.name,
-            "topic": info.topic_name,
-            "scoring_policy": info.scoring_policy,
+            "id": attempt.set_id,          # None once the set has been deleted
+            "name": attempt.name,
+            "topic": attempt.topic_name,
+            "scoring_policy": attempt.scoring_policy,
             "reveal_answers": reveal,
         },
         "questions": questions,
     }
 
 
-def history(rows: list[tuple[Attempt, QuizSetInfo]]) -> dict:
+def history(attempts: list[Attempt]) -> dict:
     return {
         "attempts": [
             {
                 "id": a.id,
-                "set_id": a.set_id,
-                "name": info.name,
-                "topic": info.topic_name,
+                "set_id": a.set_id,            # None once the set has been deleted
+                "name": a.name,               # as it was when this attempt started
+                "topic": a.topic_name,
                 "status": a.status,
                 "started_at": a.started_at,
                 "finished_at": a.finished_at,
                 "score": None if a.is_open else a.score,
                 "max_score": None if a.is_open else a.max_score,
             }
-            for a, info in rows
+            for a in attempts
         ]
     }
 

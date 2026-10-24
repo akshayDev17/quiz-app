@@ -110,9 +110,21 @@ export const saveAnswer = (
   );
 export const submitAttempt = (attemptId: string) =>
   send<SubmitResult>('POST', `/attempts/${id(attemptId)}/submit`);
-/** Freeze the clock (timed attempts only); returns the session with paused_at set. */
-export const pauseAttempt = (attemptId: string) =>
-  send<AttemptSession>('POST', `/attempts/${id(attemptId)}/pause`);
+/** An answer the browser still holds, sent along with a pause. */
+export type PendingAnswer = { question_id: number; option_ids: number[] };
+
+/**
+ * Freeze the clock (timed attempts only), storing `answers` in the same request.
+ *
+ * The server writes them and `paused_at` in one transaction: once paused the attempt
+ * accepts no more writes, so anything left unsaved at that moment would be lost.
+ */
+export const pauseAttempt = (attemptId: string, answers: PendingAnswer[] = []) =>
+  send<AttemptSession>(
+    'POST',
+    `/attempts/${id(attemptId)}/pause`,
+    answers.length ? { answers } : undefined,
+  );
 /** Extend the deadline by the paused duration and restart the clock. */
 export const resumeAttempt = (attemptId: string) =>
   send<AttemptSession>('POST', `/attempts/${id(attemptId)}/resume`);

@@ -109,12 +109,18 @@ topics(id, slug UNIQUE, name, description, position, created_at)       RAG, Harn
   │     └─< questions(id, set_id, position, prompt(md), explanation(md), points)
   │           └─< options(id, question_id, position, body(md), is_correct)
   │
-  └─ quiz_sets ─< attempts(id uuid, set_id, user_email, started_at,
-                           deadline_at NULL=untimed, finished_at,
+  └─ quiz_sets ─< attempts(id uuid, set_id NULL=set deleted, user_email,
+                           topic_name, subtopic_name, difficulty, style, seq, title,
+                           scoring_policy, reveal_answers,
+                           started_at, deadline_at NULL=untimed, finished_at,
                            status[in_progress|submitted|expired],
-                           score, max_score)
-                    ├─< attempt_selections(attempt_id, question_id, option_id)   PK = all 3
-                    └─< attempt_results(attempt_id, question_id, awarded_points, is_correct)
+                           score, max_score, paused_at)
+                    ├─< attempt_questions(attempt_id, source_question_id, position,
+                                          prompt, explanation, points)      -- the paper
+                    │        └─< attempt_options(attempt_question_id, source_option_id,
+                    │                            position, body, is_correct)
+                    ├─< attempt_selections(attempt_id, attempt_question_id, attempt_option_id)
+                    └─< attempt_results(attempt_id, attempt_question_id, awarded_points, is_correct)
 ```
 
 Design notes:
@@ -128,6 +134,11 @@ Design notes:
 | Partial unique index: one `in_progress` attempt per (set, user) | Pressing "Start" twice, or in two tabs, resumes the same attempt instead of creating a second one. |
 | `attempt_selections` is one row per ticked option | Multi-select needs no JSON column. Saving an answer is a delete-then-insert of that question's rows in one D1 `batch()`. |
 | `attempt_results` is written **once**, at grading | Scores never move afterwards, even if an author later edits the question. |
+| An attempt **owns its paper**: `attempt_questions`/`attempt_options` are copied at start | Editing or deleting a set must never rewrite a solver's record. Everything after "start" reads the paper, never `questions`/`options`, so the live set can change freely. `source_*_id` is provenance only, deliberately without a foreign key. |
+| The paper is written in **served order**; shuffle happens once, at start | Resuming, re-reading and reviewing all get the same order without re-deriving it, so a later edit to `shuffle_*` cannot reorder a running attempt. |
+| Name ingredients and `scoring_policy`/`reveal_answers` are **copied onto the attempt** | Grading and display use the rules in force when the attempt started. Renaming or re-policying a set cannot rewrite history or change a score mid-attempt. |
+| `attempts.set_id` is **nullable**, `ON DELETE SET NULL` | A set can be hard-deleted while attempts on it survive, unlinked, still showing their score, name and breakdown. |
+| Pause **carries the pending answers** and commits them with `paused_at` in one batch | Once paused, an attempt accepts no writes. Saving first and pausing after left a window where an answer could be lost behind the frozen state. |
 | Topic → optional **subtopic** → set (not a strict 3 levels) | Some quizzes cover a whole course ("RAG, Easy, Set 1"), others one module or concept ("Prefix caching, Set 1"). A nullable `subtopic_id` covers both without inventing a "General" subtopic. |
 | Subtopics are **authored freely**, not seeded from the coursework folders | "Prefix caching" is a concept inside a module, not a module itself. Coursework modules are a good starting list, not a constraint. |
 | **Difficulty and style are separate columns**, both optional | "Easy" and "scenario-based" are independent: a set can be both. As columns rather than free-text tags they can be filtered and grouped. |
@@ -135,12 +146,28 @@ Design notes:
 | Composite FK `(subtopic_id, topic_id) → subtopics(id, topic_id)` | A set can't point at another course's subtopic. D1 enforces foreign keys by default. |
 | Epoch-ms integers for all times | Deadline checks become integer comparisons, with no ISO parsing in Python or JS. |
 
-**Editing a set after people have attempted it (my call):** a published set
-that has any attempts is **locked**. To change it, *Clone as new draft*. The
-clone takes the next `seq` in its group (`Set 1` → `Set 3`), and the original
-can be archived. Old attempts keep pointing at the old questions, so
-their review pages stay truthful. This is cheaper than full row versioning and
-covers the realistic case.
+**Editing, deleting and playing at the same time.** Because each attempt froze
+its own paper at start, the three actions no longer conflict:
+
+- **Editing** a set that has been played is allowed and takes effect for the
+  next attempt only. Nothing an existing attempt reads is touched, so a paused
+  solver resumes into the quiz they started.
+- **Archiving** hides a set from solvers and changes nothing for attempts
+  already on it; unarchiving is the same one-click status flip back.
+- **Deleting** removes the catalogue — the set, its questions and options —
+  and nothing else. Attempts keep their own copy, so history keeps the full
+  per-question breakdown forever; only the catalogue entry is gone
+  (`set_id` becomes NULL, the copied name stays).
+
+This replaced an earlier design that **locked** any set with attempts and
+demanded *Clone as new draft* to change it. That made every played set
+permanently read-only, which is exactly the wrong trade: deleting a quiz is an
+authoring act and must not rewrite a solver's record.
+
+The cost is duplication: one copy of the questions per attempt (a 10-question
+set is ~8 KB of text per attempt; media is copied as URLs, never bytes). If that
+ever becomes expensive, the fix is content-addressed versions — hash the paper
+and share one row-set between attempts that were served identical content.
 
 ---
 

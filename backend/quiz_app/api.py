@@ -58,6 +58,29 @@ def _object(body: object) -> dict:
     return body
 
 
+def _answers(body: object) -> dict[int, frozenset[int]]:
+    """``{"answers": [{"question_id": 1, "option_ids": [2, 3]}]}``; an absent body is no answers."""
+    if body is None:
+        return {}
+    raw = _object(body).get("answers", [])
+    if not isinstance(raw, list):
+        raise Invalid("answers must be a list")
+    out: dict[int, frozenset[int]] = {}
+    for item in raw:
+        if not isinstance(item, dict):
+            raise Invalid("each answer must be an object")
+        question_id = item.get("question_id")
+        if not isinstance(question_id, int) or isinstance(question_id, bool):
+            raise Invalid("question_id must be an integer")
+        option_ids = item.get("option_ids")
+        if not isinstance(option_ids, list) or not all(
+            isinstance(i, int) and not isinstance(i, bool) for i in option_ids
+        ):
+            raise Invalid("option_ids must be a list of integers")
+        out[question_id] = frozenset(option_ids)
+    return out
+
+
 def _option_ids(body: object) -> list[int]:
     ids = _object(body).get("option_ids")
     if not isinstance(ids, list) or not all(isinstance(i, int) and not isinstance(i, bool) for i in ids):
@@ -154,7 +177,11 @@ class Api:
         return 200, serializers.results(await self._attempts.results(user.email, attempt_id))
 
     async def _pause(self, user: User, body: object, attempt_id: str) -> Response:
-        return 200, serializers.attempt_session(await self._attempts.pause(user.email, attempt_id))
+        # The body carries whatever the solver had not yet saved, so the freeze and
+        # those answers commit together instead of the freeze racing an autosave.
+        return 200, serializers.attempt_session(
+            await self._attempts.pause(user.email, attempt_id, _answers(body))
+        )
 
     async def _resume(self, user: User, body: object, attempt_id: str) -> Response:
         return 200, serializers.attempt_session(await self._attempts.resume(user.email, attempt_id))

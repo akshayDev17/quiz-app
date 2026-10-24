@@ -267,7 +267,8 @@ class PublishArchiveCloneTest(AuthoringCase):
         await self.service.publish(ADMIN, b.id)
         await self.users.get_or_create(SOLVER.email)
         await self.db.prepare(
-            "INSERT INTO attempts (id, set_id, user_email, started_at) VALUES ('att-1', ?, ?, ?)"
+            "INSERT INTO attempts (id, set_id, user_email, topic_name, started_at) "
+            "VALUES ('att-1', ?, ?, 'Topic', ?)"
         ).bind(b.id, SOLVER.email, START).run()
 
         listing = await self.service.list_all(ADMIN)
@@ -298,15 +299,20 @@ class DeleteTest(AuthoringCase):
         self.assertIsNone(await self.repo.get(info.id))
         self.assertEqual((await self.rows("SELECT COUNT(*) AS n FROM questions WHERE set_id = ?", info.id))[0]["n"], 0)
 
-    async def test_delete_refuses_a_set_with_attempts(self):
+    async def test_delete_works_and_the_attempt_survives_unlinked(self):
         info = await self.service.import_set(ADMIN, sample_import())
         await self.users.get_or_create(SOLVER.email)
         await self.db.prepare(
-            "INSERT INTO attempts (id, set_id, user_email, started_at) VALUES ('att-1', ?, ?, ?)"
+            "INSERT INTO attempts (id, set_id, user_email, topic_name, started_at) "
+            "VALUES ('att-1', ?, ?, 'Topic', ?)"
         ).bind(info.id, SOLVER.email, START).run()
-        with self.assertRaises(Conflict):
-            await self.service.delete(ADMIN, info.id)
-        self.assertIsNotNone(await self.repo.get(info.id))
+
+        await self.service.delete(ADMIN, info.id)
+
+        self.assertIsNone(await self.repo.get(info.id))
+        row = (await self.rows("SELECT set_id, topic_name FROM attempts WHERE id = 'att-1'"))[0]
+        self.assertIsNone(row["set_id"])          # ON DELETE SET NULL
+        self.assertEqual(row["topic_name"], "Topic")  # the label it was played under
 
     async def test_delete_missing_set_is_not_found(self):
         with self.assertRaises(NotFound):
@@ -339,14 +345,24 @@ class UpdateTest(AuthoringCase):
         self.assertEqual(questions[0].prompt, "New prompt")
         self.assertEqual(len(questions[0].options), 2)
 
-    async def test_update_refuses_a_set_with_attempts(self):
+    async def test_update_is_allowed_once_a_set_has_been_played(self):
+        # The old behaviour refused here; attempts read their own paper now, so an
+        # edit is invisible to them and the set stops being read-only for ever.
         info = await self.service.import_set(ADMIN, sample_import())
         await self.users.get_or_create(SOLVER.email)
         await self.db.prepare(
-            "INSERT INTO attempts (id, set_id, user_email, started_at) VALUES ('att-1', ?, ?, ?)"
+            "INSERT INTO attempts (id, set_id, user_email, topic_name, started_at) "
+            "VALUES ('att-1', ?, ?, 'Topic', ?)"
         ).bind(info.id, SOLVER.email, START).run()
-        with self.assertRaises(Conflict):
-            await self.service.update(ADMIN, info.id, sample_import())
+
+        edited = sample_import(difficulty="hard", questions=[{"prompt": "Fixed typo", "options": [
+            {"body": "a", "correct": True}, {"body": "b", "correct": False},
+        ]}])
+        updated = await self.service.update(ADMIN, info.id, edited)
+
+        self.assertEqual(updated.difficulty, "hard")
+        _, questions = await self.service.detail(ADMIN, info.id)
+        self.assertEqual(questions[0].prompt, "Fixed typo")
 
     async def test_update_validates_the_payload(self):
         info = await self.service.import_set(ADMIN, sample_import())

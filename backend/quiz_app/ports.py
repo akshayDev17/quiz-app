@@ -34,20 +34,11 @@ class QuizCatalog(ABC):
     @abstractmethod
     async def get_set(self, set_id: int) -> QuizSetInfo | None: ...
 
+class PaperSource(ABC):
     @abstractmethod
-    async def set_for_attempt(self, set_id: int) -> QuizSetInfo | None:
-        """A set in any status, for an attempt already started on it; ``None`` only if no such id."""
-
-    @abstractmethod
-    async def questions_for_solver(self, set_id: int) -> list[QuestionForSolver]: ...
-
-
-class AnswerKeyReader(ABC):
-    @abstractmethod
-    async def answer_key(self, set_id: int) -> list[QuestionKey]: ...
-
-    @abstractmethod
-    async def review_questions(self, set_id: int) -> list[ReviewQuestion]: ...
+    async def paper_source(self, set_id: int) -> list[ReviewQuestion]:
+        """The set's questions with their answer key, in authored order, to copy into a
+        new attempt. Read exactly once per attempt, at start."""
 
 
 class QuizAuthoring(ABC):
@@ -86,9 +77,10 @@ class QuizAuthoring(ABC):
 
 class AttemptRepository(ABC):
     @abstractmethod
-    async def create(self, attempt: Attempt) -> Attempt:
-        """Insert an open attempt. If the person already has one open for the set
-        (``uq_attempts_one_open``), return that one instead."""
+    async def create(self, attempt: Attempt, paper: list[ReviewQuestion]) -> Attempt:
+        """Insert an open attempt and its paper, in one transaction. If the person
+        already has one open for the set (``uq_attempts_one_open``), return that one
+        instead and write no paper."""
 
     @abstractmethod
     async def get(self, attempt_id: str) -> Attempt | None: ...
@@ -98,6 +90,18 @@ class AttemptRepository(ABC):
 
     @abstractmethod
     async def count_finished(self, set_id: int, email: str) -> int: ...
+
+    @abstractmethod
+    async def paper(self, attempt_id: str) -> list[QuestionForSolver]:
+        """The questions this attempt was served, in the order it was served, without
+        the answer key."""
+
+    @abstractmethod
+    async def answer_key(self, attempt_id: str) -> list[QuestionKey]: ...
+
+    @abstractmethod
+    async def review(self, attempt_id: str) -> list[ReviewQuestion]:
+        """The paper with explanations and correctness, for the results page."""
 
     @abstractmethod
     async def selections(self, attempt_id: str) -> dict[int, frozenset[int]]: ...
@@ -111,8 +115,10 @@ class AttemptRepository(ABC):
         """Close an open attempt and write its results once. False if it was already closed."""
 
     @abstractmethod
-    async def pause(self, attempt_id: str, paused_at: int) -> None:
-        """Freeze the clock: set paused_at on an open attempt."""
+    async def pause(
+        self, attempt_id: str, paused_at: int, answers: dict[int, frozenset[int]]
+    ) -> None:
+        """Freeze the clock and store the given answers in one transaction."""
 
     @abstractmethod
     async def resume(self, attempt_id: str, now_ms: int) -> None:

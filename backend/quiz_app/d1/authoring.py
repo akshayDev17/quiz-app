@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from ..clock import Clock
-from ..errors import Conflict, NotFound
+from ..errors import NotFound
 from ..models import QuizSetInfo
 from ..ports import QuizAuthoring
 from ..validation import QuestionImport, SetImport
@@ -130,22 +130,16 @@ class D1QuizAuthoring(QuizAuthoring):
         return quiz_set_from_row(row) if row else None
 
     async def delete(self, set_id: int) -> None:
-        # A set with attempts can't be hard-deleted: attempts.set_id → quiz_sets is
-        # ON DELETE RESTRICT. Refuse cleanly instead of surfacing a D1 FK error.
-        attempts = (await self._db.prepare(
-            "SELECT COUNT(*) AS n FROM attempts WHERE set_id = ?"
-        ).bind(set_id).first())["n"]
-        if attempts:
-            raise Conflict("set has attempts — archive it instead of deleting")
-        # questions and options cascade; no attempts means nothing else references them.
+        # A delete removes the catalogue and nothing else. Attempts keep their own copy
+        # of what they were served and `attempts.set_id` is ON DELETE SET NULL, so their
+        # score, name and per-question breakdown survive untouched — deleting a quiz is
+        # an authoring act and must not rewrite a solver's record.
+        # questions/options cascade; blobs are the caller's business.
         await self._db.prepare("DELETE FROM quiz_sets WHERE id = ?").bind(set_id).run()
 
     async def update(self, set_id: int, imp: SetImport, now_ms: int) -> None:
-        attempts = (await self._db.prepare(
-            "SELECT COUNT(*) AS n FROM attempts WHERE set_id = ?"
-        ).bind(set_id).first())["n"]
-        if attempts:
-            raise Conflict("set has attempts — clone it to edit")
+        # Safe to edit a set that has been played: attempts read their own paper and
+        # never these rows, so an edit is invisible to them and visible to the next one.
         await self._db.prepare(
             "UPDATE quiz_sets SET difficulty = ?, style = ?, title = ?, description = ?, "
             "time_limit_minutes = ?, scoring_policy = ?, shuffle_questions = ?, shuffle_options = ?, "
@@ -155,7 +149,7 @@ class D1QuizAuthoring(QuizAuthoring):
             imp.scoring_policy, int(imp.shuffle_questions), int(imp.shuffle_options),
             int(imp.reveal_answers), imp.max_attempts, now_ms, set_id,
         ).run()
-        # Replace the questions; options cascade. Safe: the set has no attempts.
+        # Replace the questions; options cascade. Only future attempts see this.
         await self._db.prepare("DELETE FROM questions WHERE set_id = ?").bind(set_id).run()
         await self._insert_questions(set_id, imp.questions)
 
