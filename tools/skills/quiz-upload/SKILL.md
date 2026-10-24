@@ -16,7 +16,25 @@ Resolve `<scripts>` as the `scripts/` directory beside this SKILL.md — in Clau
 1. **Validate** the file first, if you didn't just run `quiz-create`:
    `python3 <scripts>/validate.py <file>` → must print `OK …`. (upload.py re-checks
    with the same validator before posting, so a bad file is refused locally.)
-2. **Request a login code** (skip if `~/.quiz/session.json` already has a fresh
+2. **Make sure the code mailbox is reachable** — the login code arrives by email, so
+   this must work *before* a code is spent. Call a cheap read: `mcp__gmail__search_emails`
+   with `from:noreply@notify.cloudflare.com newer_than:1d`. A real answer, even an empty
+   one, means the grant is in place; skip to step 3.
+   If the tool is missing or errors about credentials/authorisation, authorise now, once
+   per machine:
+   `python3 <scripts>/gmail_auth.py --oauth "<oauth-keys-path>" --credentials "<token-path>"`.
+   Those two paths are the plugin's configured values — `${user_config.gmail_oauth_path}`
+   and `${user_config.gmail_credentials_path}` on Claude Code; on a harness that does not
+   substitute them, ask the user, or default to `~/.gmail-quiz/gcp-oauth.keys.json` and
+   `~/.gmail-quiz/credentials.json`.
+   The script opens a browser and waits. Tell the user, in these words, what to do:
+   pick the Google account that owns the quiz mailbox; if it says "Google hasn't verified
+   this app", click **Advanced → Go to … (unsafe)** (expected — the client is theirs, just
+   unpublished); approve the read/manage Gmail permission; the tab should then say
+   "Authentication successful! You can close this window." The script exits 0 when the
+   token lands — no second run needed. If it exits 2 because port 3000 is busy, stop the
+   dev server holding it and retry; the MCP hardcodes that callback port.
+3. **Request a login code** (skip if `~/.quiz/session.json` already has a fresh
    cookie):
    `python3 <scripts>/upload.py --request-otp --email <admin-email>`.
    The first run that needs a browser provisions Playwright into `~/.quiz/venv` by
@@ -24,13 +42,13 @@ Resolve `<scripts>` as the `scripts/` directory beside this SKILL.md — in Clau
    and a minute or two before `Login code sent to …` appears. Do not install
    Playwright by hand; do not interrupt it.
    Completion: it prints `Login code sent to …`.
-3. **Read the code email** with the Gmail MCP (`mcp__gmail__search_emails` for
+4. **Read the code email** with the Gmail MCP (`mcp__gmail__search_emails` for
    `from:noreply@notify.cloudflare.com`, then `mcp__gmail__read_email`). Copy the
    **"Finish logging in" URL** from the body.
-4. **Complete login**:
+5. **Complete login**:
    `python3 <scripts>/upload.py --finish-login --url "<that URL>"`.
    Completion: it prints `Logged in. Cookie cached at ~/.quiz/session.json`.
-5. **Upload**:
+6. **Upload**:
    `python3 <scripts>/upload.py <file> [--publish]`.
    Completion: `Imported "<name>" as draft (id=<id>)` (and, with `--publish`,
    `Published (id=<id>, status=published)`).

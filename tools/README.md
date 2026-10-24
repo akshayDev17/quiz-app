@@ -58,6 +58,37 @@ The Gmail MCP is **not** shipped by the DSH side of this package; it is declared
 the DSH profile (`~/.dsh/profiles/web/cordis.patch.yml`). Claude Code gets the same
 server from `.mcp.json` here.
 
+## One-time Gmail setup (once per machine)
+
+The upload flow reads the Cloudflare Access login code out of a mailbox, so the
+Gmail MCP needs an OAuth grant. Two steps, both ending in a browser:
+
+1. **Create the OAuth client** (once per Google Cloud project, reusable across
+   machines). In the Google Cloud console: create a project, enable the Gmail API,
+   create an OAuth client of type **Desktop app**, and download its JSON. Point
+   `gmail_oauth_path` at it.
+2. **Authorise the mailbox** — the skill does this for you the first time it needs a
+   code, via `scripts/gmail_auth.py`: it starts the MCP's `auth` command, surfaces
+   the URL, and waits for the token. Expect to pick the Google account, click
+   **Advanced → Go to … (unsafe)** if it says the app is unverified (it is yours,
+   just not published for verification), and approve read/manage Gmail.
+
+By hand, that is:
+
+```sh
+GMAIL_OAUTH_PATH=~/.gmail-quiz/gcp-oauth.keys.json \
+GMAIL_CREDENTIALS_PATH=~/.gmail-quiz/credentials.json \
+npx -y @jessicaoy89/gmail-mcp auth
+```
+
+Two things that will bite otherwise:
+
+- The MCP binds **port 3000** for the OAuth callback and hardcodes it. A dev server
+  on 3000 makes the authorisation fail; `gmail_auth.py` checks first and says so.
+- The token file holds a `refresh_token`, so this is truly one-time per machine. If
+  Gmail starts answering with auth errors later, delete `credentials.json` and
+  re-run.
+
 ## What the plugin gives you, and what is still yours
 
 | | Provisioned by the plugin |
@@ -65,7 +96,7 @@ server from `.mcp.json` here.
 | The two skills | yes |
 | Gmail MCP server definition | yes — `npx -y @jessicaoy89/gmail-mcp` |
 | `GMAIL_OAUTH_PATH` / `GMAIL_CREDENTIALS_PATH` / `GMAIL_ACCOUNT_NAME` | **no** — prompted at install |
-| The Gmail OAuth grant itself | **no** — one-time, in a browser |
+| The Gmail OAuth grant | guided, not unattended — `gmail_auth.py` runs the flow and waits; a human still clicks Allow |
 | Playwright (package + Chromium) | yes — provisioned on first use into `~/.quiz/venv` |
 | `python3` | **no** — see prerequisites |
 
