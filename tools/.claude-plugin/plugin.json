@@ -33,5 +33,6 @@
       "description": "Short label for the mailbox the login code arrives in.",
       "default": "quiz"
     }
-  }
+  },
+  "icon": "./assets/logo.svg"
 }

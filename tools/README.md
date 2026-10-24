@@ -1,138 +1,115 @@
-# tools/ — a plugin for the quiz app
+<div align="center">
+  <img src="assets/logo.svg" width="120" alt="quiz-tools">
+</div>
 
-Two skills that author and ship quiz sets to `/quiz`, packaged once and installable
-on both harnesses this project is used with. Both read the same `skills/`, so there
-is one copy of the skills, not two.
+# quiz-tools
 
-- **DSH** — the agent-plugins manifest (`plugin.json`) plus a skill provider
-  (`lib/index.js` + `cordis.patch.yml`).
-- **Claude Code** — the `.claude-plugin/plugin.json` manifest, which also carries
-  the Gmail MCP server and the two values it needs.
+![version](https://img.shields.io/badge/version-0.1.0-3a4bd8)
+![license](https://img.shields.io/badge/license-MIT-0f1220)
 
-## What's in here
+Two skills that author quiz sets for `/quiz` and ship them hands-off — write and
+self-check the set, then upload and publish it without touching a form.
 
-| Path | Read by | What it is |
-| --- | --- | --- |
-| `skills/` | both | The two skills. The only place their content lives. |
-| `quiz_validation.py` | both | The server's validator, copied so a file that passes here passes on upload. |
-| `.claude-plugin/plugin.json` | Claude Code | Manifest: metadata, `userConfig`, skill discovery. |
-| `.mcp.json` | Claude Code | The Gmail MCP server the upload flow reads its login code with. |
-| `plugin.json` | DSH | The agent-plugins manifest. |
-| `lib/index.js`, `cordis.patch.yml` | DSH only | Registers a skill provider pointing at `skills/`. |
+[**Install (Claude Code)**](#install-claude-code) |
+[**Install (DSH)**](#install-dsh) |
+[**First run**](#first-run-per-machine) |
+[**Usage**](#usage) |
+[**Troubleshooting**](#troubleshooting) |
+[**What it leaves on disk**](#what-it-leaves-on-disk)
 
-`.claude-plugin/marketplace.json` at the repo root is what makes the plugin
-installable at all — Claude Code installs plugins from a marketplace, never from a
-bare directory.
+## What it does
 
-## Install — Claude Code
+- **`quiz-create`** — writes a quiz-set JSON in the house style (varied difficulty,
+  plausible distractors, hidden multi-correct counts) and self-validates it against
+  the *same* validator the server runs, so a set that passes locally cannot be
+  rejected on upload.
+- **`quiz-upload`** — posts it to `/quiz/api/admin/sets` and optionally publishes.
+  Handles the Cloudflare Access one-time-PIN login by itself: drives the browser,
+  reads the code out of the mailbox, caches the session cookie for ~24 h.
+
+Ask in plain language — "make me a quiz on Raft consensus", then "upload it" — or
+run them directly as `/quiz-tools:quiz-create` and `/quiz-tools:quiz-upload`.
+
+## Install (Claude Code)
 
 ```sh
 claude plugin marketplace add akshayDev17/quiz-app
 claude plugin install quiz-tools@quiz-app --scope user
 ```
 
-That one install brings the skills (`/quiz-tools:quiz-create`,
-`/quiz-tools:quiz-upload`) **and** the Gmail MCP server. You are prompted for two
-paths; see below for what to enter.
+Brings both skills **and** the Gmail MCP server the upload flow reads its login code
+with. Try it without installing: `claude --plugin-dir ./quiz-app/tools`.
 
-After a change: `claude plugin update quiz-tools@quiz-app`, then `/reload-plugins`
-in a session. To try it without installing:
-
-```sh
-claude --plugin-dir ./quiz-app/tools
-```
-
-## Install — DSH
+## Install (DSH)
 
 ```sh
 dsh plugin --profile web add file:"$PWD/tools"
 ```
 
-`file:` copies the plugin into the profile's `node_modules`, which is **required** —
-at boot DSH resolves `@deepseek-ai/dsh-skill-filesystem` (a DSH-internal package)
-relative to that location. Don't use `link:`: the symlink resolves back to this
-repo and breaks that resolution. To ship edits, remove + re-add (or bump the
-version). Restart `dsh web` to load the skills.
+Restart `dsh web` to load the skills. On this harness the Gmail MCP is declared in
+the DSH profile rather than by the plugin.
 
-The Gmail MCP is **not** shipped by the DSH side of this package; it is declared in
-the DSH profile (`~/.dsh/profiles/web/cordis.patch.yml`). Claude Code gets the same
-server from `.mcp.json` here.
+## First run (per machine)
 
-## One-time Gmail setup (once per machine)
+Once, and then never again:
 
-The upload flow reads the Cloudflare Access login code out of a mailbox, so the
-Gmail MCP needs an OAuth grant. Two steps, both ending in a browser:
+1. **Create a Google OAuth client** — Google Cloud project, enable the Gmail API,
+   create an OAuth client of type **Desktop app**, download its JSON. This is reused
+   by every machine.
+2. **Authorise the mailbox** — the skill does it for you the first time it needs a
+   code. It starts the MCP's `auth` command, opens the browser, and waits for the
+   token. Expect to pick the Google account and, if it says the app is unverified,
+   click **Advanced → Go to … (unsafe)** — the client is yours, just not published.
 
-1. **Create the OAuth client** (once per Google Cloud project, reusable across
-   machines). In the Google Cloud console: create a project, enable the Gmail API,
-   create an OAuth client of type **Desktop app**, and download its JSON. Point
-   `gmail_oauth_path` at it.
-2. **Authorise the mailbox** — the skill does this for you the first time it needs a
-   code, via `scripts/gmail_auth.py`: it starts the MCP's `auth` command, surfaces
-   the URL, and waits for the token. Expect to pick the Google account, click
-   **Advanced → Go to … (unsafe)** if it says the app is unverified (it is yours,
-   just not published for verification), and approve read/manage Gmail.
+Playwright needs no setup: the first browser step provisions it into
+`~/.quiz/venv` (~100 MB, once).
 
-By hand, that is:
+## Usage
 
-```sh
-GMAIL_OAUTH_PATH=~/.gmail-quiz/gcp-oauth.keys.json \
-GMAIL_CREDENTIALS_PATH=~/.gmail-quiz/credentials.json \
-npx -y @jessicaoy89/gmail-mcp auth
+```
+you:  make me a quiz on Raft consensus, hard, 20 minutes
+      → quiz-create writes rafts-consensus-quiz.json and validates it
+
+you:  upload it and publish
+      → quiz-upload logs in if needed, imports it, publishes it
 ```
 
-Two things that will bite otherwise:
+## What the plugin sets up, and what is still yours
 
-- The MCP binds **port 3000** for the OAuth callback and hardcodes it. A dev server
-  on 3000 makes the authorisation fail; `gmail_auth.py` checks first and says so.
-- The token file holds a `refresh_token`, so this is truly one-time per machine. If
-  Gmail starts answering with auth errors later, delete `credentials.json` and
-  re-run.
-
-## What the plugin gives you, and what is still yours
-
-| | Provisioned by the plugin |
+| | Provisioned |
 | --- | --- |
-| The two skills | yes |
-| Gmail MCP server definition | yes — `npx -y @jessicaoy89/gmail-mcp` |
-| `GMAIL_OAUTH_PATH` / `GMAIL_CREDENTIALS_PATH` / `GMAIL_ACCOUNT_NAME` | **no** — prompted at install |
-| The Gmail OAuth grant | guided, not unattended — `gmail_auth.py` runs the flow and waits; a human still clicks Allow |
-| Playwright (package + Chromium) | yes — provisioned on first use into `~/.quiz/venv` |
-| `python3` | **no** — see prerequisites |
+| Both skills | yes |
+| Gmail MCP server definition | yes |
+| Playwright and its Chromium | yes, on first use |
+| The Gmail OAuth grant | guided — a human still clicks Allow |
+| `gcp-oauth.keys.json` | **no** — created once in the Google Cloud console |
+| `python3`, `node`/`npx` | **no** — the only real prerequisites |
 
-The two paths are `userConfig` values, so you never run `claude mcp add`: the install
-asks for them, and a shell install prints the options it still needs. Set them later
-with `/plugin configure quiz-tools@quiz-app`, or up front with
-`--config gmail_oauth_path=/abs/path/gcp-oauth.keys.json --config
-gmail_credentials_path=/abs/path/credentials.json`. They must be absolute paths. The
-credentials file is created on first authorisation, so it need not exist yet.
+## Troubleshooting
 
-`GMAIL_ACCOUNT_NAME` defaults to `quiz`.
+| Symptom | Cause and fix |
+| --- | --- |
+| `port 3000 is in use` | The Gmail MCP hardcodes 3000 for its OAuth callback. Stop whatever holds it (`lsof -nP -iTCP:3000 -sTCP:LISTEN`) and retry. |
+| Gmail tools error about credentials | Not authorised on this machine. Delete `~/.gmail-quiz/credentials.json` and let the skill re-run the auth. |
+| "Google hasn't verified this app" | Expected for an unpublished client: **Advanced → Go to … (unsafe)**, then Allow. |
+| `playwright not installed` and it will not install | No network, or no `python3` to build the venv. Install by hand: `pip install playwright && playwright install chromium`. |
+| `session expired — re-run the login` | The cached Cloudflare cookie lapsed (24 h). Delete `~/.quiz/session.json` and upload again. |
 
-## Prerequisites
+## What it leaves on disk
 
-- **`python3`** — the two skills run their `scripts/` with it.
-- **`node`/`npx`** — to start the Gmail MCP server.
+| Path | What | Removed by uninstalling? |
+| --- | --- | --- |
+| `~/.quiz/venv/` | Playwright virtualenv | no — delete to reclaim ~100 MB |
+| `~/.quiz/session.json` | cached Cloudflare Access cookie (~24 h) | no |
+| `~/.quiz/access-browser/` | the browser profile the login step drives | no |
+| `~/.gmail-quiz/` | OAuth client keys and token | no |
 
-**Playwright is not a prerequisite.** The Cloudflare Access login step needs it, so
-`upload.py` provisions it on first use: if the running interpreter cannot import
-Playwright, `scripts/bootstrap.py` builds a virtualenv at `~/.quiz/venv` (override
-with `QUIZ_VENV`), installs Playwright into it, downloads Chromium, and re-execs.
-That is a one-time, well-over-100 MB download, after which the check costs
-milliseconds. `python3 <scripts>/bootstrap.py --dry-run` prints what it would do
-without doing it.
+## Why two manifests
 
-The virtualenv is deliberately outside the plugin: it survives plugin updates and is
-the same on DSH and Claude Code. It also survives an uninstall — delete
-`~/.quiz/venv` by hand if you want the space back.
+`skills/` is the only copy of the skills. DSH reads `plugin.json` plus a skill
+provider (`lib/index.js`, `cordis.patch.yml`); Claude Code reads
+`.claude-plugin/plugin.json` plus `.mcp.json`. Same skills, two thin shells.
 
-## The two skills
+## Licence
 
-- **`quiz-create`** — write a quiz-set JSON, then `scripts/validate.py` checks it
-  against the *same* validator the server uses (`backend/quiz_app/validation.py`).
-- **`quiz-upload`** — `scripts/upload.py` posts it to `/quiz/api/admin/sets` and can
-  publish. It drives the Cloudflare Access one-time-PIN flow (`--request-otp` /
-  `--finish-login`), and the agent reads the code email through the Gmail MCP.
-
-Both resolve `<scripts>` as the `scripts/` directory beside the `SKILL.md`, so they
-work regardless of the directory you start the agent in.
+MIT — see the `license` field in [`package.json`](package.json).

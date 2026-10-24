@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="quiz-tools">
+  <!-- A paper chip so an ink mark stays legible on both GitHub themes. -->
+  <rect x="0.75" y="0.75" width="94.5" height="94.5" rx="20" fill="#eef1f8" stroke="#c9cdd4" stroke-width="1.5"/>
+
+  <!-- Three options; the middle one is chosen. The app renders exactly this:
+       a row per option, a tick on the correct ones. -->
+  <g fill="none" stroke="#0f1220" stroke-width="2.5">
+    <circle cx="23.5" cy="24" r="6.5"/>
+    <rect x="33" y="17" width="46" height="14" rx="7"/>
+    <circle cx="23.5" cy="72" r="6.5"/>
+    <rect x="33" y="65" width="46" height="14" rx="7"/>
+  </g>
+
+  <rect x="33" y="41" width="46" height="14" rx="7" fill="#3a4bd8"/>
+  <circle cx="23.5" cy="48" r="6.5" fill="#3a4bd8"/>
+  <path d="M20.1 48.1 L22.7 50.7 L27.1 45.9" fill="none" stroke="#ffffff"
+        stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

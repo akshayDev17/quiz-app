@@ -12,6 +12,7 @@
   "files": [
     "lib",
     "skills",
+    "assets",
     "quiz_validation.py",
     "plugin.json",
     ".claude-plugin/plugin.json",
