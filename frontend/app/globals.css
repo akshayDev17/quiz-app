@@ -35,7 +35,13 @@ a { color: inherit; }
 /* masthead */
 .masthead { border-bottom: 3px double var(--ink); padding-bottom: var(--s4); margin-bottom: var(--s6);
             display: flex; align-items: flex-end; justify-content: space-between; gap: var(--s5); flex-wrap: wrap; }
-.masthead .name { font-weight: 600; font-size: clamp(1.7rem, 5vw, 2.6rem); line-height: 1; letter-spacing: -.02em; }
+.masthead .name { font-weight: 600; font-size: clamp(1.7rem, 5vw, 2.6rem); line-height: 1; letter-spacing: -.02em;
+                 display: inline-block; color: inherit; text-decoration: none; }
+.masthead .name:hover, .masthead .name:focus-visible { color: var(--accent); }
+.masthead .crumb { display: flex; align-items: baseline; gap: var(--s2); }
+.masthead .crumb a { color: inherit; text-decoration: none; }
+.masthead .crumb a:hover, .masthead .crumb a:focus-visible { color: var(--ink); text-decoration: underline; }
+.masthead .crumb .sep { color: var(--rule-2); }
 .masthead .who { display: flex; gap: var(--s3); align-items: center; }
 .linkbtn { font-family: var(--mono); font-size: .6875rem; letter-spacing: .1em; text-transform: uppercase;
            color: var(--muted); background: none; border: 0; cursor: pointer; text-decoration: none; }
