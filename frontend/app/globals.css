@@ -63,7 +63,11 @@ a.btn { display: inline-flex; align-items: center; justify-content: center; text
 /* home */
 .shead { display: flex; align-items: baseline; gap: var(--s3); margin: var(--s6) 0 var(--s4);
          padding-top: var(--s4); border-top: 1px solid var(--rule); }
-.shead:first-child { margin-top: 0; }
+/* The masthead already gives the first section its room, so only that one drops the
+   rule's top margin. Every `.shead` is the :first-child of its own <section>, so
+   `.shead:first-child { margin-top: 0 }` zeroed the margin for *every* section and left
+   each section's border-top glued to the bottom of the card above it. */
+.frame > section:first-of-type > .shead { margin-top: 0; }
 .shead .num { font-family: var(--mono); font-size: .6875rem; letter-spacing: .1em; color: var(--accent); }
 .shead h2 { font-size: 1.625rem; font-weight: 400; letter-spacing: -.015em; line-height: 1.2; }
 .shead .count { margin-left: auto; }
