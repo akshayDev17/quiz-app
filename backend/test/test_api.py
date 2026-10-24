@@ -255,8 +255,24 @@ class FlowTest(ApiCase):
         sid = await self.publish()
         aid = (await self.start(sid))["attempt"]["id"]
         [card] = (await self.ok("GET", "/topics"))["topics"][0]["groups"][0]["sets"]
-        self.assertEqual(card["open_attempt"], {"attempt_id": aid, "deadline_at": START + LIMIT_MS})
+        self.assertEqual(card["open_attempt"], {"attempt_id": aid, "remaining_ms": LIMIT_MS})
         self.assertEqual((await self.ok("GET", f"/sets/{sid}"))["open_attempt_id"], aid)
+
+    async def test_a_paused_attempt_shows_the_time_it_was_frozen_at(self):
+        # The card used to derive this from deadline_at, which for a paused attempt is
+        # already in the past — it showed "00:00 left" on an attempt with 14:30 left.
+        sid = await self.publish()
+        aid = (await self.start(sid))["attempt"]["id"]
+        self.clock.advance(30_000)
+        await self.ok("POST", f"/attempts/{aid}/pause", None)
+        self.clock.advance(LIMIT_MS * 2)          # paused far past the deadline
+
+        [card] = (await self.ok("GET", "/topics"))["topics"][0]["groups"][0]["sets"]
+        self.assertEqual(card["open_attempt"]["remaining_ms"], LIMIT_MS - 30_000)
+
+        # ...and the time is still there when they come back.
+        resumed = await self.ok("POST", f"/attempts/{aid}/resume")
+        self.assertEqual(resumed["attempt"]["paused_at"], None)
 
     async def test_answer_validation(self):
         sid = await self.publish()

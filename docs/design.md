@@ -130,7 +130,8 @@ Design notes:
 | `is_correct` lives on each **option row** | This is what allows "A, B, D are correct". A question's answer key is `{option ids where is_correct = 1}`. |
 | ≥ 1 correct option per question is checked in **code** (`QuizValidator`, on publish) | A SQLite CHECK can't look at sibling rows. A trigger could, but it would also fire mid-edit while an author is adding options. |
 | Letters A/B/C are **not stored** | They come from display order, which can be shuffled per attempt. Storing them would make the shuffle contradict them. |
-| `deadline_at` is **computed once at start** and stored | The server's clock decides. Refreshing, closing or reopening the tab can't reset the timer. |
+| `deadline_at` is **computed once at start** and stored | The server's clock decides. Refreshing, closing or reopening the tab can't reset the timer. Time left is *derived* (`Attempt.remaining_ms`), never stored as a countdown: a stored remainder would freeze the moment the tab closes. |
+| Time left is **computed by the server** wherever it is displayed | A paused attempt's `deadline_at` may already be in the past (the clock only extends on resume), so anything deriving a remainder from the deadline alone reads zero. The topics card carries `remaining_ms`, not `deadline_at`, for exactly this reason. |
 | Partial unique index: one `in_progress` attempt per (set, user) | Pressing "Start" twice, or in two tabs, resumes the same attempt instead of creating a second one. |
 | `attempt_selections` is one row per ticked option | Multi-select needs no JSON column. Saving an answer is a delete-then-insert of that question's rows in one D1 `batch()`. |
 | `attempt_results` is written **once**, at grading | Scores never move afterwards, even if an author later edits the question. |

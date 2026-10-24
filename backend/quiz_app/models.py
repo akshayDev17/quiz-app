@@ -150,6 +150,18 @@ class Attempt:
     def is_paused(self) -> bool:
         return self.paused_at is not None
 
+    def remaining_ms(self, now_ms: int) -> int | None:
+        """Milliseconds left, or ``None`` when untimed.
+
+        While paused the clock is frozen, so the answer is the time that was left at
+        the instant of the pause — the same number resume() will restore. Anything
+        deriving this from ``deadline_at`` alone reads zero for a paused attempt,
+        because a paused deadline is deliberately allowed to fall into the past.
+        """
+        if self.deadline_at is None:
+            return None
+        return max(0, self.deadline_at - (self.paused_at if self.paused_at is not None else now_ms))
+
     def is_due(self, now_ms: int) -> bool:
         # A paused attempt's clock is frozen, so it is never due.
         return self.deadline_at is not None and self.paused_at is None and now_ms >= self.deadline_at

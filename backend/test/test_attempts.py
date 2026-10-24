@@ -541,7 +541,8 @@ class OverviewAndIntroTest(AttemptCase):
         done = await self.start()
         await self.svc.submit(ALICE, done)
         open_id = await self.start(set_id=other)
-        sets, last, open_ = await self.svc.overview(ALICE)
+        sets, last, open_, now_ms = await self.svc.overview(ALICE)
+        self.assertEqual(now_ms, self.clock.now_ms())
         self.assertEqual({s.id for s in sets}, {self.sid, other})
         self.assertNotIn(draft, {s.id for s in sets})
         self.assertEqual({k: v.id for k, v in last.items()}, {self.sid: done})
@@ -550,13 +551,13 @@ class OverviewAndIntroTest(AttemptCase):
     async def test_overview_expires_due_attempts_first(self):
         aid = await self.start()
         self.clock.advance(LIMIT_MS)
-        _, last, open_ = await self.svc.overview(ALICE)
+        _, last, open_, _now = await self.svc.overview(ALICE)
         self.assertEqual(open_, {})
         self.assertEqual((last[self.sid].id, last[self.sid].status), (aid, "expired"))
 
     async def test_overview_is_per_person(self):
         await self.start(BOB)
-        _, last, open_ = await self.svc.overview(ALICE)
+        _, last, open_, _now = await self.svc.overview(ALICE)
         self.assertEqual((last, open_), ({}, {}))
 
     async def test_intro_counts_finished_and_names_the_open_attempt(self):

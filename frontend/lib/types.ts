@@ -9,7 +9,8 @@ export type SetCard = {
   difficulty: 'easy' | 'medium' | 'hard' | null; style: 'standard' | 'scenario';
   time_limit_minutes: number | null; question_count: number;
   last: { attempt_id: string; status: 'submitted' | 'expired'; score: number; max_score: number } | null;
-  open_attempt: { attempt_id: string; deadline_at: number | null } | null;
+  /** `remaining_ms` is computed by the server with pause already folded in. */
+  open_attempt: { attempt_id: string; remaining_ms: number | null } | null;
 };
 export type TopicsResponse = { topics: {
   id: number; name: string;

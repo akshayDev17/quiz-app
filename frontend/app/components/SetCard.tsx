@@ -8,7 +8,7 @@ export default function SetCard({ card }: { card: SetCardData }) {
   const href = card.open_attempt
     ? `/play?attempt=${encodeURIComponent(card.open_attempt.attempt_id)}`
     : `/set?id=${card.id}`;
-  const text = cardFoot(card, Date.now());
+  const text = cardFoot(card);
   const active = card.open_attempt !== null || card.last !== null;
   return (
     <Link className="card set-card" href={href}>

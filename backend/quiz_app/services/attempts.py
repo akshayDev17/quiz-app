@@ -179,13 +179,15 @@ class AttemptService:
 
     async def overview(
         self, email: str
-    ) -> tuple[list[QuizSetInfo], dict[int, Attempt], dict[int, Attempt]]:
-        """The published sets, plus the caller's last finished and open attempt per set id."""
+    ) -> tuple[list[QuizSetInfo], dict[int, Attempt], dict[int, Attempt], int]:
+        """The published sets, the caller's last finished and open attempt per set id,
+        and the server time the cards were computed against."""
         await self.expire_due_for(email)
         return (
             await self._catalog.list_published(),
             await self._attempts.last_finished_by_set(email),
             {a.set_id: a for a in await self._attempts.open_for_user(email)},
+            self._clock.now_ms(),
         )
 
     async def intro(self, email: str, set_id: int) -> tuple[QuizSetInfo, int, str | None]:

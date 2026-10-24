@@ -16,7 +16,9 @@ def me(user: User) -> dict:
     return {"email": user.email, "display_name": user.display_name, "role": user.role}
 
 
-def _card(info: QuizSetInfo, last: Attempt | None, open_attempt: Attempt | None) -> dict:
+def _card(
+    info: QuizSetInfo, last: Attempt | None, open_attempt: Attempt | None, now_ms: int
+) -> dict:
     return {
         "id": info.id,
         "name": info.name,
@@ -33,12 +35,16 @@ def _card(info: QuizSetInfo, last: Attempt | None, open_attempt: Attempt | None)
         },
         "open_attempt": None if open_attempt is None else {
             "attempt_id": open_attempt.id,
-            "deadline_at": open_attempt.deadline_at,
+            # Server-computed, pause already folded in: the browser cannot reproduce
+            # this from a deadline alone, and got it wrong for paused attempts.
+            "remaining_ms": open_attempt.remaining_ms(now_ms),
         },
     }
 
 
-def topics(sets: list[QuizSetInfo], last: dict[int, Attempt], open_: dict[int, Attempt]) -> dict:
+def topics(
+    sets: list[QuizSetInfo], last: dict[int, Attempt], open_: dict[int, Attempt], now_ms: int
+) -> dict:
     """Topics by position then id; in each, the whole-topic group first, then subtopics by position."""
     by_topic: dict[int, tuple[QuizSetInfo, list[QuizSetInfo]]] = {}
     for info in sets:
@@ -60,7 +66,7 @@ def topics(sets: list[QuizSetInfo], last: dict[int, Attempt], open_: dict[int, A
                 {
                     "subtopic": None if g[0].subtopic_id is None
                     else {"id": g[0].subtopic_id, "name": g[0].subtopic_name},
-                    "sets": [_card(i, last.get(i.id), open_.get(i.id)) for i in g],
+                    "sets": [_card(i, last.get(i.id), open_.get(i.id), now_ms) for i in g],
                 }
                 for g in ordered
             ],
