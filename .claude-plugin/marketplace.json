@@ -1,0 +1,14 @@
+{
+  "name": "quiz-app",
+  "description": "Plugins for the quiz app: author a quiz set, then upload it.",
+  "owner": {
+    "name": "Akshay Prabhakant"
+  },
+  "plugins": [
+    {
+      "name": "quiz-tools",
+      "source": "./tools",
+      "description": "Author a quiz-set JSON (quiz-create) and upload it to /quiz (quiz-upload)."
+    }
+  ]
+}

@@ -5,27 +5,29 @@ description: Upload a quiz-set JSON to the live quiz app and optionally publish 
 
 # quiz-upload — ship a quiz set to /quiz
 
-Run `scripts/upload.py`, which validates, authenticates (Cloudflare Access
+Run `<scripts>/upload.py`, which validates, authenticates (Cloudflare Access
 one-time PIN), and posts to `POST /quiz/api/admin/sets`. You must be an admin:
 your email must be in `ADMIN_EMAILS`.
 
 ## Steps
 
+Resolve `<scripts>` as the `scripts/` directory beside this SKILL.md — in Claude Code that is `${CLAUDE_PLUGIN_ROOT}/skills/quiz-upload/scripts`, never a path relative to the project you happen to be in.
+
 1. **Validate** the file first, if you didn't just run `quiz-create`:
-   `python3 scripts/validate.py <file>` → must print `OK …`. (upload.py re-checks
+   `python3 <scripts>/validate.py <file>` → must print `OK …`. (upload.py re-checks
    with the same validator before posting, so a bad file is refused locally.)
 2. **Request a login code** (skip if `~/.quiz/session.json` already has a fresh
    cookie):
-   `python3 scripts/upload.py --request-otp --email <admin-email>`.
+   `python3 <scripts>/upload.py --request-otp --email <admin-email>`.
    Completion: it prints `Login code sent to …`.
 3. **Read the code email** with the Gmail MCP (`mcp__gmail__search_emails` for
    `from:noreply@notify.cloudflare.com`, then `mcp__gmail__read_email`). Copy the
    **"Finish logging in" URL** from the body.
 4. **Complete login**:
-   `python3 scripts/upload.py --finish-login --url "<that URL>"`.
+   `python3 <scripts>/upload.py --finish-login --url "<that URL>"`.
    Completion: it prints `Logged in. Cookie cached at ~/.quiz/session.json`.
 5. **Upload**:
-   `python3 scripts/upload.py <file> [--publish]`.
+   `python3 <scripts>/upload.py <file> [--publish]`.
    Completion: `Imported "<name>" as draft (id=<id>)` (and, with `--publish`,
    `Published (id=<id>, status=published)`).
 
