@@ -10,6 +10,9 @@
 Two skills that author quiz sets for `/quiz` and ship them hands-off — write and
 self-check the set, then upload and publish it without touching a form.
 
+Part of the [`quiz-app`](../README.md) repository — the app these quizzes are
+published to.
+
 [**Install (Claude Code)**](#install-claude-code) |
 [**Install (DSH)**](#install-dsh) |
 [**First run**](#first-run-per-machine) |

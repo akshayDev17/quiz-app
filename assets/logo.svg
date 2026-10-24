@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" width="96" height="96" role="img" aria-label="The Quiz Room">
+  <!-- Same paper chip as the quiz-tools mark, so the two read as one family. -->
+  <rect x="0.75" y="0.75" width="94.5" height="94.5" rx="20" fill="#eef1f8" stroke="#c9cdd4" stroke-width="1.5"/>
+
+  <!-- A "Q": the bowl in ink, the tail in the app's accent. -->
+  <g transform="translate(0 2.5)">
+    <circle cx="45" cy="43" r="21" fill="none" stroke="#0f1220" stroke-width="7"/>
+    <path d="M58 56 L70 68" stroke="#3a4bd8" stroke-width="7" stroke-linecap="round"/>
+  </g>
+</svg>
