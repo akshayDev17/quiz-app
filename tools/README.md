@@ -4,7 +4,7 @@
 
 # quiz-tools
 
-![version](https://img.shields.io/badge/version-0.3.2-3a4bd8)
+![version](https://img.shields.io/github/package-json/v/akshayDev17/quiz-app?filename=tools%2Fpackage.json&label=version&color=3a4bd8)
 ![license](https://img.shields.io/badge/license-MIT-0f1220)
 
 Two skills that author quiz sets for `/quiz` and ship them hands-off — write and
