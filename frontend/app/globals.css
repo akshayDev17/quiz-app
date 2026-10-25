@@ -139,7 +139,16 @@ select { -webkit-appearance: none; -moz-appearance: none; appearance: none;
 .grid button:hover { border-color: var(--card-line-hover); color: var(--ink); }
 .grid button.ans { background: var(--ink); border-color: var(--ink); color: var(--paper); }
 .grid button.cur { outline: 2px solid var(--accent); outline-offset: 1px; }
-code { font-family: var(--mono); font-size: .85em; background: var(--paper-2); padding: 0 .3em; border-radius: 3px; }
+/* Inline code only (options, prose chips); fenced blocks get a real block below. */
+:not(pre) > code { font-family: var(--mono); font-size: .85em; background: var(--paper-2); padding: 0 .3em; border-radius: 3px; }
+
+/* Fenced code — GitHub Light tokens over the paper tint. Scrolls on both axes:
+   `overflow: auto` plus `max-height` gives the vertical bar, and `white-space: pre`
+   keeps long lines scrolling instead of wrapping (wrapped code misleads). */
+pre { background: var(--paper-2); border: 1px solid var(--rule); border-radius: 6px;
+      padding: var(--s3) var(--s4); margin: var(--s3) 0; max-height: 55vh; overflow: auto; }
+pre code, pre code.hljs { display: block; overflow: visible; background: none; padding: 0;
+      border-radius: 0; font-family: var(--mono); font-size: .8125rem; line-height: 1.55; color: var(--ink); }
 .locked .opt { pointer-events: none; opacity: .55; }
 
 /* dialogs */

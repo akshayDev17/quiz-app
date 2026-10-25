@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { Newsreader, IBM_Plex_Mono } from 'next/font/google';
+import 'highlight.js/styles/github.css';
 import './globals.css';
 
 const newsreader = Newsreader({
