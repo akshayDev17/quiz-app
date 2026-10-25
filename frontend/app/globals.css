@@ -66,20 +66,23 @@ a.btn { display: inline-flex; align-items: center; justify-content: center; text
 .card { background: var(--card); border: 1px solid var(--card-line); border-radius: var(--r-card); box-shadow: var(--shadow-rest);
         transition: transform .24s var(--ease), border-color .24s var(--ease), box-shadow .24s var(--ease); }
 
-/* home */
-.shead { display: flex; align-items: baseline; gap: var(--s3); margin: var(--s6) 0 var(--s4);
-         padding-top: var(--s4); border-top: 1px solid var(--rule); }
-/* The masthead already gives the first section its room, so only that one drops the
-   rule's top margin. Every `.shead` is the :first-child of its own <section>, so
-   `.shead:first-child { margin-top: 0 }` zeroed the margin for *every* section and left
-   each section's border-top glued to the bottom of the card above it. */
+/* home — collapsible topic/subtopic tree (topics collapsed by default) */
+.shead, .subhead { width: 100%; display: flex; align-items: baseline; cursor: pointer;
+                   text-align: left; background: none; color: inherit; font: inherit; border: 0; }
+.shead { gap: var(--s3); margin: var(--s6) 0 var(--s3); padding-top: var(--s4); border-top: 1px solid var(--rule); }
+/* The masthead already gives the first section its room, so only that one drops the rule's top margin. */
 .frame > section:first-of-type > .shead { margin-top: 0; }
 .shead .num { font-family: var(--mono); font-size: .6875rem; letter-spacing: .1em; color: var(--accent); }
-.shead h2 { font-size: 1.625rem; font-weight: 400; letter-spacing: -.015em; line-height: 1.2; }
-.shead .count { margin-left: auto; }
-.subhead { display: flex; align-items: baseline; gap: var(--s2); margin: var(--s5) 0 var(--s3); }
-.subhead::after { content: ""; flex: 1; height: 1px; background: var(--rule); align-self: center; }
-.shead + .subhead { margin-top: 0; }
+.shead .shead-name { font-size: 1.625rem; font-weight: 400; letter-spacing: -.015em; line-height: 1.2; }
+.shead .counts { font-family: var(--mono); font-size: .6875rem; letter-spacing: .06em; color: var(--muted); white-space: nowrap; }
+.shead .fill, .subhead .fill { flex: 1; height: 1px; background: var(--rule); align-self: center; }
+.shead .chev, .subhead .chev { font-family: var(--mono); color: var(--accent); }
+.subhead { gap: var(--s2); margin: var(--s4) 0 var(--s2); }
+.subhead .label { font-family: var(--mono); font-size: .6875rem; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+.subhead .cnt { font-family: var(--mono); font-size: .6875rem; letter-spacing: .04em; color: var(--muted); white-space: nowrap; }
+.subhead.merged .label { color: var(--accent); }
+.groups { margin-left: var(--s5); }
+.groups .cards { margin-bottom: var(--s4); }
 .field { display: flex; flex-direction: column; gap: var(--s2); margin: var(--s4) 0 0; }
 .field input, .field textarea, .field select { font-family: var(--mono); font-size: .9375rem; color: var(--ink);
                background-color: var(--card); border: 1px solid var(--card-line); border-radius: 4px; padding: .7rem .8rem; }
@@ -98,6 +101,7 @@ select { -webkit-appearance: none; -moz-appearance: none; appearance: none;
   .set-card:hover { border-color: var(--card-line-hover); box-shadow: var(--shadow-hover); transform: translateY(-4px); }
 }
 .set-card h3 { font-size: 1.25rem; font-weight: 400; line-height: 1.25; letter-spacing: -.01em; }
+.set-card .kicker-c { font-family: var(--mono); font-size: .625rem; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); }
 .set-card .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: var(--s2); }
 .set-card .foot { margin-top: auto; padding-top: var(--s3); margin-top: var(--s4); border-top: 1px solid var(--rule); }
 .set-card .foot .state { color: var(--ink); }

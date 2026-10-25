@@ -4,7 +4,7 @@ import { pluralize } from '../../lib/names';
 import type { SetCard as SetCardData } from '../../lib/types';
 
 /** One set on the home page. Links to the open attempt when there is one, else to the set intro. */
-export default function SetCard({ card }: { card: SetCardData }) {
+export default function SetCard({ card, kicker }: { card: SetCardData; kicker?: string }) {
   const href = card.open_attempt
     ? `/play?attempt=${encodeURIComponent(card.open_attempt.attempt_id)}`
     : `/set?id=${card.id}`;
@@ -12,6 +12,7 @@ export default function SetCard({ card }: { card: SetCardData }) {
   const active = card.open_attempt !== null || card.last !== null;
   return (
     <Link className="card set-card" href={href}>
+      {kicker && <div className="kicker-c">{kicker}</div>}
       <h3>{card.short_name}</h3>
       <div className="chips">
         <span className={card.time_limit_minutes ? 'chip timed' : 'chip'}>
