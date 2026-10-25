@@ -1,6 +1,6 @@
 ---
 name: quiz-create
-description: Author a quiz-set JSON for the quiz app — varied difficulty, hidden multi-correct counts, plausible distractors, questions solvable cold by the intended audience — then self-audit, run a fresh critic pass, and validate before upload. Use when asked to create, write, or author a quiz or quiz set.
+description: Author a quiz-set JSON for the quiz app — from prose or code material — varied difficulty, hidden multi-correct counts, plausible distractors, questions solvable cold by the intended audience — then self-audit, run a fresh critic pass, and validate before upload. Use when asked to create, write, or author a quiz or quiz set.
 ---
 
 # quiz-create — author a quiz set, then check it
@@ -8,12 +8,19 @@ description: Author a quiz-set JSON for the quiz app — varied difficulty, hidd
 Write a quiz-set JSON, run `<scripts>/validate.py` until it prints `OK`, and hand
 the file over for review. Do **not** upload — that is `quiz-upload`'s job.
 
+The material is either **prose** (notes, papers, docs — follow the rules below)
+or **code** (a repo, a folder, or one flow/sub-flow within it — follow
+`CODE-MATERIAL.md` instead of the prose rules).
+
 ## Steps
 
 1. **Get the inputs the invocation didn't give.** Ask the user once
    (`ask_user_question`, all questions together):
    - *Where should the file go?* Default `~/quiz-sets/` — scratch, outside this
      repo. If they pick a path inside the repo, confirm once before using it.
+   - *Prose or code material?* Infer from the invocation (a repo URL, a
+     directory of code files, "quiz this repo/flow" → code); ask only when
+     unclear. Default prose.
    - *Who must be able to solve it?* Options in "The audience"; default
      `domain`.
    - *How many questions?* Default 10.
@@ -21,28 +28,31 @@ the file over for review. Do **not** upload — that is `quiz-upload`'s job.
      "untimed". Set `time_limit_minutes = ceil(count × seconds / 60)`.
    Skip any question the invocation already answered; if the user says "doesn't
    matter", take the defaults.
-   Completion: destination, audience, count, and time limit known.
-2. **Read the source material.** Extract the ideas worth quizzing — the
-   concepts a reader must retain — not the document's own examples or layout.
-   Completion: the ideas to quiz are identified.
+   Completion: destination, material kind, audience, count, and time limit known.
+2. **Read the source material.**
+   - Prose: extract the ideas worth quizzing — the concepts a reader must
+     retain — not the document's own examples or layout.
+   - Code: trace the code and build the flow map; follow `CODE-MATERIAL.md`.
+   Completion: the ideas (or the flow) to quiz are identified.
 3. **Write the set** to the chosen destination, and alongside it the
    justification sidecar — `<basename>.justification.md`, one entry per question
    as in "The justification sidecar". Completion: a `.json` file exists there
    with the asked count, and the sidecar has one entry per question.
 4. **Self-audit — the craft gate.** Run every rule's check in "The rules"
-   against every question; rewrite each violation. The validator in step 6
-   checks only the schema, never the craft — this step is where craft is
-   enforced.
+   (prose) or `CODE-MATERIAL.md` (code) against every question; rewrite each
+   violation. The validator in step 6 checks only the schema, never the craft —
+   this step is where craft is enforced.
    Completion: every check passes for every question.
 5. **Critic pass — a fresh pair of eyes, then revise.** Spawn a fresh subagent
    (the `subagent` tool) that has not seen this generation conversation. Give it
-   the source material, "The rules", the quiz JSON, and the justification
-   sidecar. It judges each question: does its justification hold — not
-   source-locked and self-explanatory? It returns a per-question verdict
-   (pass, or fail with a one-line reason) and must not edit. Rewrite only the
-   failing questions and their sidecar entries, then re-run the critic. Stop
-   early when a pass comes back clean; if a question is still failing after 2
-   critic rounds, stop and hand that question to the user for a call — do not
+   the source material, the governing rules ("The rules" for prose,
+   `CODE-MATERIAL.md` for code), the quiz JSON, and the justification sidecar.
+   It judges each question: does its justification hold — not source-locked (or
+   load-bearing, for code) and self-explanatory? It returns a per-question
+   verdict (pass, or fail with a one-line reason) and must not edit. Rewrite
+   only the failing questions and their sidecar entries, then re-run the critic.
+   Stop early when a pass comes back clean; if a question is still failing after
+   2 critic rounds, stop and hand that question to the user for a call — do not
    loop a third time.
    Completion: a clean critic pass, or 2 rounds run and any stragglers reported.
 6. **Validate** the mechanics: `python3 <scripts>/validate.py <file>`.
@@ -62,9 +72,13 @@ has not read this source can answer from the question text alone.
 - `studied` — has studied this exact material; its vocabulary is allowed, but
   gloss option labels anyway (rule 3).
 - `general` — no assumed background; prompts teach what they test.
+- `drill` — the learner drilling exact recall of a codebase's structure; bare
+  symbols, exact outputs, and exact lines are the point. Code only; see
+  `CODE-MATERIAL.md` for the rules it swaps in.
 
-Vocabulary is the only thing the audience widens. The source's scaffolding
-(rule 1) and exact figures (rule 2) are off-limits for every audience.
+Vocabulary is the only thing the audience widens — for prose. The source's
+scaffolding (rule 1) and exact figures (rule 2) are off-limits for every prose
+audience. For code under `drill`, the system's own structure is the answer key.
 
 ## The justification sidecar
 
@@ -82,9 +96,13 @@ question, two lines:
 ```
 
 A question whose first line cannot be written honestly fails rule 1 — it is a
-recall of the source, not a quiz of the idea.
+recall of the source, not a quiz of the idea. For code quizzes the first line is
+reworded to *why is this hop/answer load-bearing?* — see `CODE-MATERIAL.md`.
 
-## The rules — each rule is also its check
+## The rules — each rule is also its check (prose)
+
+Prose material. For code, follow `CODE-MATERIAL.md` instead of rules 1–8;
+rules 9–10 (right-size, scoring) apply to both.
 
 1. **Quiz the idea, not the document.** Test definitions, mechanisms,
    distinctions, tradeoffs. Name concepts by what they mean, never by where the
