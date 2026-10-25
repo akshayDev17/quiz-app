@@ -5,7 +5,10 @@
       "args": [
         "-y",
         "@jessicaoy89/gmail-mcp"
-      ]
+      ],
+      "env": {
+        "GMAIL_OAUTH_PATH": "${CLAUDE_PLUGIN_ROOT}/gcp-oauth.keys.json"
+      }
     }
   }
 }

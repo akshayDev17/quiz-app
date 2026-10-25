@@ -110,6 +110,47 @@ class BundledClientTest(unittest.TestCase):
         )
 
 
+PLUGIN_ROOT = Path(__file__).resolve().parents[3]
+
+
+class ShippedKeysTest(unittest.TestCase):
+    """The keys file ships inside the plugin, so the MCP has it at its very first boot.
+
+    Before this, the file only appeared when gmail_auth.py ran mid-upload: the MCP had
+    already died at session start ("OAuth keys file not found") and Claude Code cached
+    that failure for 15 minutes, so the "restart once" step silently did nothing.
+    """
+
+    def test_the_plugin_ships_the_keys_file_in_the_shape_the_mcp_parses(self):
+        shipped = json.loads((PLUGIN_ROOT / "gcp-oauth.keys.json").read_text())
+        self.assertRegex(shipped["installed"]["client_id"], r"\.apps\.googleusercontent\.com$")
+        self.assertTrue(shipped["installed"]["client_secret"].startswith("GOCSPX-"))
+
+    def test_the_shipped_file_is_the_only_copy_of_the_client(self):
+        # One source: the constants are read from the file, so the two cannot drift.
+        shipped = json.loads((PLUGIN_ROOT / "gcp-oauth.keys.json").read_text())["installed"]
+        self.assertEqual(gmail_auth.SHIPPED_KEYS, PLUGIN_ROOT / "gcp-oauth.keys.json")
+        self.assertEqual(gmail_auth.DEFAULT_CLIENT_ID, shipped["client_id"])
+        self.assertEqual(gmail_auth.DEFAULT_CLIENT_SECRET, shipped["client_secret"])
+
+    def test_mcp_json_points_the_server_at_the_shipped_file(self):
+        # Without GMAIL_OAUTH_PATH the MCP looks in ~/.gmail-mcp, which is empty on a
+        # fresh machine. Claude Code expands ${CLAUDE_PLUGIN_ROOT} inside `env`.
+        server = json.loads((PLUGIN_ROOT / ".mcp.json").read_text())["mcpServers"]["gmail"]
+        oauth_path = server["env"]["GMAIL_OAUTH_PATH"]
+        self.assertEqual(oauth_path, "${CLAUDE_PLUGIN_ROOT}/gcp-oauth.keys.json")
+        resolved = Path(oauth_path.replace("${CLAUDE_PLUGIN_ROOT}", str(PLUGIN_ROOT)))
+        self.assertTrue(resolved.is_file())
+
+    def test_the_consent_flow_uses_the_same_client_as_the_server(self):
+        # A token is bound to the client that minted it; auth and the MCP must agree.
+        self.assertEqual(gmail_auth.build_parser().parse_args([]).oauth, gmail_auth.SHIPPED_KEYS)
+
+    def test_the_dsh_package_ships_the_file_too(self):
+        files = json.loads((PLUGIN_ROOT / "package.json").read_text())["files"]
+        self.assertIn("gcp-oauth.keys.json", files)
+
+
 class KeysFileTest(unittest.TestCase):
     """The file the MCP insists on, generated from the app's client."""
 
@@ -228,20 +269,25 @@ class CopyFromTest(unittest.TestCase):
         patched.start()
         self.addCleanup(patched.stop)
 
-    def test_it_copies_both_files_and_the_token_is_used(self):
+    def test_it_copies_the_token_and_the_token_is_used(self):
         # Stand-in for the transport only; the file handling is the code under test.
         self.stub_scp(f'#!/bin/bash\ncp "{self.src}/$(basename "$2")" "$3"\n')
-        keys = self.dest / "keys.json"
         credentials = self.dest / "credentials.json"
-        self.assertEqual(gmail_auth.copy_from("someone@host", keys, credentials), 0)
-        self.assertEqual(json.loads(keys.read_text())["installed"]["client_id"], CLIENT["client_id"])
+        self.assertEqual(gmail_auth.copy_from("someone@host", credentials), 0)
         self.assertTrue(gmail_auth._already_authorised(credentials))
+
+    def test_it_never_touches_the_keys_file(self):
+        # The keys ship with the plugin; copying another machine's over them would
+        # rewrite the plugin's own file. Only the token is per machine.
+        calls = self.bin / "calls"
+        self.stub_scp(f'#!/bin/bash\necho "$2" >> "{calls}"\ncp "{self.src}/$(basename "$2")" "$3"\n')
+        self.assertEqual(gmail_auth.copy_from("someone@host", self.dest / "credentials.json"), 0)
+        self.assertNotIn("gcp-oauth.keys.json", calls.read_text())
 
     def test_a_failed_transport_exits_2_with_the_manual_command(self):
         self.stub_scp('#!/bin/bash\necho "scp: Connection closed" >&2\nexit 1\n')
-        keys = self.dest / "keys.json"
         with mock.patch("sys.stderr", new_callable=lambda: __import__("io").StringIO()) as err:
-            self.assertEqual(gmail_auth.copy_from("someone@host", keys, self.dest / "c.json"), 2)
+            self.assertEqual(gmail_auth.copy_from("someone@host", self.dest / "c.json"), 2)
         self.assertIn("Copy it by hand", err.getvalue())
 
 
