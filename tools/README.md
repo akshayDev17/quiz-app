@@ -52,19 +52,31 @@ dsh plugin --profile web add file:"$PWD/tools"
 Restart `dsh web` to load the skills. On this harness the Gmail MCP is declared in
 the DSH profile rather than by the plugin.
 
-## First run (per machine)
+## First run
 
-Once, and then never again:
+**On a second machine there is nothing to set up — copy two files.** The OAuth
+client belongs to a Google *project* and the token belongs to the *account*, so both
+already exist on the machine that works. Copying them is the whole setup: no Google
+console, no browser, no consent screen.
 
-1. **Create a Google OAuth client** — Google Cloud project, enable the Gmail API,
-   create an OAuth client of type **Desktop app**, download its JSON. This is reused
-   by every machine.
-2. **Authorise the mailbox** — the skill does it for you the first time it needs a
-   code. It starts the MCP's `auth` command, opens the browser, and waits for the
-   token. Expect to pick the Google account and, if it says the app is unverified,
-   click **Advanced → Go to … (unsafe)** — the client is yours, just not published.
+```sh
+scp <set-up-machine>:~/.gmail-quiz/gcp-oauth.keys.json ~/.gmail-quiz/
+scp <set-up-machine>:~/.gmail-quiz/credentials.json   ~/.gmail-quiz/
+```
 
-Playwright needs no setup: the first browser step provisions it into
+Or let the script do it: `gmail_auth.py --copy-from <set-up-machine> --oauth … --credentials …`.
+
+**Only if no machine has it yet**, create the client once — Google Cloud project,
+enable the Gmail API, OAuth client of type **Desktop app**, download the JSON. That
+is once per Google project, never once per machine.
+
+Either way the mailbox then needs **authorising once per account** (not per machine,
+if you copied the token): the skill starts the MCP's `auth` command, opens the
+browser, and waits. Expect to pick the Google account and, if it says the app is
+unverified, click **Advanced → Go to … (unsafe)** — the client is yours, just not
+published.
+
+Playwright needs no setup at all: the first browser step provisions it into
 `~/.quiz/venv` (~100 MB, once).
 
 ## Usage
@@ -85,7 +97,7 @@ you:  upload it and publish
 | Gmail MCP server definition | yes |
 | Playwright and its Chromium | yes, on first use |
 | The Gmail OAuth grant | guided — a human still clicks Allow |
-| `gcp-oauth.keys.json` | **no** — created once in the Google Cloud console |
+| `gcp-oauth.keys.json` | **no** — created once per Google project, then copied to each machine |
 | `python3`, `node`/`npx` | **no** — the only real prerequisites |
 
 ## Troubleshooting

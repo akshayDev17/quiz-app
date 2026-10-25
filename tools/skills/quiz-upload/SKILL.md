@@ -27,6 +27,11 @@ Resolve `<scripts>` as the `scripts/` directory beside this SKILL.md — in Clau
    and `${user_config.gmail_credentials_path}` on Claude Code; on a harness that does not
    substitute them, ask the user, or default to `~/.gmail-quiz/gcp-oauth.keys.json` and
    `~/.gmail-quiz/credentials.json`.
+   **If either file is missing and the user has another machine already working, ask
+   for its host and copy the pair** — `gmail_auth.py --copy-from <user@host> --oauth …
+   --credentials …` — which needs no Google console, no browser and no consent. Only
+   when no machine has them should you mention creating an OAuth client in the Google
+   Cloud console, and say plainly that it is once per Google project, not per machine.
    The script opens a browser and waits. Tell the user, in these words, what to do:
    pick the Google account that owns the quiz mailbox; if it says "Google hasn't verified
    this app", click **Advanced → Go to … (unsafe)** (expected — the client is theirs, just

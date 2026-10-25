@@ -79,6 +79,42 @@ def _explain_port_conflict(port: int) -> None:
     )
 
 
+SET_UP_PATHS = ("gcp-oauth.keys.json", "credentials.json")
+
+
+def copy_from(host: str, oauth_keys: Path, credentials: Path) -> int:
+    """Fetch the OAuth client and the token from a machine that is already authorised.
+
+    A new machine needs no Google console trip and no consent screen: the client is
+    per Google project and the token is per account, so both are already on the
+    machine that works. Copying them is the whole setup.
+    """
+    if not shutil.which("scp"):
+        print("scp is not on PATH; copy the two files by hand instead.", file=sys.stderr)
+        return 2
+    for name, target in zip(SET_UP_PATHS, (oauth_keys, credentials)):
+        target.parent.mkdir(parents=True, exist_ok=True)
+        done = subprocess.run(
+            ["scp", "-q", f"{host}:~/.gmail-quiz/{name}", str(target)],
+            capture_output=True, text=True,
+        )
+        if done.returncode != 0:
+            print(
+                f"Could not copy {name} from {host}: {done.stderr.strip()}\n"
+                f"Copy it by hand:  scp {host}:~/.gmail-quiz/{name} {target}",
+                file=sys.stderr,
+            )
+            return 2
+    if not _already_authorised(credentials):
+        print(
+            f"Copied {credentials} but it holds no token — is {host} really authorised?",
+            file=sys.stderr,
+        )
+        return 2
+    print(f"Copied the OAuth client and token from {host}.")
+    return 0
+
+
 def authorise(oauth_keys: Path, credentials: Path, account: str | None, timeout: int) -> int:
     if _already_authorised(credentials):
         print(f"Gmail is already authorised ({credentials}). Nothing to do.")
@@ -86,9 +122,18 @@ def authorise(oauth_keys: Path, credentials: Path, account: str | None, timeout:
     if not oauth_keys.exists():
         print(
             f"No OAuth client keys at {oauth_keys}.\n"
-            "Create them once in the Google Cloud console: create a project, enable the\n"
-            "Gmail API, create an OAuth client of type Desktop app, download its JSON, and\n"
-            "point gmail_oauth_path at it.",
+            "\n"
+            "If any machine is already set up, copy the pair across — no console, no browser,\n"
+            "no consent:\n"
+            f"  scp <set-up-machine>:~/.gmail-quiz/gcp-oauth.keys.json {oauth_keys}\n"
+            f"  scp <set-up-machine>:~/.gmail-quiz/credentials.json {credentials}\n"
+            "or let this script do it:\n"
+            f"  gmail_auth.py --copy-from <set-up-machine> --oauth {oauth_keys} "
+            f"--credentials {credentials}\n"
+            "\n"
+            "Create one from scratch only when no machine has it: Google Cloud console →\n"
+            "new project → enable the Gmail API → OAuth client of type Desktop app → download\n"
+            "the JSON. That is once per Google project, not once per machine.",
             file=sys.stderr,
         )
         return 2
@@ -158,6 +203,12 @@ def main() -> None:
     parser.add_argument("--credentials", type=Path, required=True, help="where the token is stored")
     parser.add_argument("--account", help="label for the mailbox, e.g. quiz")
     parser.add_argument(
+        "--copy-from",
+        metavar="USER@HOST",
+        help="copy the OAuth client and token from a machine that is already set up "
+        "(no Google console, no consent screen)",
+    )
+    parser.add_argument(
         "--timeout", type=int, default=300, help="seconds to wait for the browser step (default 300)"
     )
     parser.add_argument(
@@ -166,6 +217,10 @@ def main() -> None:
         help="only report whether authorisation is needed, changing nothing",
     )
     args = parser.parse_args()
+    if args.copy_from:
+        code = copy_from(args.copy_from, args.oauth, args.credentials)
+        if code:
+            sys.exit(code)
     if args.check:
         if _already_authorised(args.credentials):
             print(f"authorised: {args.credentials}")
