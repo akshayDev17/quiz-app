@@ -67,14 +67,14 @@ carries on.
 """.rstrip()
 
 
-def bundled_client() -> dict | None:
+def bundled_client(beside: Path | None = None) -> dict | None:
     """The app's OAuth client, wherever the publisher put it: env, client.json, constants."""
     client_id = os.environ.get("QUIZ_GOOGLE_CLIENT_ID")
     client_secret = os.environ.get("QUIZ_GOOGLE_CLIENT_SECRET")
     if client_id and client_secret:
         return {"client_id": client_id, "client_secret": client_secret}
 
-    beside = Path(__file__).resolve().parent / "client.json"
+    beside = beside or Path(__file__).resolve().parent / "client.json"
     if beside.exists():
         try:
             stored = json.loads(beside.read_text())
@@ -90,7 +90,7 @@ def bundled_client() -> dict | None:
     return None
 
 
-def ensure_keys_file(oauth_keys: Path) -> int:
+def ensure_keys_file(oauth_keys: Path, beside: Path | None = None) -> int:
     """Write the MCP's keys file from the app's client when the user has none.
 
     The MCP insists on a `gcp-oauth.keys.json` holding `{"installed": {...}}`. A user
@@ -100,7 +100,7 @@ def ensure_keys_file(oauth_keys: Path) -> int:
     """
     if oauth_keys.exists():
         return 0
-    client = bundled_client()
+    client = bundled_client(beside)
     if client is None:
         print(
             f"No OAuth client at {oauth_keys}, and this copy of the plugin ships none.\n"

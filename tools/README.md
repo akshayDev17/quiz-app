@@ -88,6 +88,21 @@ from an authorised machine skips even the consent screen, which is what `--copy-
 
 </details>
 
+## Checking it yourself
+
+The Gmail plumbing is tested offline — no Google, no network, no browser:
+
+```sh
+python3 skills/quiz-upload/scripts/test_gmail_auth.py
+```
+
+16 assertions covering where the client comes from, that the keys file is written in
+the shape the MCP actually parses, that it is never overwritten and never
+world-readable, that a busy callback port and a failed copy exit 2 with the exact
+command to run, and that an unauthorised mailbox is detected before a login code is
+spent. The one thing they cannot cover is the consent click, which needs a real
+client and a human.
+
 ## Usage
 
 ```
