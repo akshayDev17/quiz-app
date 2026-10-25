@@ -58,6 +58,11 @@ One screen, once per Google account: the skill opens Google's consent page for t
 mailbox it needs to read, you approve it, done. If it says the app is unverified,
 that is expected — **Advanced → Go to … (unsafe)**.
 
+Nothing is configured at install: the plugin asks for no paths, and both files live
+where the Gmail MCP looks by default (`~/.gmail-mcp/`). The Gmail *tool* is served by a
+process that starts with the session, so if you authorised mid-session, restart Claude
+Code once — the tool appears and the upload continues.
+
 There is nothing to configure and no Google Cloud project to create: the OAuth client
 belongs to this plugin, not to whoever installs it. Playwright is provisioned the same
 way, silently, on first use (~100 MB, once).
@@ -83,7 +88,7 @@ enable the Gmail API, OAuth client of type **Desktop app**). Gmail's scopes are
 *restricted*, so an unverified app shows the warning screen and is capped at 100
 consenting users; removing both requires Google's app review.
 
-Nothing else needs the client: copying `~/.gmail-quiz/{gcp-oauth.keys.json,credentials.json}`
+Nothing else needs the client: copying `~/.gmail-mcp/{gcp-oauth.keys.json,credentials.json}`
 from an authorised machine skips even the consent screen, which is what `--copy-from` does.
 
 </details>
@@ -129,7 +134,7 @@ you:  upload it and publish
 | Symptom | Cause and fix |
 | --- | --- |
 | `port 3000 is in use` | The Gmail MCP hardcodes 3000 for its OAuth callback. Stop whatever holds it (`lsof -nP -iTCP:3000 -sTCP:LISTEN`) and retry. |
-| Gmail tools error about credentials | Not authorised on this machine. Delete `~/.gmail-quiz/credentials.json` and let the skill re-run the auth. |
+| Gmail tools error about credentials | Not authorised on this machine. Delete `~/.gmail-mcp/credentials.json` and let the skill re-run the auth. |
 | "Google hasn't verified this app" | Expected for an unpublished client: **Advanced → Go to … (unsafe)**, then Allow. |
 | `playwright not installed` and it will not install | No network, or no `python3` to build the venv. Install by hand: `pip install playwright && playwright install chromium`. |
 | `session expired — re-run the login` | The cached Cloudflare cookie lapsed (24 h). Delete `~/.quiz/session.json` and upload again. |
@@ -141,7 +146,7 @@ you:  upload it and publish
 | `~/.quiz/venv/` | Playwright virtualenv | no — delete to reclaim ~100 MB |
 | `~/.quiz/session.json` | cached Cloudflare Access cookie (~24 h) | no |
 | `~/.quiz/access-browser/` | the browser profile the login step drives | no |
-| `~/.gmail-quiz/` | OAuth client keys and token | no |
+| `~/.gmail-mcp/` | OAuth client keys and token (the MCP's own default location) | no |
 
 ## Why two manifests
 

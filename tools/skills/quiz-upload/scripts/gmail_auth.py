@@ -31,6 +31,9 @@ import tempfile
 import time
 from pathlib import Path
 
+#: Both files live where the MCP looks by default, so neither has to be
+#: configured: GMAIL_OAUTH_PATH is unset in .mcp.json on purpose.
+
 #: The MCP server hardcodes this port for its OAuth callback; there is no flag to move it.
 CALLBACK_PORT = 3000
 
@@ -154,7 +157,9 @@ def _explain_port_conflict(port: int) -> None:
 SET_UP_PATHS = ("gcp-oauth.keys.json", "credentials.json")
 
 
-def copy_from(host: str, oauth_keys: Path, credentials: Path) -> int:
+def copy_from(
+    host: str, oauth_keys: Path, credentials: Path, remote_dir: str = "~/.gmail-mcp"
+) -> int:
     """Fetch the OAuth client and the token from a machine that is already authorised.
 
     A new machine needs no Google console trip and no consent screen: the client is
@@ -167,13 +172,13 @@ def copy_from(host: str, oauth_keys: Path, credentials: Path) -> int:
     for name, target in zip(SET_UP_PATHS, (oauth_keys, credentials)):
         target.parent.mkdir(parents=True, exist_ok=True)
         done = subprocess.run(
-            ["scp", "-q", f"{host}:~/.gmail-quiz/{name}", str(target)],
+            ["scp", "-q", f"{host}:{remote_dir}/{name}", str(target)],
             capture_output=True, text=True,
         )
         if done.returncode != 0:
             print(
                 f"Could not copy {name} from {host}: {done.stderr.strip()}\n"
-                f"Copy it by hand:  scp {host}:~/.gmail-quiz/{name} {target}",
+                f"Copy it by hand:  scp {host}:{remote_dir}/{name} {target}",
                 file=sys.stderr,
             )
             return 2
@@ -258,13 +263,13 @@ def main() -> None:
     parser.add_argument(
         "--oauth",
         type=Path,
-        default=Path.home() / ".gmail-quiz" / "gcp-oauth.keys.json",
+        default=Path.home() / ".gmail-mcp" / "gcp-oauth.keys.json",
         help="the MCP's keys file; created from the plugin's own client if absent",
     )
     parser.add_argument(
         "--credentials",
         type=Path,
-        default=Path.home() / ".gmail-quiz" / "credentials.json",
+        default=Path.home() / ".gmail-mcp" / "credentials.json",
         help="where the token is stored",
     )
     parser.add_argument("--account", help="label for the mailbox, e.g. quiz")
@@ -273,6 +278,12 @@ def main() -> None:
         metavar="USER@HOST",
         help="copy the OAuth client and token from a machine that is already set up "
         "(no Google console, no consent screen)",
+    )
+    parser.add_argument(
+        "--copy-from-dir",
+        default="~/.gmail-mcp",
+        help="where those files live on that machine (default ~/.gmail-mcp; a DSH "
+        "install may keep them in ~/.gmail-quiz)",
     )
     parser.add_argument(
         "--timeout", type=int, default=300, help="seconds to wait for the browser step (default 300)"
@@ -284,7 +295,7 @@ def main() -> None:
     )
     args = parser.parse_args()
     if args.copy_from:
-        code = copy_from(args.copy_from, args.oauth, args.credentials)
+        code = copy_from(args.copy_from, args.oauth, args.credentials, args.copy_from_dir)
         if code:
             sys.exit(code)
     if args.check:

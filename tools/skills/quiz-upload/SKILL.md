@@ -20,19 +20,19 @@ Resolve `<scripts>` as the `scripts/` directory beside this SKILL.md — in Clau
    this must work *before* a code is spent. Call a cheap read: `mcp__gmail__search_emails`
    with `from:noreply@notify.cloudflare.com newer_than:1d`. A real answer, even an empty
    one, means the grant is in place; skip to step 3.
-   If the tool is missing or errors about credentials, authorise the mailbox:
-   `python3 <scripts>/gmail_auth.py --oauth "<keys-path>" --credentials "<token-path>"`
-   (the plugin's configured values — `${user_config.gmail_oauth_path}` and
-   `${user_config.gmail_credentials_path}` on Claude Code; otherwise
-   `~/.gmail-quiz/gcp-oauth.keys.json` and `~/.gmail-quiz/credentials.json`).
+   If that tool is missing or errors about credentials, run
+   `python3 <scripts>/gmail_auth.py` — no arguments, no paths to configure.
    **Do not send the user to the Google Cloud console.** The OAuth client belongs to the
-   plugin, not to them: the script writes it from the values the plugin ships and opens
-   the consent screen for their own mailbox. Say only this, in these words: pick the
-   Google account that owns the quiz mailbox; if it says "Google hasn't verified this
-   app", click **Advanced → Go to … (unsafe)** (expected — nobody has paid for Google's
-   app review); approve read/manage Gmail; the tab should then say "Authentication
-   successful! You can close this window." The script exits 0 when the token lands.
-   If it exits 2 because port 3000 is busy, stop the dev server holding it and retry.
+   plugin, not to them: the script writes it, opens the consent screen for their own
+   mailbox, and waits. Say only this: pick the Google account that owns the quiz mailbox;
+   if it says "Google hasn't verified this app", click **Advanced → Go to … (unsafe)**
+   (expected — nobody has paid for Google's app review); approve read/manage Gmail; the
+   tab should then say "Authentication successful! You can close this window."
+   Then tell the user plainly: the Gmail *tool* is served by a process that started
+   before the token existed, so it may need a fresh session before the tool appears —
+   ask them to restart Claude Code and say "upload it" again, and the flow resumes at
+   this step for free.
+   If the script exits 2 because port 3000 is busy, stop whatever holds it and retry.
 3. **Request a login code** (skip if `~/.quiz/session.json` already has a fresh
    cookie):
    `python3 <scripts>/upload.py --request-otp --email <admin-email>`.

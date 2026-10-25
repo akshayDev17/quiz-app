@@ -1,6 +1,6 @@
 {
   "name": "quiz-tools",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Skills for the quiz app: author a quiz-set JSON (quiz-create) and upload it (quiz-upload).",
   "author": {
     "name": "Akshay Prabhakant"
@@ -14,25 +14,5 @@
     "authoring",
     "upload"
   ],
-  "userConfig": {
-    "gmail_oauth_path": {
-      "type": "string",
-      "title": "Gmail OAuth client JSON",
-      "description": "Absolute path to the Google OAuth client keys (gcp-oauth.keys.json) used by the Gmail MCP that the upload flow reads its login code from.",
-      "required": true
-    },
-    "gmail_credentials_path": {
-      "type": "string",
-      "title": "Gmail token store",
-      "description": "Absolute path where the Gmail MCP keeps its authorised token (credentials.json). The file is created on first authorisation, so it need not exist yet.",
-      "required": true
-    },
-    "gmail_account_name": {
-      "type": "string",
-      "title": "Gmail account label",
-      "description": "Short label for the mailbox the login code arrives in.",
-      "default": "quiz"
-    }
-  },
   "icon": "./assets/logo.svg"
 }

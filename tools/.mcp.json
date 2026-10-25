@@ -5,12 +5,7 @@
       "args": [
         "-y",
         "@jessicaoy89/gmail-mcp"
-      ],
-      "env": {
-        "GMAIL_OAUTH_PATH": "${user_config.gmail_oauth_path}",
-        "GMAIL_CREDENTIALS_PATH": "${user_config.gmail_credentials_path}",
-        "GMAIL_ACCOUNT_NAME": "${user_config.gmail_account_name}"
-      }
+      ]
     }
   }
 }
