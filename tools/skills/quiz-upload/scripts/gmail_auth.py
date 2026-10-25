@@ -31,27 +31,39 @@ import tempfile
 import time
 from pathlib import Path
 
-#: Both files live where the MCP looks by default, so neither has to be
-#: configured: GMAIL_OAUTH_PATH is unset in .mcp.json on purpose.
-
 #: The MCP server hardcodes this port for its OAuth callback; there is no flag to move it.
 CALLBACK_PORT = 3000
 
-#: The plugin's own OAuth client. A desktop client is a PUBLIC client — Google:
-#: "desktop apps are public clients and cannot keep secrets confidential" — so the
-#: app ships one and the person installing it only ever sees a consent screen for
-#: their own mailbox. Nobody using this plugin should ever open the Google console.
+#: The plugin's own OAuth client, shipped as a file at the plugin root. A desktop
+#: client is a PUBLIC client — Google: "desktop apps are public clients and cannot
+#: keep secrets confidential" — so the app ships one and the person installing it
+#: only ever sees a consent screen for their own mailbox. Nobody using this plugin
+#: should ever open the Google console.
 #:
-#: These ship filled. Without them a fresh machine has no client, so there is no
-#: consent URL to open and the one-time-PIN flow cannot start at all — the plugin
-#: would be inert for everyone but its publisher. That is the failure this file's
-#: tests now guard against.
+#: It is a file, not constants, because the MCP must have it at its very first boot:
+#: .mcp.json points GMAIL_OAUTH_PATH here. Written mid-upload instead, it arrives after
+#: the MCP has already died with "OAuth keys file not found", and Claude Code caches
+#: that failure for 15 minutes, so a restart does not bring the server back.
+#: The token is still per person, in ~/.gmail-mcp/credentials.json.
 #:
 #: To use a different client, set QUIZ_GOOGLE_CLIENT_ID / QUIZ_GOOGLE_CLIENT_SECRET,
 #: or drop a `client.json` beside this script with {"client_id": ..., "client_secret":
-#: ...}; both win over the values below.
-DEFAULT_CLIENT_ID = "419757768038-usi1vf7k40su2sc4bpo046hopr42iujd.apps.googleusercontent.com"
-DEFAULT_CLIENT_SECRET = "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"
+#: ...}; both win over the shipped file when a keys file has to be written.
+SHIPPED_KEYS = Path(__file__).resolve().parents[3] / "gcp-oauth.keys.json"
+
+
+def _read_client(path: Path) -> dict:
+    """client_id/client_secret from a flat or Google-shaped ({"installed": ...}) file."""
+    try:
+        stored = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return {}
+    stored = stored.get("installed") or stored.get("web") or stored
+    return stored if stored.get("client_id") and stored.get("client_secret") else {}
+
+
+DEFAULT_CLIENT_ID = _read_client(SHIPPED_KEYS).get("client_id", "")
+DEFAULT_CLIENT_SECRET = _read_client(SHIPPED_KEYS).get("client_secret", "")
 
 _MCP_KEYS_TEMPLATE = {
     "auth_uri": "https://accounts.google.com/o/oauth2/auth",
@@ -64,8 +76,8 @@ In the browser window that just opened (or at the URL above):
 
   1. Pick the Google account that owns the quiz mailbox.
   2. If it says "Google hasn't verified this app", click Advanced, then
-     "Go to <app> (unsafe)". This is expected: the OAuth client belongs to you,
-     it is just not published for public verification.
+     "Go to <app> (unsafe)". This is expected: the OAuth client belongs to this
+     plugin, which is not published for public verification.
   3. Read the permissions it asks for — read and manage Gmail, plus basic Gmail
      settings — and click Continue / Allow.
   4. The tab should end on "Authentication successful! You can close this window."
@@ -82,16 +94,9 @@ def bundled_client(beside: Path | None = None) -> dict | None:
     if client_id and client_secret:
         return {"client_id": client_id, "client_secret": client_secret}
 
-    beside = beside or Path(__file__).resolve().parent / "client.json"
-    if beside.exists():
-        try:
-            stored = json.loads(beside.read_text())
-        except ValueError:
-            stored = {}
-        # Accept either the flat form or Google's downloaded {"installed": {...}}.
-        stored = stored.get("installed") or stored.get("web") or stored
-        if stored.get("client_id") and stored.get("client_secret"):
-            return {"client_id": stored["client_id"], "client_secret": stored["client_secret"]}
+    stored = _read_client(beside or Path(__file__).resolve().parent / "client.json")
+    if stored:
+        return {"client_id": stored["client_id"], "client_secret": stored["client_secret"]}
 
     if DEFAULT_CLIENT_ID and DEFAULT_CLIENT_SECRET:
         return {"client_id": DEFAULT_CLIENT_ID, "client_secret": DEFAULT_CLIENT_SECRET}
@@ -115,9 +120,9 @@ def ensure_keys_file(oauth_keys: Path, beside: Path | None = None) -> int:
             "\n"
             "You should not have to do anything here — the client belongs to the app, not\n"
             "to you. Ask whoever published this plugin to set one, or, if you have a machine\n"
-            "that is already authorised, copy its files across:\n"
-            f"  gmail_auth.py --copy-from <set-up-machine> --oauth {oauth_keys} "
-            "--credentials <token-path>",
+            "that is already authorised, copy its keys file here and then its token:\n"
+            f"  scp <set-up-machine>:~/.gmail-mcp/gcp-oauth.keys.json {oauth_keys}\n"
+            "  gmail_auth.py --copy-from <set-up-machine>",
             file=sys.stderr,
         )
         return 2
@@ -159,41 +164,34 @@ def _explain_port_conflict(port: int) -> None:
     )
 
 
-SET_UP_PATHS = ("gcp-oauth.keys.json", "credentials.json")
+def copy_from(host: str, credentials: Path, remote_dir: str = "~/.gmail-mcp") -> int:
+    """Fetch the token from a machine that is already authorised.
 
-
-def copy_from(
-    host: str, oauth_keys: Path, credentials: Path, remote_dir: str = "~/.gmail-mcp"
-) -> int:
-    """Fetch the OAuth client and the token from a machine that is already authorised.
-
-    A new machine needs no Google console trip and no consent screen: the client is
-    per Google project and the token is per account, so both are already on the
-    machine that works. Copying them is the whole setup.
+    A new machine needs no consent screen for a mailbox another machine already
+    authorised: the client ships with the plugin and the token is per account, so the
+    token is the only thing to copy. The keys file is never copied, because that would
+    rewrite the plugin's own file.
     """
     if not shutil.which("scp"):
-        print("scp is not on PATH; copy the two files by hand instead.", file=sys.stderr)
+        print("scp is not on PATH; copy the token by hand instead.", file=sys.stderr)
         return 2
-    for name, target in zip(SET_UP_PATHS, (oauth_keys, credentials)):
-        target.parent.mkdir(parents=True, exist_ok=True)
-        done = subprocess.run(
-            ["scp", "-q", f"{host}:{remote_dir}/{name}", str(target)],
-            capture_output=True, text=True,
+    credentials.parent.mkdir(parents=True, exist_ok=True)
+    source = f"{host}:{remote_dir}/credentials.json"
+    done = subprocess.run(["scp", "-q", source, str(credentials)], capture_output=True, text=True)
+    if done.returncode != 0:
+        print(
+            f"Could not copy credentials.json from {host}: {done.stderr.strip()}\n"
+            f"Copy it by hand:  scp {source} {credentials}",
+            file=sys.stderr,
         )
-        if done.returncode != 0:
-            print(
-                f"Could not copy {name} from {host}: {done.stderr.strip()}\n"
-                f"Copy it by hand:  scp {host}:{remote_dir}/{name} {target}",
-                file=sys.stderr,
-            )
-            return 2
+        return 2
     if not _already_authorised(credentials):
         print(
             f"Copied {credentials} but it holds no token — is {host} really authorised?",
             file=sys.stderr,
         )
         return 2
-    print(f"Copied the OAuth client and token from {host}.")
+    print(f"Copied the token from {host}.")
     return 0
 
 
@@ -263,13 +261,14 @@ def authorise(oauth_keys: Path, credentials: Path, account: str | None, timeout:
     return 1
 
 
-def main() -> None:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
         "--oauth",
         type=Path,
-        default=Path.home() / ".gmail-mcp" / "gcp-oauth.keys.json",
-        help="the MCP's keys file; created from the plugin's own client if absent",
+        default=SHIPPED_KEYS,
+        help="the MCP's keys file (default: the one shipped with the plugin, which "
+        ".mcp.json also points the server at); created from the plugin's client if absent",
     )
     parser.add_argument(
         "--credentials",
@@ -281,14 +280,14 @@ def main() -> None:
     parser.add_argument(
         "--copy-from",
         metavar="USER@HOST",
-        help="copy the OAuth client and token from a machine that is already set up "
-        "(no Google console, no consent screen)",
+        help="copy the token from a machine whose mailbox is already authorised "
+        "(no consent screen)",
     )
     parser.add_argument(
         "--copy-from-dir",
         default="~/.gmail-mcp",
-        help="where those files live on that machine (default ~/.gmail-mcp; a DSH "
-        "install may keep them in ~/.gmail-quiz)",
+        help="where credentials.json lives on that machine (default ~/.gmail-mcp; a DSH "
+        "install may keep it in ~/.gmail-quiz)",
     )
     parser.add_argument(
         "--timeout", type=int, default=300, help="seconds to wait for the browser step (default 300)"
@@ -298,9 +297,13 @@ def main() -> None:
         action="store_true",
         help="only report whether authorisation is needed, changing nothing",
     )
-    args = parser.parse_args()
+    return parser
+
+
+def main() -> None:
+    args = build_parser().parse_args()
     if args.copy_from:
-        code = copy_from(args.copy_from, args.oauth, args.credentials, args.copy_from_dir)
+        code = copy_from(args.copy_from, args.credentials, args.copy_from_dir)
         if code:
             sys.exit(code)
     if args.check:

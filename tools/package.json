@@ -1,6 +1,6 @@
 {
   "name": "quiz-tools",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "DSH skills for the quiz app: author a quiz-set JSON (quiz-create) and upload it to /quiz (quiz-upload).",
   "type": "module",
   "license": "MIT",
@@ -14,6 +14,7 @@
     "skills",
     "assets",
     "quiz_validation.py",
+    "gcp-oauth.keys.json",
     "plugin.json",
     ".claude-plugin/plugin.json",
     "cordis.patch.yml",

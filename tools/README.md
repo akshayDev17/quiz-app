@@ -58,10 +58,12 @@ One screen, once per Google account: the skill opens Google's consent page for t
 mailbox it needs to read, you approve it, done. If it says the app is unverified,
 that is expected — **Advanced → Go to … (unsafe)**.
 
-Nothing is configured at install: the plugin asks for no paths, and both files live
-where the Gmail MCP looks by default (`~/.gmail-mcp/`). The Gmail *tool* is served by a
-process that starts with the session, so if you authorised mid-session, restart Claude
-Code once — the tool appears and the upload continues.
+Nothing is configured at install: the plugin asks for no paths. The app's OAuth client
+ships inside the plugin (`gcp-oauth.keys.json`, which `.mcp.json` points the Gmail MCP
+at), so the server starts cleanly from the very first session. Your token lands in
+`~/.gmail-mcp/credentials.json` when you approve. The Gmail MCP reads that token only
+when it starts, so after the first approval restart Claude Code once — the tool appears
+and the upload continues.
 
 There is nothing to configure and no Google Cloud project to create: the OAuth client
 belongs to this plugin, not to whoever installs it. Playwright is provisioned the same
@@ -89,7 +91,7 @@ enable the Gmail API, OAuth client of type **Desktop app**). Gmail's scopes are
 consenting users; removing both requires Google's app review.
 
 `--copy-from` remains for machines that are already authorised: copying
-`~/.gmail-mcp/{gcp-oauth.keys.json,credentials.json}` across skips even the consent screen.
+`~/.gmail-mcp/credentials.json` across skips even the consent screen.
 
 </details>
 
@@ -127,7 +129,7 @@ you:  upload it and publish
 | Gmail MCP server definition | yes |
 | Playwright and its Chromium | yes, on first use |
 | The Gmail OAuth grant | guided — a human still clicks Allow |
-| `~/.gmail-mcp/gcp-oauth.keys.json` | yes — written on first run from the client the plugin ships |
+| The app's OAuth client (`gcp-oauth.keys.json`) | yes — ships inside the plugin |
 | `python3`, `node`/`npx` | **no** — the only real prerequisites |
 
 ## Troubleshooting
@@ -148,7 +150,7 @@ you:  upload it and publish
 | `~/.quiz/venv/` | Playwright virtualenv | no — delete to reclaim ~100 MB |
 | `~/.quiz/session.json` | cached Cloudflare Access cookie (~24 h) | no |
 | `~/.quiz/access-browser/` | the browser profile the login step drives | no |
-| `~/.gmail-mcp/` | OAuth client keys and token (the MCP's own default location) | no |
+| `~/.gmail-mcp/` | your Gmail token (the MCP's own default location) | no |
 
 ## Why two manifests
 
