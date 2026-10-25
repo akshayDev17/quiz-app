@@ -1,6 +1,6 @@
 {
   "name": "quiz-tools",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "DSH skills for the quiz app: author a quiz-set JSON (quiz-create) and upload it to /quiz (quiz-upload).",
   "type": "module",
   "license": "MIT",

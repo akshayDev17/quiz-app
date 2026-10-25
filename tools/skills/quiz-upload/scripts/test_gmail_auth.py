@@ -41,8 +41,28 @@ class BundledClientTest(unittest.TestCase):
         self.addCleanup(lambda: [os.environ.pop(k, None) for k in
                                  ("QUIZ_GOOGLE_CLIENT_ID", "QUIZ_GOOGLE_CLIENT_SECRET")])
 
-    def test_nothing_configured_means_none(self):
-        self.assertIsNone(gmail_auth.bundled_client(self.beside))
+    def test_a_publisher_that_ships_nothing_means_none(self):
+        # Not what this plugin does — it ships a client — but the fallback has to stay
+        # honest for the case where someone blanks the constants.
+        with mock.patch.multiple(
+            gmail_auth, DEFAULT_CLIENT_ID="", DEFAULT_CLIENT_SECRET=""
+        ):
+            self.assertIsNone(gmail_auth.bundled_client(self.beside))
+
+    def test_the_plugin_ships_a_usable_desktop_client(self):
+        # The first-run promise in one assertion: a fresh machine gets a consent
+        # screen without anyone opening the Google console. Blanking these silently
+        # breaks every install but the publisher's own.
+        self.assertTrue(gmail_auth.DEFAULT_CLIENT_ID, "the plugin ships no client_id")
+        self.assertRegex(
+            gmail_auth.DEFAULT_CLIENT_ID, r"\.apps\.googleusercontent\.com$"
+        )
+        self.assertTrue(
+            gmail_auth.DEFAULT_CLIENT_SECRET.startswith("GOCSPX-"),
+            "secret is not shaped like a Google client secret",
+        )
+        client = gmail_auth.bundled_client(self.beside)
+        self.assertEqual(client["client_id"], gmail_auth.DEFAULT_CLIENT_ID)
 
     def test_env_wins(self):
         os.environ["QUIZ_GOOGLE_CLIENT_ID"] = "env-id"
@@ -72,7 +92,22 @@ class BundledClientTest(unittest.TestCase):
 
     def test_a_broken_client_json_is_ignored_rather_than_crashing(self):
         self.beside.write_text("{not json")
-        self.assertIsNone(gmail_auth.bundled_client(self.beside))
+        with mock.patch.multiple(
+            gmail_auth, DEFAULT_CLIENT_ID="", DEFAULT_CLIENT_SECRET=""
+        ):
+            self.assertIsNone(gmail_auth.bundled_client(self.beside))
+
+    def test_a_broken_client_json_falls_through_to_the_shipped_one(self):
+        # A malformed client.json must not poison the run: the plugin's own client is
+        # still there, so first run keeps working.
+        self.beside.write_text("{not json")
+        self.assertEqual(
+            gmail_auth.bundled_client(self.beside),
+            {
+                "client_id": gmail_auth.DEFAULT_CLIENT_ID,
+                "client_secret": gmail_auth.DEFAULT_CLIENT_SECRET,
+            },
+        )
 
 
 class KeysFileTest(unittest.TestCase):
@@ -106,9 +141,27 @@ class KeysFileTest(unittest.TestCase):
         self.assertEqual(gmail_auth.ensure_keys_file(self.keys, self.beside), 0)
         self.assertEqual(json.loads(self.keys.read_text())["installed"]["client_id"], "mine")
 
+    def test_a_fresh_machine_gets_the_shipped_client_written(self):
+        # The real first run: no client.json, no env vars, nothing on disk — just the
+        # plugin's own client and a directory that does not exist yet.
+        self.beside.unlink()
+        with mock.patch("sys.stdout", new_callable=lambda: __import__("io").StringIO()) as out:
+            self.assertEqual(gmail_auth.ensure_keys_file(self.keys, self.beside), 0)
+        written = json.loads(self.keys.read_text())["installed"]
+        self.assertEqual(written["client_id"], gmail_auth.DEFAULT_CLIENT_ID)
+        self.assertEqual(
+            written["redirect_uris"],
+            [f"http://localhost:{gmail_auth.CALLBACK_PORT}/oauth2callback"],
+        )
+        self.assertIn("plugin's own Google client", out.getvalue())
+
     def test_with_no_client_it_exits_2_and_blames_the_publisher(self):
         self.beside.unlink()
-        with mock.patch("sys.stderr", new_callable=lambda: __import__("io").StringIO()) as err:
+        with mock.patch.multiple(
+            gmail_auth, DEFAULT_CLIENT_ID="", DEFAULT_CLIENT_SECRET=""
+        ), mock.patch(
+            "sys.stderr", new_callable=lambda: __import__("io").StringIO()
+        ) as err:
             self.assertEqual(gmail_auth.ensure_keys_file(self.keys, self.beside), 2)
         message = err.getvalue()
         self.assertIn("published this plugin", message.lower())

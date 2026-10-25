@@ -42,11 +42,16 @@ CALLBACK_PORT = 3000
 #: app ships one and the person installing it only ever sees a consent screen for
 #: their own mailbox. Nobody using this plugin should ever open the Google console.
 #:
-#: Fill these once, as whoever publishes the plugin, or set QUIZ_GOOGLE_CLIENT_ID /
-#: QUIZ_GOOGLE_CLIENT_SECRET, or drop a `client.json` beside this script with
-#: {"client_id": "...", "client_secret": "..."}.
-DEFAULT_CLIENT_ID = ""
-DEFAULT_CLIENT_SECRET = ""
+#: These ship filled. Without them a fresh machine has no client, so there is no
+#: consent URL to open and the one-time-PIN flow cannot start at all — the plugin
+#: would be inert for everyone but its publisher. That is the failure this file's
+#: tests now guard against.
+#:
+#: To use a different client, set QUIZ_GOOGLE_CLIENT_ID / QUIZ_GOOGLE_CLIENT_SECRET,
+#: or drop a `client.json` beside this script with {"client_id": ..., "client_secret":
+#: ...}; both win over the values below.
+DEFAULT_CLIENT_ID = "419757768038-usi1vf7k40su2sc4bpo046hopr42iujd.apps.googleusercontent.com"
+DEFAULT_CLIENT_SECRET = "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"
 
 _MCP_KEYS_TEMPLATE = {
     "auth_uri": "https://accounts.google.com/o/oauth2/auth",

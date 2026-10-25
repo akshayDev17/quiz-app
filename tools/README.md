@@ -4,7 +4,7 @@
 
 # quiz-tools
 
-![version](https://img.shields.io/badge/version-0.1.0-3a4bd8)
+![version](https://img.shields.io/badge/version-0.3.2-3a4bd8)
 ![license](https://img.shields.io/badge/license-MIT-0f1220)
 
 Two skills that author quiz sets for `/quiz` and ship them hands-off — write and
@@ -71,25 +71,25 @@ way, silently, on first use (~100 MB, once).
 <summary>Publishing the plugin — one-time setup for the publisher, not for users</summary>
 
 A desktop OAuth client is a **public client** — Google's own documentation says such
-apps "cannot keep secrets confidential" — so the client ships with the plugin and every
-installer just sees a consent screen. Fill it in once, as the publisher:
+apps "cannot keep secrets confidential" — so the plugin ships one and every installer
+just sees a consent screen. It is already filled in at
+`skills/quiz-upload/scripts/gmail_auth.py`. To point the plugin at a different Google
+project, replace those two constants, or set `QUIZ_GOOGLE_CLIENT_ID` /
+`QUIZ_GOOGLE_CLIENT_SECRET`, or drop a `client.json` beside that script (gitignored, if
+you would rather keep a client out of the repo).
 
-```python
-# skills/quiz-upload/scripts/gmail_auth.py
-DEFAULT_CLIENT_ID = "<your client id>"
-DEFAULT_CLIENT_SECRET = "<your client secret>"
-```
+Both constants must stay filled. With them blank the plugin has no client, so no
+consent URL can even be built and every fresh install stalls at "ships no client" —
+working only on a machine that already has the files. The offline tests fail loudly if
+they are emptied.
 
-or set `QUIZ_GOOGLE_CLIENT_ID` / `QUIZ_GOOGLE_CLIENT_SECRET`, or drop a `client.json`
-beside that script — which is gitignored, for keeping a client out of the repo.
-
-Creating the client itself is a one-time trip to the Google Cloud console (new project,
+The client itself comes from a one-time trip to the Google Cloud console (new project,
 enable the Gmail API, OAuth client of type **Desktop app**). Gmail's scopes are
 *restricted*, so an unverified app shows the warning screen and is capped at 100
 consenting users; removing both requires Google's app review.
 
-Nothing else needs the client: copying `~/.gmail-mcp/{gcp-oauth.keys.json,credentials.json}`
-from an authorised machine skips even the consent screen, which is what `--copy-from` does.
+`--copy-from` remains for machines that are already authorised: copying
+`~/.gmail-mcp/{gcp-oauth.keys.json,credentials.json}` across skips even the consent screen.
 
 </details>
 
@@ -101,12 +101,13 @@ The Gmail plumbing is tested offline — no Google, no network, no browser:
 python3 skills/quiz-upload/scripts/test_gmail_auth.py
 ```
 
-16 assertions covering where the client comes from, that the keys file is written in
-the shape the MCP actually parses, that it is never overwritten and never
-world-readable, that a busy callback port and a failed copy exit 2 with the exact
-command to run, and that an unauthorised mailbox is detected before a login code is
-spent. The one thing they cannot cover is the consent click, which needs a real
-client and a human.
+19 assertions covering that the plugin ships a usable desktop client, that a virgin
+machine's first run writes the keys file from it (directory created, mode 0600, the
+shape the MCP actually parses), that an existing file is never overwritten, that env
+vars and `client.json` still win over the shipped client, that a busy callback port
+and a failed copy exit 2 with the exact command to run, and that an unauthorised
+mailbox is detected before a login code is spent. The one thing they cannot cover is
+the consent click, which needs a real client and a human.
 
 ## Usage
 
@@ -126,7 +127,7 @@ you:  upload it and publish
 | Gmail MCP server definition | yes |
 | Playwright and its Chromium | yes, on first use |
 | The Gmail OAuth grant | guided — a human still clicks Allow |
-| `gcp-oauth.keys.json` | **no** — created once per Google project, then copied to each machine |
+| `~/.gmail-mcp/gcp-oauth.keys.json` | yes — written on first run from the client the plugin ships |
 | `python3`, `node`/`npx` | **no** — the only real prerequisites |
 
 ## Troubleshooting
@@ -138,6 +139,7 @@ you:  upload it and publish
 | "Google hasn't verified this app" | Expected for an unpublished client: **Advanced → Go to … (unsafe)**, then Allow. |
 | `playwright not installed` and it will not install | No network, or no `python3` to build the venv. Install by hand: `pip install playwright && playwright install chromium`. |
 | `session expired — re-run the login` | The cached Cloudflare cookie lapsed (24 h). Delete `~/.quiz/session.json` and upload again. |
+| "How do I reset / reinstall from scratch?" | See the quiz-upload SKILL.md, "Resetting from scratch". |
 
 ## What it leaves on disk
 

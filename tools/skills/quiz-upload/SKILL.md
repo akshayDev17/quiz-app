@@ -1,6 +1,6 @@
 ---
 name: quiz-upload
-description: Upload a quiz-set JSON to the live quiz app and optionally publish it. Use when asked to upload, publish, or ship a quiz.
+description: Upload a quiz-set JSON to the live quiz app and optionally publish it. Use when asked to upload, publish, ship a quiz, or reset/reinstall the quiz plugin.
 ---
 
 # quiz-upload — ship a quiz set to /quiz
@@ -24,21 +24,16 @@ Resolve `<scripts>` as the `scripts/` directory beside this SKILL.md — in Clau
    nothing.** Work down these steps yourself and only speak to the user when a step
    says to:
 
-   a. `python3 <scripts>/gmail_auth.py` (no arguments: it writes the OAuth client the
-      plugin ships, into `~/.gmail-mcp/`, and then opens the consent screen).
+   a. `python3 <scripts>/gmail_auth.py` (no arguments: it creates `~/.gmail-mcp/`,
+      writes the Google client the plugin ships, and opens the consent screen).
       - exit 0 → authorised, go to step 3.
       - exit 2 because port 3000 is busy → find the listener
         (`lsof -nP -iTCP:3000 -sTCP:LISTEN`), stop it if it is yours to stop, retry.
-   b. If it exits 2 saying the plugin ships no client, this machine has no OAuth
-      client *and* no other source. Ask the user exactly one thing — whether another
-      machine already uploads quizzes, and if so its SSH host — then run:
-      `python3 <scripts>/gmail_auth.py --copy-from <user@host>`
-      (add `--copy-from-dir ~/.gmail-quiz` if that machine's files live there; the
-      default is `~/.gmail-mcp`). exit 0 → authorised, go to step 3. This copies the
-      client *and* the token, so no consent screen appears.
-   c. Only when there is no such machine: the plugin was published without a client.
-      Say that in one line and stop. **Do not send the user to the Google Cloud
-      console, and do not ask them to install anything by hand.**
+      - exit 2 saying "ships no client" → a publisher blanked the client, so no
+        consent screen exists. If another machine already uploads quizzes, run
+        `python3 <scripts>/gmail_auth.py --copy-from <user@host>` (add
+        `--copy-from-dir ~/.gmail-quiz` when its files live there); exit 0 → step 3.
+        **Never send the user to the Google Cloud console.**
 
    When the browser opens (step a), tell them what to click — this is the one thing
    only they can do: pick the Google account that owns the quiz mailbox; if it says
@@ -82,3 +77,15 @@ Resolve `<scripts>` as the `scripts/` directory beside this SKILL.md — in Clau
 - `--cookie "eyJ…"` or `QUIZ_CF_AUTHORIZATION` bypasses the login entirely if you
   already have a cookie.
 - The Playwright trigger needs `pip install playwright && playwright install chromium`.
+
+## Resetting from scratch
+
+If asked how to fully reset the plugin on a machine back to a fresh-install state:
+
+- `claude plugin uninstall quiz-tools@quiz-app`
+- `claude plugin marketplace remove quiz-app` (optional)
+- `rm -rf ~/.gmail-mcp/`
+- `rm -rf ~/.quiz/`
+- restart Claude Code
+
+To re-test only the consent step, deleting `~/.gmail-mcp/` and restarting is enough.
