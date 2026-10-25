@@ -103,8 +103,15 @@ select { -webkit-appearance: none; -moz-appearance: none; appearance: none;
 .set-card h3 { font-size: 1.25rem; font-weight: 400; line-height: 1.25; letter-spacing: -.01em; }
 .set-card .kicker-c { font-family: var(--mono); font-size: .625rem; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); }
 .set-card .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: var(--s2); }
-.set-card .foot { margin-top: auto; padding-top: var(--s3); margin-top: var(--s4); border-top: 1px solid var(--rule); }
-.set-card .foot .state { color: var(--ink); }
+.set-card .foot { margin-top: auto; padding-top: var(--s3); border-top: 1px solid var(--rule); }
+.set-card .foot.resume { border-top: 0; padding-top: var(--s2); }
+.set-card .chip.score { color: var(--ink); font-weight: 500;
+                        background: color-mix(in oklab, var(--accent) 8%, var(--card));
+                        border-color: color-mix(in oklab, var(--accent) 30%, var(--rule)); }
+.set-card .pill { display: inline-flex; align-items: center; gap: .5rem; background: var(--accent); color: #fff;
+                  border-radius: 999px; padding: .45rem .85rem; letter-spacing: .08em; }
+.set-card .pill .arrow { font-weight: 500; }
+.set-card .pill .time { font-variant-numeric: tabular-nums; opacity: .9; animation: live 1.4s ease-in-out infinite; }
 
 /* intro */
 .intro { padding: var(--s6); }
