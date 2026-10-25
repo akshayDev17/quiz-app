@@ -20,19 +20,34 @@ Resolve `<scripts>` as the `scripts/` directory beside this SKILL.md — in Clau
    this must work *before* a code is spent. Call a cheap read: `mcp__gmail__search_emails`
    with `from:noreply@notify.cloudflare.com newer_than:1d`. A real answer, even an empty
    one, means the grant is in place; skip to step 3.
-   If that tool is missing or errors about credentials, run
-   `python3 <scripts>/gmail_auth.py` — no arguments, no paths to configure.
-   **Do not send the user to the Google Cloud console.** The OAuth client belongs to the
-   plugin, not to them: the script writes it, opens the consent screen for their own
-   mailbox, and waits. Say only this: pick the Google account that owns the quiz mailbox;
-   if it says "Google hasn't verified this app", click **Advanced → Go to … (unsafe)**
-   (expected — nobody has paid for Google's app review); approve read/manage Gmail; the
-   tab should then say "Authentication successful! You can close this window."
-   Then tell the user plainly: the Gmail *tool* is served by a process that started
-   before the token existed, so it may need a fresh session before the tool appears —
-   ask them to restart Claude Code and say "upload it" again, and the flow resumes at
-   this step for free.
-   If the script exits 2 because port 3000 is busy, stop whatever holds it and retry.
+   If that tool is missing or errors about credentials, **you fix it — the user runs
+   nothing.** Work down these steps yourself and only speak to the user when a step
+   says to:
+
+   a. `python3 <scripts>/gmail_auth.py` (no arguments: it writes the OAuth client the
+      plugin ships, into `~/.gmail-mcp/`, and then opens the consent screen).
+      - exit 0 → authorised, go to step 3.
+      - exit 2 because port 3000 is busy → find the listener
+        (`lsof -nP -iTCP:3000 -sTCP:LISTEN`), stop it if it is yours to stop, retry.
+   b. If it exits 2 saying the plugin ships no client, this machine has no OAuth
+      client *and* no other source. Ask the user exactly one thing — whether another
+      machine already uploads quizzes, and if so its SSH host — then run:
+      `python3 <scripts>/gmail_auth.py --copy-from <user@host>`
+      (add `--copy-from-dir ~/.gmail-quiz` if that machine's files live there; the
+      default is `~/.gmail-mcp`). exit 0 → authorised, go to step 3. This copies the
+      client *and* the token, so no consent screen appears.
+   c. Only when there is no such machine: the plugin was published without a client.
+      Say that in one line and stop. **Do not send the user to the Google Cloud
+      console, and do not ask them to install anything by hand.**
+
+   When the browser opens (step a), tell them what to click — this is the one thing
+   only they can do: pick the Google account that owns the quiz mailbox; if it says
+   "Google hasn't verified this app", click **Advanced → Go to … (unsafe)** (expected —
+   nobody has paid for Google's app review); approve read/manage Gmail; the tab should
+   then say "Authentication successful! You can close this window."
+   After that, the Gmail *tool* is served by a process that started before the token
+   existed, so it cannot appear in this session: ask them to restart Claude Code and
+   say "upload it" again. The flow resumes here for free — nothing is redone.
 3. **Request a login code** (skip if `~/.quiz/session.json` already has a fresh
    cookie):
    `python3 <scripts>/upload.py --request-otp --email <admin-email>`.
