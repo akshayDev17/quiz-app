@@ -20,25 +20,19 @@ Resolve `<scripts>` as the `scripts/` directory beside this SKILL.md — in Clau
    this must work *before* a code is spent. Call a cheap read: `mcp__gmail__search_emails`
    with `from:noreply@notify.cloudflare.com newer_than:1d`. A real answer, even an empty
    one, means the grant is in place; skip to step 3.
-   If the tool is missing or errors about credentials/authorisation, authorise now, once
-   per machine:
-   `python3 <scripts>/gmail_auth.py --oauth "<oauth-keys-path>" --credentials "<token-path>"`.
-   Those two paths are the plugin's configured values — `${user_config.gmail_oauth_path}`
-   and `${user_config.gmail_credentials_path}` on Claude Code; on a harness that does not
-   substitute them, ask the user, or default to `~/.gmail-quiz/gcp-oauth.keys.json` and
-   `~/.gmail-quiz/credentials.json`.
-   **If either file is missing and the user has another machine already working, ask
-   for its host and copy the pair** — `gmail_auth.py --copy-from <user@host> --oauth …
-   --credentials …` — which needs no Google console, no browser and no consent. Only
-   when no machine has them should you mention creating an OAuth client in the Google
-   Cloud console, and say plainly that it is once per Google project, not per machine.
-   The script opens a browser and waits. Tell the user, in these words, what to do:
-   pick the Google account that owns the quiz mailbox; if it says "Google hasn't verified
-   this app", click **Advanced → Go to … (unsafe)** (expected — the client is theirs, just
-   unpublished); approve the read/manage Gmail permission; the tab should then say
-   "Authentication successful! You can close this window." The script exits 0 when the
-   token lands — no second run needed. If it exits 2 because port 3000 is busy, stop the
-   dev server holding it and retry; the MCP hardcodes that callback port.
+   If the tool is missing or errors about credentials, authorise the mailbox:
+   `python3 <scripts>/gmail_auth.py --oauth "<keys-path>" --credentials "<token-path>"`
+   (the plugin's configured values — `${user_config.gmail_oauth_path}` and
+   `${user_config.gmail_credentials_path}` on Claude Code; otherwise
+   `~/.gmail-quiz/gcp-oauth.keys.json` and `~/.gmail-quiz/credentials.json`).
+   **Do not send the user to the Google Cloud console.** The OAuth client belongs to the
+   plugin, not to them: the script writes it from the values the plugin ships and opens
+   the consent screen for their own mailbox. Say only this, in these words: pick the
+   Google account that owns the quiz mailbox; if it says "Google hasn't verified this
+   app", click **Advanced → Go to … (unsafe)** (expected — nobody has paid for Google's
+   app review); approve read/manage Gmail; the tab should then say "Authentication
+   successful! You can close this window." The script exits 0 when the token lands.
+   If it exits 2 because port 3000 is busy, stop the dev server holding it and retry.
 3. **Request a login code** (skip if `~/.quiz/session.json` already has a fresh
    cookie):
    `python3 <scripts>/upload.py --request-otp --email <admin-email>`.

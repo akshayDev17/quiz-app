@@ -54,30 +54,39 @@ the DSH profile rather than by the plugin.
 
 ## First run
 
-**On a second machine there is nothing to set up — copy two files.** The OAuth
-client belongs to a Google *project* and the token belongs to the *account*, so both
-already exist on the machine that works. Copying them is the whole setup: no Google
-console, no browser, no consent screen.
+One screen, once per Google account: the skill opens Google's consent page for the
+mailbox it needs to read, you approve it, done. If it says the app is unverified,
+that is expected — **Advanced → Go to … (unsafe)**.
 
-```sh
-scp <set-up-machine>:~/.gmail-quiz/gcp-oauth.keys.json ~/.gmail-quiz/
-scp <set-up-machine>:~/.gmail-quiz/credentials.json   ~/.gmail-quiz/
+There is nothing to configure and no Google Cloud project to create: the OAuth client
+belongs to this plugin, not to whoever installs it. Playwright is provisioned the same
+way, silently, on first use (~100 MB, once).
+
+<details>
+<summary>Publishing the plugin — one-time setup for the publisher, not for users</summary>
+
+A desktop OAuth client is a **public client** — Google's own documentation says such
+apps "cannot keep secrets confidential" — so the client ships with the plugin and every
+installer just sees a consent screen. Fill it in once, as the publisher:
+
+```python
+# skills/quiz-upload/scripts/gmail_auth.py
+DEFAULT_CLIENT_ID = "<your client id>"
+DEFAULT_CLIENT_SECRET = "<your client secret>"
 ```
 
-Or let the script do it: `gmail_auth.py --copy-from <set-up-machine> --oauth … --credentials …`.
+or set `QUIZ_GOOGLE_CLIENT_ID` / `QUIZ_GOOGLE_CLIENT_SECRET`, or drop a `client.json`
+beside that script — which is gitignored, for keeping a client out of the repo.
 
-**Only if no machine has it yet**, create the client once — Google Cloud project,
-enable the Gmail API, OAuth client of type **Desktop app**, download the JSON. That
-is once per Google project, never once per machine.
+Creating the client itself is a one-time trip to the Google Cloud console (new project,
+enable the Gmail API, OAuth client of type **Desktop app**). Gmail's scopes are
+*restricted*, so an unverified app shows the warning screen and is capped at 100
+consenting users; removing both requires Google's app review.
 
-Either way the mailbox then needs **authorising once per account** (not per machine,
-if you copied the token): the skill starts the MCP's `auth` command, opens the
-browser, and waits. Expect to pick the Google account and, if it says the app is
-unverified, click **Advanced → Go to … (unsafe)** — the client is yours, just not
-published.
+Nothing else needs the client: copying `~/.gmail-quiz/{gcp-oauth.keys.json,credentials.json}`
+from an authorised machine skips even the consent screen, which is what `--copy-from` does.
 
-Playwright needs no setup at all: the first browser step provisions it into
-`~/.quiz/venv` (~100 MB, once).
+</details>
 
 ## Usage
 

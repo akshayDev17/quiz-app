@@ -14,3 +14,4 @@ __pycache__/
 # Quiz content — scratch input artifacts, never version-controlled
 quiz-sets/
 *-quiz.json
+tools/skills/quiz-upload/scripts/client.json

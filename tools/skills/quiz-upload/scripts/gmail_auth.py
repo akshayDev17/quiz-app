@@ -34,6 +34,23 @@ from pathlib import Path
 #: The MCP server hardcodes this port for its OAuth callback; there is no flag to move it.
 CALLBACK_PORT = 3000
 
+#: The plugin's own OAuth client. A desktop client is a PUBLIC client — Google:
+#: "desktop apps are public clients and cannot keep secrets confidential" — so the
+#: app ships one and the person installing it only ever sees a consent screen for
+#: their own mailbox. Nobody using this plugin should ever open the Google console.
+#:
+#: Fill these once, as whoever publishes the plugin, or set QUIZ_GOOGLE_CLIENT_ID /
+#: QUIZ_GOOGLE_CLIENT_SECRET, or drop a `client.json` beside this script with
+#: {"client_id": "...", "client_secret": "..."}.
+DEFAULT_CLIENT_ID = ""
+DEFAULT_CLIENT_SECRET = ""
+
+_MCP_KEYS_TEMPLATE = {
+    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+    "token_uri": "https://oauth2.googleapis.com/token",
+    "redirect_uris": ["http://localhost:3000/oauth2callback"],
+}
+
 INSTRUCTIONS = """
 In the browser window that just opened (or at the URL above):
 
@@ -48,6 +65,61 @@ In the browser window that just opened (or at the URL above):
 Nothing is needed from a terminal after that; this script notices the token and
 carries on.
 """.rstrip()
+
+
+def bundled_client() -> dict | None:
+    """The app's OAuth client, wherever the publisher put it: env, client.json, constants."""
+    client_id = os.environ.get("QUIZ_GOOGLE_CLIENT_ID")
+    client_secret = os.environ.get("QUIZ_GOOGLE_CLIENT_SECRET")
+    if client_id and client_secret:
+        return {"client_id": client_id, "client_secret": client_secret}
+
+    beside = Path(__file__).resolve().parent / "client.json"
+    if beside.exists():
+        try:
+            stored = json.loads(beside.read_text())
+        except ValueError:
+            stored = {}
+        # Accept either the flat form or Google's downloaded {"installed": {...}}.
+        stored = stored.get("installed") or stored.get("web") or stored
+        if stored.get("client_id") and stored.get("client_secret"):
+            return {"client_id": stored["client_id"], "client_secret": stored["client_secret"]}
+
+    if DEFAULT_CLIENT_ID and DEFAULT_CLIENT_SECRET:
+        return {"client_id": DEFAULT_CLIENT_ID, "client_secret": DEFAULT_CLIENT_SECRET}
+    return None
+
+
+def ensure_keys_file(oauth_keys: Path) -> int:
+    """Write the MCP's keys file from the app's client when the user has none.
+
+    The MCP insists on a `gcp-oauth.keys.json` holding `{"installed": {...}}`. A user
+    never has one and never should: the client is the app's, not theirs, so it is
+    materialised here from the bundled values. After this the only thing left is the
+    consent screen for their own Gmail account.
+    """
+    if oauth_keys.exists():
+        return 0
+    client = bundled_client()
+    if client is None:
+        print(
+            f"No OAuth client at {oauth_keys}, and this copy of the plugin ships none.\n"
+            "\n"
+            "You should not have to do anything here — the client belongs to the app, not\n"
+            "to you. Ask whoever published this plugin to set one, or, if you have a machine\n"
+            "that is already authorised, copy its files across:\n"
+            f"  gmail_auth.py --copy-from <set-up-machine> --oauth {oauth_keys} "
+            "--credentials <token-path>",
+            file=sys.stderr,
+        )
+        return 2
+    oauth_keys.parent.mkdir(parents=True, exist_ok=True)
+    oauth_keys.write_text(
+        json.dumps({"installed": {**client, **_MCP_KEYS_TEMPLATE}}, indent=2) + "\n"
+    )
+    oauth_keys.chmod(0o600)
+    print(f"Using the plugin's own Google client (written to {oauth_keys}).")
+    return 0
 
 
 def _already_authorised(credentials: Path) -> bool:
@@ -119,23 +191,7 @@ def authorise(oauth_keys: Path, credentials: Path, account: str | None, timeout:
     if _already_authorised(credentials):
         print(f"Gmail is already authorised ({credentials}). Nothing to do.")
         return 0
-    if not oauth_keys.exists():
-        print(
-            f"No OAuth client keys at {oauth_keys}.\n"
-            "\n"
-            "If any machine is already set up, copy the pair across — no console, no browser,\n"
-            "no consent:\n"
-            f"  scp <set-up-machine>:~/.gmail-quiz/gcp-oauth.keys.json {oauth_keys}\n"
-            f"  scp <set-up-machine>:~/.gmail-quiz/credentials.json {credentials}\n"
-            "or let this script do it:\n"
-            f"  gmail_auth.py --copy-from <set-up-machine> --oauth {oauth_keys} "
-            f"--credentials {credentials}\n"
-            "\n"
-            "Create one from scratch only when no machine has it: Google Cloud console →\n"
-            "new project → enable the Gmail API → OAuth client of type Desktop app → download\n"
-            "the JSON. That is once per Google project, not once per machine.",
-            file=sys.stderr,
-        )
+    if ensure_keys_file(oauth_keys):
         return 2
     if not shutil.which("npx"):
         print("npx is not on PATH; it is needed to run the Gmail MCP.", file=sys.stderr)
@@ -199,8 +255,18 @@ def authorise(oauth_keys: Path, credentials: Path, account: str | None, timeout:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--oauth", type=Path, required=True, help="path to gcp-oauth.keys.json")
-    parser.add_argument("--credentials", type=Path, required=True, help="where the token is stored")
+    parser.add_argument(
+        "--oauth",
+        type=Path,
+        default=Path.home() / ".gmail-quiz" / "gcp-oauth.keys.json",
+        help="the MCP's keys file; created from the plugin's own client if absent",
+    )
+    parser.add_argument(
+        "--credentials",
+        type=Path,
+        default=Path.home() / ".gmail-quiz" / "credentials.json",
+        help="where the token is stored",
+    )
     parser.add_argument("--account", help="label for the mailbox, e.g. quiz")
     parser.add_argument(
         "--copy-from",
