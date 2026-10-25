@@ -1,6 +1,6 @@
 {
   "name": "quiz-tools",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Skills for the quiz app: author a quiz-set JSON (quiz-create) and upload it (quiz-upload).",
   "author": {
     "name": "Akshay Prabhakant"
