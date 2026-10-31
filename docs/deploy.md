@@ -9,8 +9,8 @@ platform can prove.
 > with its `database_id` committed, and the `ADMIN_EMAILS` secret), plus the
 > GitHub `production` environment of §E. CI deploys on every push to `main`. The
 > API job refuses to run while `backend/wrangler.jsonc` still holds the
-> `REPLACE_AFTER_d1_create` placeholder, and the frontend job waits for the API
-> job, but neither check knows whether Access exists.
+> `REPLACE_AFTER_d1_create` placeholder, the frontend job waits for the API job,
+> and both jobs refuse to deploy unless `/quiz` redirects to the Access login.
 
 Topology (details in [design.md](design.md) §2 and §7):
 
@@ -129,10 +129,14 @@ and cannot be copied across or read back, so both must be entered again:
 
 `.github/workflows/ci.yml` runs the tests on every push and pull request. On
 `main`, after the tests pass, two jobs run under `environment: production`:
-**Deploy API** (secrets check, D1 reachability check, `d1 migrations apply`,
-`pywrangler deploy`) and **Deploy Frontend** (`npm run build`, `wrangler deploy`).
-The D1 check fails the job early if the token lacks D1 Edit, instead of letting
-the migration fail or silently do nothing behind a green tick.
+**Deploy API** (Access check, secrets check, D1 reachability check,
+`d1 migrations apply`, `pywrangler deploy`) and **Deploy Frontend** (Access
+check, `npm run build`, `wrangler deploy`). The Access check is each job's first
+step: it fails the job unless `https://akshayprabhakant.com/quiz` answers with a
+redirect to the team's `cloudflareaccess.com` login, so a missing or broken §A
+never publishes the quiz. The D1 check fails the job early if the token lacks D1
+Edit, instead of letting the migration fail or silently do nothing behind a
+green tick.
 
 ## F. Verify
 

@@ -99,6 +99,31 @@ jobs:
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     environment: production
     steps:
+      # Refuse to deploy a path that is not behind the Cloudflare Access
+      # login. Without the Access app, a deploy publishes the quiz to anyone.
+      # One self-contained step so it can later become a single
+      # `npx -y @akshaydev17/portfolio-app@<version> verify --path /quiz` line.
+      - name: Check the path is behind the Cloudflare Access login
+        env:
+          ACCESS_TEAM: shiny-moon-6b37
+          CHECK_PATH: /quiz
+        run: |
+          url="https://akshayprabhakant.com$CHECK_PATH"
+          # No -L: the redirect itself is what we check.
+          out=$(curl -sS -o /dev/null --max-time 15 --retry 2 --retry-all-errors \
+            -w '%{http_code} %{redirect_url}' "$url") || {
+            echo "::error::Could not reach $url to confirm it is behind Cloudflare Access."
+            exit 1
+          }
+          status=${out%% *}
+          location=${out#* }
+          host=$(printf '%s' "$location" | sed -E 's#^https://([^/?]+).*#\1#')
+          if [[ "$status" != 3* || "$host" != "$ACCESS_TEAM.cloudflareaccess.com" ]]; then
+            echo "::error::$url is not behind the Cloudflare Access login (got status $status, Location '${location:-none}'; expected a redirect to $ACCESS_TEAM.cloudflareaccess.com). Fix the Access app before deploying."
+            exit 1
+          fi
+          echo "$url redirects to the $ACCESS_TEAM Access login."
+
       - uses: actions/checkout@v6
       - uses: astral-sh/setup-uv@v6
 
@@ -192,6 +217,31 @@ jobs:
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     environment: production
     steps:
+      # Refuse to deploy a path that is not behind the Cloudflare Access
+      # login. Without the Access app, a deploy publishes the quiz to anyone.
+      # One self-contained step so it can later become a single
+      # `npx -y @akshaydev17/portfolio-app@<version> verify --path /quiz` line.
+      - name: Check the path is behind the Cloudflare Access login
+        env:
+          ACCESS_TEAM: shiny-moon-6b37
+          CHECK_PATH: /quiz
+        run: |
+          url="https://akshayprabhakant.com$CHECK_PATH"
+          # No -L: the redirect itself is what we check.
+          out=$(curl -sS -o /dev/null --max-time 15 --retry 2 --retry-all-errors \
+            -w '%{http_code} %{redirect_url}' "$url") || {
+            echo "::error::Could not reach $url to confirm it is behind Cloudflare Access."
+            exit 1
+          }
+          status=${out%% *}
+          location=${out#* }
+          host=$(printf '%s' "$location" | sed -E 's#^https://([^/?]+).*#\1#')
+          if [[ "$status" != 3* || "$host" != "$ACCESS_TEAM.cloudflareaccess.com" ]]; then
+            echo "::error::$url is not behind the Cloudflare Access login (got status $status, Location '${location:-none}'; expected a redirect to $ACCESS_TEAM.cloudflareaccess.com). Fix the Access app before deploying."
+            exit 1
+          fi
+          echo "$url redirects to the $ACCESS_TEAM Access login."
+
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v4
         with:
