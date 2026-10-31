@@ -10,7 +10,8 @@ platform can prove.
 > GitHub `production` environment of §E. CI deploys on every push to `main`. The
 > API job refuses to run while `backend/wrangler.jsonc` still holds the
 > `REPLACE_AFTER_d1_create` placeholder, the frontend job waits for the API job,
-> and both jobs refuse to deploy unless `/quiz` redirects to the Access login.
+> and both jobs refuse to deploy unless a Cloudflare Access application with an
+> Allow policy covers `/quiz`.
 
 Topology (details in [design.md](design.md) §2 and §7):
 
@@ -123,7 +124,8 @@ and cannot be copied across or read back, so both must be entered again:
 - `CLOUDFLARE_API_TOKEN`: preferably a **new** token just for this repo, so each
   repo can be rotated or revoked on its own. Create it in dash.cloudflare.com →
   My Profile → API Tokens, from the **Edit Cloudflare Workers** template, adding
-  **Account · D1 · Edit**, and scope the zone to `akshayprabhakant.com`. Reusing
+  **Account · D1 · Edit** and **Account · Access: Apps and Policies · Read**, and
+  scope the zone to `akshayprabhakant.com`. Reusing
   the archive's token also works if you still have its value, but Cloudflare shows
   a token only once.
 
@@ -132,9 +134,19 @@ and cannot be copied across or read back, so both must be entered again:
 **Deploy API** (Access check, secrets check, D1 reachability check,
 `d1 migrations apply`, `pywrangler deploy`) and **Deploy Frontend** (Access
 check, `npm run build`, `wrangler deploy`). The Access check is each job's first
-step: it fails the job unless `https://akshayprabhakant.com/quiz` answers with a
-redirect to the team's `cloudflareaccess.com` login, so a missing or broken §A
-never publishes the quiz. The D1 check fails the job early if the token lacks D1
+step: it asks the Cloudflare API for the account's Access applications and
+judges the most specific self-hosted one covering `akshayprabhakant.com/quiz`,
+the one Cloudflare enforces. An exact `quiz` destination beats a wildcard over a
+parent path, and a longer wildcard prefix beats a shorter one. The job fails
+unless that application has an Allow policy and no Bypass policy (Cloudflare
+evaluates Bypass before Allow), so a missing or broken §A never publishes the
+quiz. It reads the API rather than the page because Cloudflare answers GitHub's
+runners with a 403 instead of the login redirect. A token without
+**Access: Apps and Policies · Read** fails this step with a message naming that
+permission. To add it, go to My Profile → API Tokens → **Edit** on the token →
+**+ Add more** → Account / Access: Apps and Policies / Read → **Continue to
+summary** → **Update token**. The token value, and so the GitHub secret, stay
+the same. The D1 check fails the job early if the token lacks D1
 Edit, instead of letting the migration fail or silently do nothing behind a
 green tick.
 
