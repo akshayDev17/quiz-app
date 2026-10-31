@@ -144,6 +144,8 @@ jobs:
           PERMISSION = "Access: Apps and Policies Read"
           path = os.environ["CHECK_PATH"].rstrip("/")
           target = HOST + path
+          # Stored secrets can end in a newline, which wrangler tolerates but
+          # http.client rejects as an invalid Authorization header value.
           token = os.environ.get("CLOUDFLARE_API_TOKEN", "").strip()
           account = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "").strip()
 
@@ -370,6 +372,8 @@ jobs:
           PERMISSION = "Access: Apps and Policies Read"
           path = os.environ["CHECK_PATH"].rstrip("/")
           target = HOST + path
+          # Stored secrets can end in a newline, which wrangler tolerates but
+          # http.client rejects as an invalid Authorization header value.
           token = os.environ.get("CLOUDFLARE_API_TOKEN", "").strip()
           account = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "").strip()
 
