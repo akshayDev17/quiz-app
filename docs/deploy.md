@@ -134,15 +134,19 @@ and cannot be copied across or read back, so both must be entered again:
 **Deploy API** (Access check, secrets check, D1 reachability check,
 `d1 migrations apply`, `pywrangler deploy`) and **Deploy Frontend** (Access
 check, `npm run build`, `wrangler deploy`). The Access check is each job's first
-step: it asks the Cloudflare API for the account's Access applications and fails
-the job unless a self-hosted one covers `akshayprabhakant.com/quiz` (the exact
-`quiz` destination, or a wildcard over a parent path) and has an Allow policy, so
-a missing or broken §A never publishes the quiz. It reads the API rather than the
-page because Cloudflare answers GitHub's runners with a 403 instead of the login
-redirect. A token without **Access: Apps and Policies · Read** fails this step
-with a message naming that permission; add it under My Profile → API Tokens →
-edit the token → add permission → save. The token value, and so the GitHub
-secret, stay the same. The D1 check fails the job early if the token lacks D1
+step: it asks the Cloudflare API for the account's Access applications and
+judges the most specific self-hosted one covering `akshayprabhakant.com/quiz`,
+the one Cloudflare enforces. An exact `quiz` destination beats a wildcard over a
+parent path, and a longer wildcard prefix beats a shorter one. The job fails
+unless that application has an Allow policy and no Bypass policy (Cloudflare
+evaluates Bypass before Allow), so a missing or broken §A never publishes the
+quiz. It reads the API rather than the page because Cloudflare answers GitHub's
+runners with a 403 instead of the login redirect. A token without
+**Access: Apps and Policies · Read** fails this step with a message naming that
+permission. To add it, go to My Profile → API Tokens → **Edit** on the token →
+**+ Add more** → Account / Access: Apps and Policies / Read → **Continue to
+summary** → **Update token**. The token value, and so the GitHub secret, stay
+the same. The D1 check fails the job early if the token lacks D1
 Edit, instead of letting the migration fail or silently do nothing behind a
 green tick.
 

@@ -107,11 +107,19 @@ jobs:
       # so a curl check of the page cannot pass in CI. The deploy token needs the
       # account permission "Access: Apps and Policies Read" for this (docs/deploy.md §E).
       #
-      # It passes only when a self-hosted Access application covers
-      # akshayprabhakant.com$CHECK_PATH, by an exact destination or a
-      # `<prefix>/*` wildcard over a parent path (a wildcard does not cover its
-      # own parent path, docs/deploy.md §A.2), and that application has at least one Allow
-      # policy. Response shapes, from Cloudflare's API reference:
+      # It judges only the most specific self-hosted Access application covering
+      # akshayprabhakant.com$CHECK_PATH, because that is the one Cloudflare
+      # enforces: "When multiple rules are set for a common root path, the more
+      # specific rule takes precedence."
+      # https://developers.cloudflare.com/cloudflare-one/policies/access/app-paths/
+      # An exact destination beats a `<prefix>/*` wildcard over a parent path, and
+      # a longer prefix beats a shorter one (a wildcard does not cover its own
+      # parent path, docs/deploy.md §A.2). It passes only when that application
+      # has at least one Allow policy and no Bypass policy, because "Bypass and
+      # Service Auth policies are evaluated first", so a Bypass lets anyone in
+      # whatever the Allow says.
+      # https://developers.cloudflare.com/cloudflare-one/policies/access/#order-of-execution
+      # Response shapes, from Cloudflare's API reference:
       #   apps:     GET /accounts/{id}/access/apps, paginated with page/per_page;
       #             each app has `type`, `destinations[]` ({type, uri}) and the
       #             legacy `domain`/`self_hosted_domains`, and `policies[]` whose
@@ -161,7 +169,7 @@ jobs:
                       body = {}
                   codes = {e.get("code") for e in body.get("errors", [])}
                   if err.code in (401, 403) or 10000 in codes:
-                      fail(f"The deploy token cannot read Cloudflare Access (HTTP {err.code}). Add the account permission '{PERMISSION}' to it (My Profile → API Tokens → edit the token → add permission → save), then re-run. The token value and the GitHub secret do not change.")
+                      fail(f"The deploy token cannot read Cloudflare Access (HTTP {err.code}). Add the account permission '{PERMISSION}' to it (My Profile → API Tokens → Edit on the token → + Add more → Account / Access: Apps and Policies / Read → Continue to summary → Update token), then re-run. The token value and the GitHub secret do not change.")
                   fail(f"Cloudflare API {endpoint} returned HTTP {err.code}: {[e.get('message') for e in body.get('errors', [])]}")
               except (urllib.error.URLError, TimeoutError, ValueError) as err:
                   fail(f"Could not ask the Cloudflare API whether {target} is behind Access: {err}")
@@ -186,17 +194,16 @@ jobs:
                   return [d.get("uri", "") for d in dests if d.get("type", "public") == "public"]
               return [app.get("domain") or ""] + list(app.get("self_hosted_domains") or [])
 
-          def covers(uri):
+          def specificity(uri):
               uri = uri.strip().split("://", 1)[-1]
               host, slash, rest = uri.partition("/")
               uri = host.lower() + slash + rest
               uri = uri.rstrip("/") if not uri.endswith("/*") else uri
               if uri == target:
-                  return True
-              if uri.endswith("/*"):
-                  prefix = uri[:-2]
-                  return target.startswith(prefix + "/")
-              return False
+                  return (1, len(uri))
+              if uri.endswith("/*") and target.startswith(uri[:-2] + "/"):
+                  return (0, len(uri))
+              return None
 
           def decision(policy):
               if isinstance(policy, dict) and policy.get("decision"):
@@ -206,16 +213,23 @@ jobs:
                   return None
               return (call(f"/access/policies/{policy_id}").get("result") or {}).get("decision")
 
-          covering = [a for a in list_apps()
-                      if a.get("type") == "self_hosted" and any(covers(u) for u in app_uris(a))]
-          if not covering:
+          ranked = []
+          for app in list_apps():
+              ranks = [r for r in map(specificity, app_uris(app)) if r]
+              if app.get("type") == "self_hosted" and ranks:
+                  ranked.append((max(ranks), app))
+          if not ranked:
               fail(f"No Cloudflare Access self-hosted application covers {target}. Create one (docs/deploy.md §A) before deploying.")
-          for app in covering:
-              if any(decision(p) == "allow" for p in app.get("policies") or []):
-                  print(f"{target} is covered by the Access application '{app.get('name')}' with an Allow policy.")
-                  sys.exit(0)
-          names = ", ".join(f"'{a.get('name')}'" for a in covering)
-          fail(f"The Access application(s) {names} cover {target} but have no Allow policy, so nobody can sign in. Add an Allow policy before deploying.")
+          best = max(rank for rank, _ in ranked)
+          enforced = [app for rank, app in ranked if rank == best]
+          for app in enforced:
+              decisions = [decision(p) for p in app.get("policies") or []]
+              if "bypass" in decisions:
+                  fail(f"The Access application '{app.get('name')}', the most specific one covering {target}, has a Bypass policy. Cloudflare evaluates Bypass before Allow, so anyone can reach {target}. Remove the Bypass policy before deploying.")
+              if "allow" not in decisions:
+                  fail(f"The Access application '{app.get('name')}', the most specific one covering {target}, has no Allow policy, so nobody can sign in. Add an Allow policy before deploying.")
+          names = ", ".join(f"'{a.get('name')}'" for a in enforced)
+          print(f"{target} is covered by the Access application {names} with an Allow policy and no Bypass policy.")
           PY
 
       - uses: actions/checkout@v6
@@ -319,11 +333,19 @@ jobs:
       # so a curl check of the page cannot pass in CI. The deploy token needs the
       # account permission "Access: Apps and Policies Read" for this (docs/deploy.md §E).
       #
-      # It passes only when a self-hosted Access application covers
-      # akshayprabhakant.com$CHECK_PATH, by an exact destination or a
-      # `<prefix>/*` wildcard over a parent path (a wildcard does not cover its
-      # own parent path, docs/deploy.md §A.2), and that application has at least one Allow
-      # policy. Response shapes, from Cloudflare's API reference:
+      # It judges only the most specific self-hosted Access application covering
+      # akshayprabhakant.com$CHECK_PATH, because that is the one Cloudflare
+      # enforces: "When multiple rules are set for a common root path, the more
+      # specific rule takes precedence."
+      # https://developers.cloudflare.com/cloudflare-one/policies/access/app-paths/
+      # An exact destination beats a `<prefix>/*` wildcard over a parent path, and
+      # a longer prefix beats a shorter one (a wildcard does not cover its own
+      # parent path, docs/deploy.md §A.2). It passes only when that application
+      # has at least one Allow policy and no Bypass policy, because "Bypass and
+      # Service Auth policies are evaluated first", so a Bypass lets anyone in
+      # whatever the Allow says.
+      # https://developers.cloudflare.com/cloudflare-one/policies/access/#order-of-execution
+      # Response shapes, from Cloudflare's API reference:
       #   apps:     GET /accounts/{id}/access/apps, paginated with page/per_page;
       #             each app has `type`, `destinations[]` ({type, uri}) and the
       #             legacy `domain`/`self_hosted_domains`, and `policies[]` whose
@@ -373,7 +395,7 @@ jobs:
                       body = {}
                   codes = {e.get("code") for e in body.get("errors", [])}
                   if err.code in (401, 403) or 10000 in codes:
-                      fail(f"The deploy token cannot read Cloudflare Access (HTTP {err.code}). Add the account permission '{PERMISSION}' to it (My Profile → API Tokens → edit the token → add permission → save), then re-run. The token value and the GitHub secret do not change.")
+                      fail(f"The deploy token cannot read Cloudflare Access (HTTP {err.code}). Add the account permission '{PERMISSION}' to it (My Profile → API Tokens → Edit on the token → + Add more → Account / Access: Apps and Policies / Read → Continue to summary → Update token), then re-run. The token value and the GitHub secret do not change.")
                   fail(f"Cloudflare API {endpoint} returned HTTP {err.code}: {[e.get('message') for e in body.get('errors', [])]}")
               except (urllib.error.URLError, TimeoutError, ValueError) as err:
                   fail(f"Could not ask the Cloudflare API whether {target} is behind Access: {err}")
@@ -398,17 +420,16 @@ jobs:
                   return [d.get("uri", "") for d in dests if d.get("type", "public") == "public"]
               return [app.get("domain") or ""] + list(app.get("self_hosted_domains") or [])
 
-          def covers(uri):
+          def specificity(uri):
               uri = uri.strip().split("://", 1)[-1]
               host, slash, rest = uri.partition("/")
               uri = host.lower() + slash + rest
               uri = uri.rstrip("/") if not uri.endswith("/*") else uri
               if uri == target:
-                  return True
-              if uri.endswith("/*"):
-                  prefix = uri[:-2]
-                  return target.startswith(prefix + "/")
-              return False
+                  return (1, len(uri))
+              if uri.endswith("/*") and target.startswith(uri[:-2] + "/"):
+                  return (0, len(uri))
+              return None
 
           def decision(policy):
               if isinstance(policy, dict) and policy.get("decision"):
@@ -418,16 +439,23 @@ jobs:
                   return None
               return (call(f"/access/policies/{policy_id}").get("result") or {}).get("decision")
 
-          covering = [a for a in list_apps()
-                      if a.get("type") == "self_hosted" and any(covers(u) for u in app_uris(a))]
-          if not covering:
+          ranked = []
+          for app in list_apps():
+              ranks = [r for r in map(specificity, app_uris(app)) if r]
+              if app.get("type") == "self_hosted" and ranks:
+                  ranked.append((max(ranks), app))
+          if not ranked:
               fail(f"No Cloudflare Access self-hosted application covers {target}. Create one (docs/deploy.md §A) before deploying.")
-          for app in covering:
-              if any(decision(p) == "allow" for p in app.get("policies") or []):
-                  print(f"{target} is covered by the Access application '{app.get('name')}' with an Allow policy.")
-                  sys.exit(0)
-          names = ", ".join(f"'{a.get('name')}'" for a in covering)
-          fail(f"The Access application(s) {names} cover {target} but have no Allow policy, so nobody can sign in. Add an Allow policy before deploying.")
+          best = max(rank for rank, _ in ranked)
+          enforced = [app for rank, app in ranked if rank == best]
+          for app in enforced:
+              decisions = [decision(p) for p in app.get("policies") or []]
+              if "bypass" in decisions:
+                  fail(f"The Access application '{app.get('name')}', the most specific one covering {target}, has a Bypass policy. Cloudflare evaluates Bypass before Allow, so anyone can reach {target}. Remove the Bypass policy before deploying.")
+              if "allow" not in decisions:
+                  fail(f"The Access application '{app.get('name')}', the most specific one covering {target}, has no Allow policy, so nobody can sign in. Add an Allow policy before deploying.")
+          names = ", ".join(f"'{a.get('name')}'" for a in enforced)
+          print(f"{target} is covered by the Access application {names} with an Allow policy and no Bypass policy.")
           PY
 
       - uses: actions/checkout@v6
