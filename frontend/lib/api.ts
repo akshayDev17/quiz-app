@@ -16,6 +16,9 @@ import type {
 // the local dev server's origin while developing.
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? '';
 
+/** Pause before the one retry of a request the Worker answered 401. */
+export const AUTH_RETRY_DELAY_MS = 300;
+
 /**
  * An HTTP failure carrying its status, so the UI can tell "your session ended"
  * (offer sign-in) from "the server is broken" (offer a retry).
@@ -43,13 +46,26 @@ export function isSessionExpired(error: unknown): boolean {
  * redirect would be a cross-origin fetch that fails with an opaque network
  * error. Manual mode surfaces it as an `opaqueredirect` response instead, which
  * we turn into the same 401 the Worker itself returns for "no identity".
+ *
+ * A real 401 is retried once after a short pause. The Worker sometimes fails to
+ * read a valid session's identity, and sibling requests with the same cookies
+ * still succeed, so one transient miss must not read as "your sign-in expired".
+ * Retrying is safe for every method: a 401 means the Worker rejected the request
+ * before any route ran. An expired session shows up as the redirect instead,
+ * which is not retried.
  */
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}/quiz/api${path}`, {
-    credentials: 'include',
-    redirect: 'manual',
-    ...init,
-  });
+  const call = () =>
+    fetch(`${API_BASE}/quiz/api${path}`, {
+      credentials: 'include',
+      redirect: 'manual',
+      ...init,
+    });
+  let res = await call();
+  if (res.status === 401) {
+    await new Promise((resolve) => setTimeout(resolve, AUTH_RETRY_DELAY_MS));
+    res = await call();
+  }
   if (res.type === 'opaqueredirect' || res.status === 401) {
     throw new ApiError(401, 'session expired');
   }
