@@ -8,12 +8,11 @@ https://developers.cloudflare.com/workers/languages/python/
 from __future__ import annotations
 
 import json
-from urllib.parse import urlsplit
 
 from workers import Response, WorkerEntrypoint
 
 from .api import decode_body
-from .auth import CloudflareAccessIdentity, parse_emails
+from .auth import CloudflareAccessIdentity, parse_emails, request_path
 from .composition import build_api
 
 
@@ -23,11 +22,6 @@ def _response(status: int, body: dict | None) -> Response:
         # A 204 carries neither body nor content-type.
         return Response("", status=status)
     return Response(json.dumps(body), headers={"content-type": "application/json"}, status=status)
-
-
-def _path_of(request) -> str:
-    """The request path. ``request.url`` is a JS string over the FFI boundary."""
-    return urlsplit(str(request.url)).path
 
 
 def _admin_emails(env) -> frozenset[str]:
@@ -44,5 +38,5 @@ class Default(WorkerEntrypoint):
             body = decode_body(str(await request.text()))
         identity = await CloudflareAccessIdentity(getattr(self, "ctx", None)).identify(request)
         api = build_api(self.env.DB, _admin_emails(self.env))
-        status, payload = await api.handle(method, _path_of(request), body, identity)
+        status, payload = await api.handle(method, request_path(request), body, identity)
         return _response(status, payload)
