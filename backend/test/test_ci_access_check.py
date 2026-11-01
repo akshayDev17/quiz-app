@@ -10,6 +10,7 @@ Run:  python3 test/test_ci_access_check.py
 from __future__ import annotations
 
 import contextlib
+import http.client
 import io
 import json
 import os
@@ -51,8 +52,14 @@ BYPASS_EVERYONE = {"id": "p-bypass", "decision": "bypass"}
 QUIZ_URIS = [f"{HOST}/quiz", f"{HOST}/quiz/*"]
 
 
-def fake_cloudflare(apps, policies=None):
+def fake_cloudflare(apps, policies=None, seen=None):
     def urlopen(req, timeout=None):
+        # http.client refuses these before sending; the real deploy failed this way.
+        for value in req.headers.values():
+            if http.client._is_illegal_header_value(value.encode()):
+                raise ValueError(f"Invalid header value {value.encode()!r}")
+        if seen is not None:
+            seen.append(req)
         path = urlparse(req.full_url).path
         if path.endswith("/access/apps"):
             body = {"success": True, "result": apps, "result_info": {"total_pages": 1}}
@@ -64,12 +71,12 @@ def fake_cloudflare(apps, policies=None):
     return urlopen
 
 
-def run_check(script, apps, policies=None, path="/quiz"):
-    env = {"CHECK_PATH": path, "CLOUDFLARE_API_TOKEN": "t", "CLOUDFLARE_ACCOUNT_ID": "a"}
+def run_check(script, apps, policies=None, path="/quiz", token="t", account="a", seen=None):
+    env = {"CHECK_PATH": path, "CLOUDFLARE_API_TOKEN": token, "CLOUDFLARE_ACCOUNT_ID": account}
     out = io.StringIO()
     code = 0
     with mock.patch.dict(os.environ, env), \
-            mock.patch("urllib.request.urlopen", fake_cloudflare(apps, policies)), \
+            mock.patch("urllib.request.urlopen", fake_cloudflare(apps, policies, seen)), \
             contextlib.redirect_stdout(out):
         try:
             exec(compile(script, "access-check", "exec"), {"__name__": "__main__"})
@@ -90,6 +97,20 @@ class AccessCheckCase(unittest.TestCase):
 
     def test_both_deploy_jobs_carry_the_check(self):
         self.assertEqual(len(self.scripts), 2)
+
+    def test_token_and_account_with_trailing_newline_are_stripped(self):
+        for i, script in enumerate(self.scripts):
+            with self.subTest(job=i):
+                seen = []
+                code, out = run_check(
+                    script, [app("Quiz Room", QUIZ_URIS, [ALLOW])],
+                    token="t\n", account="a\n", seen=seen,
+                )
+                self.assertEqual(code, 0, out)
+                self.assertTrue(seen, out)
+                for req in seen:
+                    self.assertEqual(req.get_header("Authorization"), "Bearer t")
+                    self.assertIn("/accounts/a/", req.full_url)
 
     def test_quiz_app_with_allow_passes(self):
         self.assertVerdict(0, [app("Quiz Room", QUIZ_URIS, [ALLOW])])
