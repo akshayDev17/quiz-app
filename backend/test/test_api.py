@@ -128,7 +128,7 @@ class AuthAndMeTest(ApiCase):
             async def getIdentity(self):
                 raise RuntimeError("Access lookup failed")
 
-        provider = CloudflareAccessIdentity(SimpleNamespace(access=_Access()))
+        provider = CloudflareAccessIdentity(SimpleNamespace(access=_Access()), retry_delay_s=0, log=lambda _: None)
         self.assertIsNone(await provider.identify(None))
 
     async def test_cloudflare_access_fails_closed_on_an_unreadable_identity(self):
@@ -141,7 +141,7 @@ class AuthAndMeTest(ApiCase):
             async def getIdentity(self):
                 return _Identity()
 
-        provider = CloudflareAccessIdentity(SimpleNamespace(access=_Access()))
+        provider = CloudflareAccessIdentity(SimpleNamespace(access=_Access()), retry_delay_s=0, log=lambda _: None)
         self.assertIsNone(await provider.identify(None))
 
     def test_parse_emails(self):

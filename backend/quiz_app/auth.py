@@ -20,8 +20,19 @@ of this ABC. Nothing else in the backend changes — that is the point.
 
 from __future__ import annotations
 
+import asyncio
+import json
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from urllib.parse import urlsplit
+
+
+def request_path(request) -> str:
+    """The request path, or ``""`` when there is no usable URL. ``request.url`` is a JS string over the FFI boundary."""
+    try:
+        return urlsplit(str(request.url)).path
+    except Exception:
+        return ""
 
 
 def normalize_email(email: str) -> str:
@@ -112,20 +123,93 @@ class CloudflareAccessIdentity(IdentityProvider):
     route answers 401. That is the correct failure direction, but it is also why
     :meth:`IdentityProvider.identify` failing closed is not by itself enough —
     something has to *tell you* it failed closed.
+
+    **Intermittent misses, and why there is one retry.** In production, signed-in
+    requests sometimes came back 401 while sibling requests carrying the same
+    cookies got 200. The only 401 the Worker produces is "no identity", and
+    ``getIdentity()`` is the step most likely to fail transiently. Cloudflare does
+    not say what it does, but the full identity lives behind Access's
+    ``get-identity`` endpoint, not in the token ("Due to cookie size limits and
+    bandwidth considerations"), so it is likely a network lookup. That is an
+    inference, not a citation.
+    https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/application-token/
+    So a lookup that throws or resolves without an email is retried once after a
+    short pause. An absent ``ctx.access`` is not retried: it is fixed for the
+    request ("``undefined`` if Access did not authenticate the request").
+
+    Every miss logs one JSON line (see :func:`_log_line`) naming the branch that fired:
+    ``access-missing``, ``identity-threw`` (with the error class and message) or
+    ``no-email``, plus the request path. A retry that recovers logs too, which is
+    the evidence that the retry is what helps. Tokens, cookies, headers and the
+    email are never logged.
+
+    There is deliberately **no fallback** to the ``Cf-Access-Jwt-Assertion`` or
+    ``Cf-Access-Authenticated-User-Email`` request headers. Cloudflare does not
+    document that Access strips a client-sent copy of either header. Its
+    guidance is to validate the JWT's signature and ``aud`` "to ensure that the
+    request came from Access and not a malicious third party", and doing that
+    here would need the team domain, the audience tag and RS256 verification
+    through WebCrypto. Trusting either header raw would let a client name any
+    email.
+    https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/
     """
 
-    def __init__(self, ctx):
+    ATTEMPTS = 2
+
+    def __init__(self, ctx, retry_delay_s: float = 0.1, log=print):
         self._ctx = ctx
+        self._retry_delay_s = retry_delay_s
+        self._log = log
 
     async def identify(self, request) -> Identity | None:
         try:
             access = getattr(self._ctx, "access", None)
-            if access is None:
-                return None
-            identity = await access.getIdentity()
-            email = getattr(identity, "email", None)
-            if not email:
-                return None
-            return Identity(email)
-        except Exception:
-            return None  # fail closed: any surprise from the binding is a 401, never an identity
+        except Exception as e:  # an unreadable binding is as good as an absent one
+            access, error = None, e
+        else:
+            error = None
+        if access is None:
+            self._log(_log_line("access_identity_missing", request, [_outcome("access-missing", error)]))
+            return None
+        outcomes = []
+        for attempt in range(self.ATTEMPTS):
+            if attempt:
+                await asyncio.sleep(self._retry_delay_s)
+            try:
+                email = getattr(await access.getIdentity(), "email", None)
+                identity = Identity(email) if email else None
+            except Exception as e:  # fail closed: any surprise from the binding is a miss, never an identity
+                outcomes.append(_outcome("identity-threw", e))
+                continue
+            if identity is None:
+                outcomes.append(_outcome("no-email"))
+                continue
+            if outcomes:
+                self._log(_log_line("access_identity_recovered", request, outcomes))
+            return identity
+        self._log(_log_line("access_identity_missing", request, outcomes))
+        return None
+
+
+_ERROR_CHARS = 200
+
+
+def _outcome(branch: str, error: BaseException | None = None) -> dict:
+    """One failed lookup: the branch, plus the error's class and (truncated) message when one was raised."""
+    if error is None:
+        return {"branch": branch}
+    try:
+        message = str(error)[:_ERROR_CHARS]
+    except Exception:
+        message = "<unprintable>"
+    return {"branch": branch, "error_class": type(error).__name__, "error": message}
+
+
+def _log_line(event: str, request, outcomes: list[dict]) -> str:
+    """The structured log line. Only the path, the branches and error text; never a header, cookie or email."""
+    return json.dumps({
+        "event": event,
+        "path": request_path(request),
+        "branch": outcomes[-1]["branch"],
+        "attempts": outcomes,
+    })
