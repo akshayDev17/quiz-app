@@ -16,7 +16,8 @@
     "react-dom": "^19.0.0",
     "react-markdown": "^10.1.0",
     "rehype-highlight": "^7.0.2",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "^4.0.1",
+    "site-themes": "github:akshayDev17/site-themes#v0.1.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

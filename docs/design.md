@@ -329,24 +329,29 @@ jump straight to those screens).
 The quiz must look like part of the same site as `my-github-io/index.html` and
 `ai-chat-archive`. It uses their shared palette and type, not its own:
 
-- **Tokens**: copy the `:root` block of
-  `ai-chat-archive/frontend/app/globals.css` as is: `--paper #EEF1F8`,
-  `--paper-2`, `--ink #0F1220`, `--muted`, `--rule`, `--rule-2`,
-  `--accent #3A4BD8`, `--card #FFF`, `--card-line #818A9F`, the `--s1…--s7`
-  spacing and `--ease`. Status colours are also the archive's: danger
-  `#b00020`, warn `#8a5a00`. The only new token is `--ok #1f6b45` (for "your
-  pick ✓" on the results page), because neither site needed a success colour.
-  **(my call)**
+- **Tokens**: colours, elevation, card radius and fonts come from the shared
+  build-time package `site-themes`, pinned to a git tag in
+  `frontend/package.json` and bundled into the build (nothing is fetched at
+  page load). `app/globals.css` aliases the app's own names to its tokens
+  (`--paper` → `--surface`, `--ink` → `--text`, `--rule` → `--line`, …) and
+  uses the package's names (`--accent`, `--card`, `--card-line`, `--danger`,
+  `--warn`, `--ok`, …) directly. The `--s1…--s7` spacing and `--ease` stay
+  app-owned. Classic Light is the archive's palette: `--surface #EEF1F8`,
+  `--text #0F1220`, `--accent #3A4BD8`, danger `#B00020`, warn `#8A5A00`,
+  ok `#1F6B45` (for "your pick ✓" on the results page).
 - **Type**: Newsreader for body and headings, IBM Plex Mono for labels, both
   loaded via `next/font`, as in the archive's `layout.tsx`.
 - **The site's recurring elements**: a masthead with a 3px double rule; mono
   uppercase micro-cap labels and blue kickers; numbered section heads
-  (`01 RAG`); white cards with a 3:1 border, a neutral ink shadow and a
+  (`01 RAG`); cards (white in Classic Light) with a 3:1 border, a neutral ink shadow and a
   hover lift; mono pill chips; ink `.btn` turning accent on hover, with a
   `.ghost` variant; and the portfolio's three-cell hairline `.stats` row for
   the score.
-- **Light only.** Neither existing site has a dark mode, so the quiz doesn't
-  either.
+- **Themes.** The masthead carries the shared theme picker (System plus every
+  `site-themes` theme, light and dark). The choice lives in the `site-theme`
+  localStorage key shared by every app on the origin, and an inline head
+  script applies it before first paint. Fenced-code syntax colours follow the
+  theme's colour scheme (GitHub Light or GitHub Dark).
 - The masthead name "The Quiz Room" is a placeholder. **(my call)**
 - **Sketch-only, must not ship:** the "Spark, not the product…" note, the
   sample data, the 60-second demo timer and its scaled amber/red thresholds,

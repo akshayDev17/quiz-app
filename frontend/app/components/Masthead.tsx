@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { ThemePicker } from 'site-themes/react';
 import type { Me } from '../../lib/types';
 
 /** The site this app lives under — the first crumb of the breadcrumb. */
@@ -13,7 +14,8 @@ const SITE = 'https://akshayprabhakant.com';
  * above it. Without this, /play and /admin/edit had no route to the quiz index at all.
  *
  * `me` is null while it loads. The display name is shown once there is one; until then the
- * email stands in for it. History is for everyone; Admin only for admins.
+ * email stands in for it. History is for everyone; Admin only for admins. The theme picker
+ * is the shared site-themes one, so a choice made here carries over to the other apps.
  */
 export default function Masthead({ me, onSignOut }: { me: Me | null; onSignOut: () => void }) {
   return (
@@ -38,6 +40,7 @@ export default function Masthead({ me, onSignOut }: { me: Me | null; onSignOut: 
           <Link className="linkbtn" href="/admin">Admin</Link>
         )}
         <button className="linkbtn" onClick={onSignOut}>Sign out</button>
+        <ThemePicker hideLabel />
       </div>
     </header>
   );
