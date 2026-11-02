@@ -343,7 +343,7 @@ The quiz must look like part of the same site as `my-github-io/index.html` and
   loaded via `next/font`, as in the archive's `layout.tsx`.
 - **The site's recurring elements**: a masthead with a 3px double rule; mono
   uppercase micro-cap labels and blue kickers; numbered section heads
-  (`01 RAG`); white cards with a 3:1 border, a neutral ink shadow and a
+  (`01 RAG`); cards (white in Classic Light) with a 3:1 border, a neutral ink shadow and a
   hover lift; mono pill chips; ink `.btn` turning accent on hover, with a
   `.ghost` variant; and the portfolio's three-cell hairline `.stats` row for
   the score.
