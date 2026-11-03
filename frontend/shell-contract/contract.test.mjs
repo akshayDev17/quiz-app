@@ -8,17 +8,21 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { before, test } from 'node:test';
+import { pathToFileURL } from 'node:url';
 import { unstable_readConfig } from 'wrangler';
-import { APP, out, PAGES, SHELL, THROWING_SHELL, UNBOUND, session, siteThemes } from './harness.mjs';
+import { APP, out, PAGES, SHELL, TAILS, THROWING_SHELL, UNBOUND, session, siteThemes } from './harness.mjs';
 
 const META = '<meta charSet="utf-8"/>';
 
 let build;
+// site-themes' app list (src/apps.ts, built to dist/apps.js): what the site path lists.
+let apps;
 // Where composed pages load site-shell's files from: site-shell's own ASSET_BASE
 // (the routed akshayprabhakant.com/_site/) wins over the assetBase this app
 // passes; a site-shell without one uses the app's '/quiz/_site/'.
 let assetBase;
-before(() => {
+before(async () => {
+  ({ APPS: apps } = await import(pathToFileURL(join(siteThemes, 'dist/apps.js')).href));
   build = JSON.parse(readFileSync(join(siteThemes, 'shell/generated/build.json'), 'utf8'));
   assetBase = unstable_readConfig({ config: SHELL }).vars?.ASSET_BASE ?? '/quiz/_site/';
 });
@@ -30,6 +34,34 @@ async function logMatching(s, re) {
 }
 
 const asBuilt = (file) => readFileSync(join(out, file), 'utf8');
+
+// The Masthead's <site-slot name="site-path">: site-shell replaces only its content.
+const SLOT = /(<site-slot name="site-path"[^>]*>)([\s\S]*?)(<\/site-slot>)/g;
+function slotContent(html) {
+  const slots = [...html.matchAll(SLOT)];
+  assert.equal(slots.length, 1, 'exactly one site path slot');
+  return slots[0][2];
+}
+const withSlotContent = (html, content) => html.replace(SLOT, (_, open, _old, close) => open + content + close);
+
+/** The site path site-shell put in the slot: every listed app linked, the quiz marked, this page's crumbs. */
+function assertSitePath(html, tail, where) {
+  assert.match(html, /<nav class="sp" aria-label="Site path">/, `${where}: the site path`);
+  for (const app of apps.filter((a) => a.listed && a.id !== 'quiz')) {
+    assert.ok(html.includes(`<a href="${app.path}">${app.label}`), `${where}: links to ${app.label}`);
+  }
+  const quiz = apps.find((a) => a.id === 'quiz');
+  const marked = tail.length === 0
+    ? `<span class="sp-here sp-app" aria-current="page"><span class="sp-label">${quiz.label}</span>`
+    : `<a class="sp-app" href="${quiz.path}" aria-current="true"><span class="sp-label">${quiz.label}</span>`;
+  assert.ok(html.includes(marked), `${where}: ${quiz.label} is the current app`);
+  tail.forEach((crumb, i) => {
+    const expected = i === tail.length - 1
+      ? `<span class="sp-here sp-page" aria-current="page">${crumb.label}</span>`
+      : `<a href="${crumb.href}">${crumb.label}</a>`;
+    assert.ok(html.includes(expected), `${where}: crumb ${crumb.label}`);
+  });
+}
 /** The exported page plus site-shell's one insertion, right after its leading <meta charset>. */
 function composed(file) {
   const page = asBuilt(file);
@@ -38,7 +70,7 @@ function composed(file) {
   return page.replace(META, META + build.inline + scripts);
 }
 
-test('bound to site-shell: every page gains the theme head block after <meta charset> and nothing else', async (t) => {
+test('bound to site-shell: every page gains the theme head block and the site path, and nothing else', async (t) => {
   const s = await session(t, [APP, SHELL]);
   for (const [path, file] of Object.entries(PAGES)) {
     const res = await fetch(`${s.base}${path}`);
@@ -46,9 +78,15 @@ test('bound to site-shell: every page gains the theme head block after <meta cha
     assert.equal(res.status, 200, path);
     assert.equal(res.headers.get('x-site-shell'), `${build.id}; app=quiz`, path);
     assert.equal(res.headers.get('etag'), null, `${path}: composed HTML carries no validator`);
-    assert.equal(body, composed(file), `${path}: the exported page plus one insertion`);
+    const sitePath = slotContent(body);
+    assert.equal(withSlotContent(body, slotContent(asBuilt(file))), composed(file),
+      `${path}: the exported page plus the head block, with only the slot's content replaced`);
     assert.ok(body.indexOf(META) < 1024, `${path}: <meta charset> stays inside the first 1024 bytes`);
-    assert.equal(body.match(/data-site-shell/g).length, 2, `${path}: one boot <script> and one tokens <style>`);
+    const head = body.slice(0, body.indexOf('</head>'));
+    assert.equal(head.match(/data-site-shell/g).length, 2, `${path}: one boot <script> and one tokens <style>`);
+    assert.ok(body.includes(`data-tail="${JSON.stringify(TAILS[file]).replaceAll('"', '&quot;')}"`),
+      `${path}: the slot carries this page's crumbs`);
+    assertSitePath(sitePath, TAILS[file], path);
   }
 
   // A redirect is re-prefixed and never composed.

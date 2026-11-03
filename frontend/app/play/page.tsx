@@ -20,9 +20,12 @@ import { clearReauthFlag } from '../../lib/session';
 import type { AttemptSession, Me } from '../../lib/types';
 import ConfirmDialog from '../components/ConfirmDialog';
 import Markdown from '../components/Markdown';
-import Masthead from '../components/Masthead';
+import Masthead, { type Crumb } from '../components/Masthead';
 import QuestionNav from '../components/QuestionNav';
 import Timer from '../components/Timer';
+
+/** This page in the site path, after "Quiz Room". */
+const TAIL: Crumb[] = [{ label: 'Attempt' }];
 
 const SAVE_LABEL: Record<SaveState, string> = {
   idle: '',
@@ -307,7 +310,7 @@ function Play() {
 
   return (
     <div className="frame">
-      <Masthead me={me} onSignOut={signOut} />
+      <Masthead me={me} onSignOut={signOut} tail={TAIL} />
       {loadError && <div className="banner">{loadError}</div>}
       {!loadError && !session && !signInExpired && <p className="mc">Loading…</p>}
       {session && question && (
@@ -440,7 +443,9 @@ function Play() {
 
 export default function PlayPage() {
   return (
-    <Suspense fallback={null}>
+    // The masthead is the fallback so it is in the exported page, where site-shell fills
+    // its site path; this page's content needs the query string, so it renders on the client.
+    <Suspense fallback={<div className="frame"><Masthead me={null} onSignOut={signOut} tail={TAIL} /></div>}>
       <Play />
     </Suspense>
   );

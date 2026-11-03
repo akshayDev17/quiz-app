@@ -6,8 +6,11 @@ import { Suspense, useEffect, useRef, useState } from 'react';
 import { getAdminSet, getMe, isSessionExpired, signOut, updateAdminSet } from '../../../lib/api';
 import { clearReauthFlag } from '../../../lib/session';
 import type { Me } from '../../../lib/types';
-import Masthead from '../../components/Masthead';
+import Masthead, { type Crumb } from '../../components/Masthead';
 import SignInAgain from '../../components/SignInAgain';
+
+/** This page in the site path, after "Quiz Room". */
+const TAIL: Crumb[] = [{ label: 'Admin', href: '/quiz/admin' }, { label: 'Edit set' }];
 
 type QOption = { body: string; correct: boolean };
 type QDraft = {
@@ -227,7 +230,7 @@ function Editor() {
   return (
     <div className="editor-page">
       <div className="frame">
-        <Masthead me={me} onSignOut={signOut} />
+        <Masthead me={me} onSignOut={signOut} tail={TAIL} />
 
         <p className="ed-crumb">
           <Link className="linkbtn" href="/admin">← Back to admin</Link>
@@ -461,7 +464,9 @@ function Editor() {
 
 export default function EditSetPage() {
   return (
-    <Suspense fallback={null}>
+    // The masthead is the fallback so it is in the exported page, where site-shell fills
+    // its site path; this page's content needs the query string, so it renders on the client.
+    <Suspense fallback={<div className="editor-page"><div className="frame"><Masthead me={null} onSignOut={signOut} tail={TAIL} /></div></div>}>
       <Editor />
     </Suspense>
   );

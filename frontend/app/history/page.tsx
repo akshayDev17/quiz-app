@@ -47,7 +47,7 @@ export default function HistoryPage() {
 
   return (
     <div className="frame">
-      <Masthead me={me} onSignOut={signOut} />
+      <Masthead me={me} onSignOut={signOut} tail={[{ label: 'History' }]} />
       <p style={{ marginBottom: 'var(--s4)' }}>
         <Link className="linkbtn" href="/">← All quizzes</Link>
       </p>

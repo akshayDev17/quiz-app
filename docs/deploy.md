@@ -125,6 +125,11 @@ site-shell's files. It fails open: with site-shell missing, unreachable or
 throwing, `worker.js` fetches the page again and serves it exactly as built
 (Classic Light, from the `:where(:root)` block at the top of `globals.css`, with
 an empty picker element).
+`compose()` also fills the masthead's `<site-slot name="site-path">` with the
+site path switcher, built from site-themes' app list (`src/apps.ts`), so adding,
+renaming or hiding an app there reaches the quiz with no change here. Each page
+passes its own crumbs after "Quiz Room" as `data-tail`. Where site-shell does not
+run, the slot shows the old `akshayprabhakant.com / quiz` breadcrumb.
 **Deploy order:** site-shell must exist before this Worker is deployed with the
 binding, or `wrangler deploy` refuses ("Worker A declares a binding to Worker B,
 which does not yet exist").
@@ -150,8 +155,9 @@ including the export tests (`npm run test:export`: no bundled theme, the picker
 element, tokens only in the fallback), the site-shell contract: the static export
 served by `wrangler dev` with `akshayDev17/site-themes` `main`'s site-shell
 (`npm run test:shell`), and each composed page hydrating in headless Chrome with
-no console error and an upgraded `<site-theme-picker>`, and each unbound page in
-Classic Light (`npm run test:hydration`). On
+no console error, an upgraded `<site-theme-picker>` and the site path still in
+the masthead after hydration and after a client-side navigation, and each unbound
+page in Classic Light (`npm run test:hydration`). On
 `main`, after the tests pass, two jobs run under `environment: production`:
 **Deploy API** (Access check, secrets check, D1 reachability check,
 `d1 migrations apply`, `pywrangler deploy`) and **Deploy Frontend** (Access

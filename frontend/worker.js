@@ -12,7 +12,8 @@
  *
  * Every HTML page then passes through site-shell (the `SHELL` service binding,
  * akshayDev17/site-themes `shell/`), which adds the shared site theme to the
- * page's <head> as it streams out; the app bundles no theme code of its own.
+ * page's <head> as it streams out and fills the masthead's site path slot; the
+ * app bundles no theme code of its own.
  * `/quiz/_site/*` and `/_site/*` forward to site-shell's own files (its picker
  * script). In production the zone routes akshayprabhakant.com/_site/* to
  * site-shell directly, so this Worker sees a bare `/_site/*` only under
