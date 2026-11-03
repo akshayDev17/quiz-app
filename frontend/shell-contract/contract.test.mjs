@@ -8,13 +8,19 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { before, test } from 'node:test';
+import { unstable_readConfig } from 'wrangler';
 import { APP, out, PAGES, SHELL, THROWING_SHELL, UNBOUND, session, siteThemes } from './harness.mjs';
 
 const META = '<meta charSet="utf-8"/>';
 
 let build;
+// Where composed pages load site-shell's files from: site-shell's own ASSET_BASE
+// (the routed akshayprabhakant.com/_site/) wins over the assetBase this app
+// passes; a site-shell without one uses the app's '/quiz/_site/'.
+let assetBase;
 before(() => {
   build = JSON.parse(readFileSync(join(siteThemes, 'shell/generated/build.json'), 'utf8'));
+  assetBase = unstable_readConfig({ config: SHELL }).vars?.ASSET_BASE ?? '/quiz/_site/';
 });
 
 /** Worker console output reaches wrangler's stdout a moment after the response. */
@@ -28,7 +34,7 @@ const asBuilt = (file) => readFileSync(join(out, file), 'utf8');
 function composed(file) {
   const page = asBuilt(file);
   assert.equal(page.split(META).length, 2, `${file} has exactly one ${META}`);
-  const scripts = build.scripts.map((f) => `<script defer src="/quiz/_site/${build.id}/${f}"></script>`).join('');
+  const scripts = build.scripts.map((f) => `<script defer src="${assetBase}${build.id}/${f}"></script>`).join('');
   return page.replace(META, META + build.inline + scripts);
 }
 
