@@ -45,12 +45,26 @@ test('no exported page carries a theme boot script or theme tokens of its own', 
   }
 });
 
-// Only these pages prerender their masthead; the others render it on the
-// client once their data has loaded.
-test('every prerendered masthead renders the plain <site-theme-picker hide-label> element', () => {
-  for (const name of ['index.html', 'history.html', 'admin.html']) {
+// Every page prerenders its masthead (the pages that read the query string have
+// it as their Suspense fallback), so site-shell finds the site path slot in each.
+const MASTHEAD_PAGES = ['index.html', 'set.html', 'play.html', 'results.html', 'history.html', 'admin.html', 'admin/edit.html'];
+
+test('every page\'s masthead renders the plain <site-theme-picker hide-label> element', () => {
+  for (const name of MASTHEAD_PAGES) {
     const html = readFileSync(join(out, name), 'utf8');
     assert.match(html, /<site-theme-picker hide-label=""><\/site-theme-picker>/, name);
+  }
+});
+
+test('every page\'s masthead has one site path slot holding the old breadcrumb as its fallback', () => {
+  const fallback = '<nav class="mc crumb" aria-label="Breadcrumb"><a href="https://akshayprabhakant.com">akshayprabhakant.com</a>'
+    + '<span class="sep" aria-hidden="true">/</span><span aria-current="page">quiz</span></nav>';
+  for (const name of MASTHEAD_PAGES) {
+    const html = readFileSync(join(out, name), 'utf8');
+    const slots = [...html.matchAll(/<site-slot name="site-path" data-tail="[^"]*"[^>]*>([\s\S]*?)<\/site-slot>/g)];
+    assert.equal(slots.length, 1, `${name}: one site path slot`);
+    assert.equal(slots[0][1], fallback, `${name}: the fallback`);
+    assert.ok(html.indexOf('<site-slot') > html.indexOf('<header class="masthead">'), `${name}: the slot is in the masthead`);
   }
 });
 

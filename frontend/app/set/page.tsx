@@ -7,8 +7,11 @@ import { getMe, getSet, isSessionExpired, signOut, startAttempt } from '../../li
 import { pluralize } from '../../lib/names';
 import type { Me, SetIntro } from '../../lib/types';
 import { clearReauthFlag, handleSessionExpired } from '../../lib/session';
-import Masthead from '../components/Masthead';
+import Masthead, { type Crumb } from '../components/Masthead';
 import SignInAgain from '../components/SignInAgain';
+
+/** This page in the site path, after "Quiz Room". */
+const TAIL: Crumb[] = [{ label: 'Quiz' }];
 
 function Intro() {
   const router = useRouter();
@@ -59,7 +62,7 @@ function Intro() {
 
   return (
     <div className="frame">
-      <Masthead me={me} onSignOut={signOut} />
+      <Masthead me={me} onSignOut={signOut} tail={TAIL} />
       <p style={{ marginBottom: 'var(--s4)' }}>
         <Link className="linkbtn" href="/">← All quizzes</Link>
       </p>
@@ -103,7 +106,9 @@ function Intro() {
 
 export default function SetPage() {
   return (
-    <Suspense fallback={null}>
+    // The masthead is the fallback so it is in the exported page, where site-shell fills
+    // its site path; this page's content needs the query string, so it renders on the client.
+    <Suspense fallback={<div className="frame"><Masthead me={null} onSignOut={signOut} tail={TAIL} /></div>}>
       <Intro />
     </Suspense>
   );

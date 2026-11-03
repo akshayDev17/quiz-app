@@ -34,6 +34,17 @@ export const PAGES = {
   '/quiz/admin/edit': 'admin/edit.html',
 };
 
+// Each exported page's crumbs after "Quiz Room" in the site path (Masthead's `tail`).
+export const TAILS = {
+  'index.html': [],
+  'set.html': [{ label: 'Quiz' }],
+  'play.html': [{ label: 'Attempt' }],
+  'results.html': [{ label: 'Results' }],
+  'history.html': [{ label: 'History' }],
+  'admin.html': [{ label: 'Admin' }],
+  'admin/edit.html': [{ label: 'Admin', href: '/quiz/admin' }, { label: 'Edit set' }],
+};
+
 before(() => {
   assert.ok(siteThemes, 'set SITE_THEMES_DIR to a checkout of akshayDev17/site-themes');
   assert.ok(existsSync(SHELL), `no site-shell config at ${SHELL}`);

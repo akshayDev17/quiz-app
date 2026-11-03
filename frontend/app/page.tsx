@@ -65,7 +65,7 @@ export default function Home() {
 
   return (
     <div className="frame">
-      <Masthead me={me} onSignOut={signOut} />
+      <Masthead me={me} onSignOut={signOut} tail={[]} />
       {expired && <SignInAgain />}
       {error && <div className="banner">{error}</div>}
       {!error && !expired && !topics && <p className="mc">Loading…</p>}

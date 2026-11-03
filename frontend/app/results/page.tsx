@@ -9,8 +9,11 @@ import { formatScore, percent } from '../../lib/score';
 import { clearReauthFlag, handleSessionExpired } from '../../lib/session';
 import type { Me, Results } from '../../lib/types';
 import Markdown from '../components/Markdown';
-import Masthead from '../components/Masthead';
+import Masthead, { type Crumb } from '../components/Masthead';
 import SignInAgain from '../components/SignInAgain';
+
+/** This page in the site path, after "Quiz Room". */
+const TAIL: Crumb[] = [{ label: 'Results' }];
 
 type Question = Results['questions'][number];
 type Option = Question['options'][number];
@@ -101,7 +104,7 @@ function ResultsView() {
 
   return (
     <div className="frame">
-      <Masthead me={me} onSignOut={signOut} />
+      <Masthead me={me} onSignOut={signOut} tail={TAIL} />
       {expired && <SignInAgain />}
       {error && <div className="banner">{error}</div>}
       {!error && !expired && !results && <p className="mc">Loading…</p>}
@@ -144,7 +147,9 @@ function ResultsView() {
 
 export default function ResultsPage() {
   return (
-    <Suspense fallback={null}>
+    // The masthead is the fallback so it is in the exported page, where site-shell fills
+    // its site path; this page's content needs the query string, so it renders on the client.
+    <Suspense fallback={<div className="frame"><Masthead me={null} onSignOut={signOut} tail={TAIL} /></div>}>
       <ResultsView />
     </Suspense>
   );
