@@ -94,6 +94,8 @@ test('bound, site-shell not running: compose rejects and the page is fetched aga
   for (const [path, file] of Object.entries(PAGES)) {
     const res = await fetch(`${s.base}${path}`);
     assert.equal(res.status, 200, path);
+    assert.equal(res.headers.get('etag'), null, `${path}: the fallback carries no validator`);
+    assert.equal(res.headers.get('last-modified'), null, path);
     assert.equal(await res.text(), asBuilt(file), path);
   }
   assert.match(await logMatching(s, /site-shell: compose failed/), /site-shell: compose failed/);
@@ -105,6 +107,8 @@ test('site-shell throws: fail open to the page as built', async (t) => {
     const res = await fetch(`${s.base}${path}`);
     assert.equal(res.status, 200, path);
     assert.equal(res.headers.get('x-site-shell'), null, path);
+    assert.equal(res.headers.get('etag'), null, `${path}: the fallback carries no validator`);
+    assert.equal(res.headers.get('last-modified'), null, path);
     assert.equal(await res.text(), asBuilt(file), path);
   }
   assert.match(await logMatching(s, /fault: compose threw/), /fault: compose threw/);

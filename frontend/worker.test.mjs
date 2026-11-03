@@ -90,7 +90,10 @@ test('passes a 404 through untouched', async () => {
 // shell-contract/contract.test.mjs covers.
 
 const HTML = '<!DOCTYPE html><html><head><meta charSet="utf-8"/></head><body>page</body></html>';
-const page = () => new Response(HTML, { headers: { 'content-type': 'text/html' } });
+const page = () =>
+  new Response(HTML, {
+    headers: { 'content-type': 'text/html', etag: '"page"', 'last-modified': 'Mon, 02 Nov 2026 00:00:00 GMT' },
+  });
 
 /** SHELL: compose() marks the page (reading its body, as the RPC transfer does); fetch() echoes the path. */
 function shell({ fail } = {}) {
@@ -143,6 +146,8 @@ test('fail open: compose() rejecting (site-shell missing, unreachable or throwin
     assert.equal(res.status, 200);
     assert.equal(res.headers.get('x-site-shell'), null);
     assert.equal(await res.text(), HTML, 'the page as built, not a 500 from the spent body');
+    assert.equal(res.headers.get('etag'), null, 'no validator to revalidate the uncomposed page against');
+    assert.equal(res.headers.get('last-modified'), null);
     assert.deepEqual(env.ASSETS.seen.map((u) => u.pathname), ['/history', '/history'], 'the same page fetched again');
   }
   assert.equal(errors.mock.callCount(), 2);

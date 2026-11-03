@@ -52,6 +52,10 @@ async function withShell(res, env, refetch, app, assetBase) {
     return await env.SHELL.compose(res, { app, assetBase });
   } catch (err) {
     console.error('site-shell: compose failed, serving the page as built:', String(err));
-    return refetch();
+    const fallback = await refetch();
+    const headers = new Headers(fallback.headers);
+    headers.delete('etag');
+    headers.delete('last-modified');
+    return new Response(fallback.body, { status: fallback.status, statusText: fallback.statusText, headers });
   }
 }
