@@ -143,7 +143,9 @@ and cannot be copied across or read back, so both must be entered again:
 
 `.github/workflows/ci.yml` runs the tests on every push and pull request,
 including the site-shell contract: the static export served by `wrangler dev`
-with `akshayDev17/site-themes` `main`'s site-shell (`npm run test:shell`). On
+with `akshayDev17/site-themes` `main`'s site-shell (`npm run test:shell`), and
+each composed page hydrating in headless Chrome with no console error
+(`npm run test:hydration`). On
 `main`, after the tests pass, two jobs run under `environment: production`:
 **Deploy API** (Access check, secrets check, D1 reachability check,
 `d1 migrations apply`, `pywrangler deploy`) and **Deploy Frontend** (Access
@@ -225,6 +227,8 @@ cd frontend && npm run test:lib && npm run test:worker && npm run build:check
 
 # the Worker with the real site-shell (needs out/ and a checkout of akshayDev17/site-themes)
 cd frontend && NEXT_PUBLIC_API_BASE= npm run build && SITE_THEMES_DIR=../../site-themes npm run test:shell
+# the same composed pages in a local Google Chrome: no hydration or console error
+cd frontend && SITE_THEMES_DIR=../../site-themes npm run test:hydration
 ```
 
 `next dev` has no Worker in front of it, so the dev server shows the theme the
