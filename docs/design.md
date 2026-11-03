@@ -331,8 +331,12 @@ The quiz must look like part of the same site as `my-github-io/index.html` and
 
 - **Tokens**: colours, elevation, card radius and fonts come from the shared
   build-time package `site-themes`, pinned to a git tag in
-  `frontend/package.json` and bundled into the build (nothing is fetched at
-  page load). `app/globals.css` aliases the app's own names to its tokens
+  `frontend/package.json` and bundled into the build. In production the
+  frontend Worker also passes every page through site-shell
+  (`akshayDev17/site-themes`, `shell/`), which inlines the same boot script and
+  tokens in `<head>` and adds its picker script (`/quiz/_site/<id>/site.js`);
+  a `:where(:root)` Classic Light block in `globals.css` covers site-shell
+  being down (docs/deploy.md §D). `app/globals.css` aliases the app's own names to its tokens
   (`--paper` → `--surface`, `--ink` → `--text`, `--rule` → `--line`, …) and
   uses the package's names (`--accent`, `--card`, `--card-line`, `--danger`,
   `--warn`, `--ok`, …) directly. The `--s1…--s7` spacing and `--ease` stay

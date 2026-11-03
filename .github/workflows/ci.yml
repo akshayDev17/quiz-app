@@ -81,7 +81,8 @@ jobs:
         run: npm run test:lib
 
       # worker.js strips the /quiz prefix and re-prefixes redirects; a regression
-      # there sends a reader out of the app to GitHub Pages.
+      # there sends a reader out of the app to GitHub Pages. It also passes HTML
+      # through site-shell and must fail open when site-shell is down.
       - name: Frontend — static-assets Worker tests
         working-directory: frontend
         run: npm run test:worker
@@ -91,6 +92,33 @@ jobs:
       - name: Frontend — production build
         working-directory: frontend
         run: npm run build:check
+
+      # The Worker against the real site-shell, in local workerd (no account):
+      # every page composed byte for byte, and the fail-open cases (unbound,
+      # site-shell not running, site-shell throwing). site-themes is public,
+      # and its main branch is what deploys site-shell. `build`, not
+      # `build:check`: wrangler.jsonc serves out/, which only `build` writes.
+      - uses: actions/checkout@v6
+        with:
+          repository: akshayDev17/site-themes
+          ref: main
+          path: site-themes
+
+      - name: Frontend — site-shell contract
+        working-directory: frontend
+        env:
+          NEXT_PUBLIC_API_BASE: ''
+          SITE_THEMES_DIR: ${{ github.workspace }}/site-themes
+        run: npm run build && npm run test:shell
+
+      # The same composed pages in headless Chrome (the runner's own, through
+      # playwright-core): React hydrates each one with no hydration warning or
+      # error and no console error. Reuses the export and checkout above.
+      - name: Frontend — site-shell hydration
+        working-directory: frontend
+        env:
+          SITE_THEMES_DIR: ${{ github.workspace }}/site-themes
+        run: npm run test:hydration
 
   deploy-api:
     name: Deploy API
