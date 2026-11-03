@@ -23,16 +23,16 @@ after(() => browser?.close());
 
 /**
  * Opens `path` with the API and prefetches held open; resolves once React has hydrated.
- * `navigableTo` lets through the RSC fetch for that one page, which a client-side
- * navigation to it needs.
+ * `navigableTo` lets through the RSC fetches for those pages (each exported page's path
+ * without its extension), which a client-side navigation to them needs.
  */
-async function open(base, path, problems, { viewport = { width: 1280, height: 800 }, navigableTo = null } = {}) {
+async function open(base, path, problems, { viewport = { width: 1280, height: 800 }, navigableTo = [] } = {}) {
   const page = await browser.newPage({ viewport });
   page.on('pageerror', (err) => problems.push(`uncaught: ${err.message}`));
   page.on('console', (msg) => {
     if (msg.type() === 'error' || /hydrat/i.test(msg.text())) problems.push(`console.${msg.type()}: ${msg.text()} (${msg.location().url})`);
   });
-  await page.route((url) => url.pathname.startsWith('/quiz/api/') || (url.searchParams.has('_rsc') && !url.pathname.startsWith(`${navigableTo}.`)), () => {});
+  await page.route((url) => url.pathname.startsWith('/quiz/api/') || (url.searchParams.has('_rsc') && !navigableTo.some((p) => url.pathname.startsWith(`${p}.`))), () => {});
   const res = await page.goto(`${base}${path}`, { waitUntil: 'load' });
   await page.waitForFunction(() => Object.keys(document.body).some((k) => k.startsWith('__reactFiber$')));
   return { page, res };
@@ -83,17 +83,45 @@ test('bound to site-shell: every composed page hydrates with no console error an
   }
 });
 
-test('bound: a client-side navigation shows the next page\'s site path, not the fallback', async (t) => {
+test('bound: client-side navigations never show the fallback breadcrumb and fetch no page once the switcher is there', async (t) => {
   const s = await session(t, [APP, SHELL]);
   const problems = [];
-  const { page } = await open(s.base, '/quiz/', problems, { navigableTo: '/quiz/history' });
+  const { page } = await open(s.base, '/quiz/', problems, { navigableTo: ['/quiz/history', '/quiz/index'] });
+  const pageFetches = [];
+  page.on('request', (r) => {
+    const url = new URL(r.url());
+    if (r.resourceType() === 'fetch' && !url.searchParams.has('_rsc') && !url.pathname.startsWith('/quiz/api/')) pageFetches.push(url.pathname);
+  });
+  await page.evaluate(() => {
+    window.sawFallback = false;
+    const isFallback = (n) => n.nodeType === 1 && (n.matches('nav[aria-label="Breadcrumb"]') || n.querySelector('nav[aria-label="Breadcrumb"]'));
+    new MutationObserver((records) => {
+      if (records.some((r) => [...r.addedNodes].some(isFallback))) window.sawFallback = true;
+    }).observe(document, { childList: true, subtree: true });
+  });
+  const atHome = await readSitePath(page);
+
   await page.click('header.masthead .who a[href="/quiz/history"]');
   await page.waitForURL('**/quiz/history');
   await page.waitForFunction(() => document.querySelector('header.masthead .sp-page')?.textContent === 'History', null, { timeout: 10_000 });
-  const sitePath = await readSitePath(page);
+  await page.waitForTimeout(500);
+  const atHistory = await readSitePath(page);
+
+  await page.goBack();
+  await page.waitForURL((url) => url.pathname === '/quiz/');
+  await page.waitForFunction(() => !document.querySelector('header.masthead .sp-page'), null, { timeout: 10_000 });
+  await page.waitForTimeout(500);
+  const back = await readSitePath(page);
+  const sheetCurrent = await page.evaluate(() => document.querySelector('#site-path-sheet a[aria-current]')?.getAttribute('aria-current'));
+  const sawFallback = await page.evaluate(() => window.sawFallback);
   await page.close();
 
-  assert.deepEqual(sitePath, expectedSitePath(TAILS['history.html']));
+  assert.deepEqual(atHome, expectedSitePath(TAILS['index.html']), 'the quiz home as composed');
+  assert.deepEqual(atHistory, expectedSitePath(TAILS['history.html']), 'History: the quiz is a link and History the current page');
+  assert.deepEqual(back, expectedSitePath(TAILS['index.html']), 'back home: the quiz is the current page again, with no crumbs');
+  assert.equal(sheetCurrent, 'page', 'the phone sheet marks the quiz home as the current page');
+  assert.equal(sawFallback, false, 'the fallback breadcrumb never rendered');
+  assert.deepEqual(pageFetches, [], 'no page was fetched for its site path');
   assert.deepEqual(problems, [], 'no console error');
 });
 

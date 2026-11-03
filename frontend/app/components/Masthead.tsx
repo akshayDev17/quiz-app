@@ -19,33 +19,85 @@ const FALLBACK =
   '<span class="sep" aria-hidden="true">/</span><span aria-current="page">quiz</span></nav>';
 
 /**
- * The composed site path per route (`usePathname()`), or null where the page came back
- * without one. site-shell fills the slot only in the HTML it serves, but most moves around
- * the quiz are client-side navigations, which render a fresh Masthead. Each route's
- * composed markup is read once, from the page the visit started on or by fetching that
- * route's page, and reused from here.
+ * site-shell's site path, as first composed into a page this tab loaded: undefined until the
+ * start page is read, null while no page has come back composed. site-shell fills the slot
+ * only in the HTML it serves, but most moves around the quiz are client-side navigations,
+ * which render a fresh Masthead. The app list is the same on every page, so those reuse
+ * this markup with their own crumbs (`sitePathWithTail`) rather than waiting for a fetch.
  */
-const sitePaths = new Map<string, string | null>();
-let startPageRead = false;
+let composed: string | null | undefined;
+/** Routes whose page has been fetched for its site path while none was composed yet. */
+const fetched = new Set<string>();
 
-/** The slot's content when site-shell filled it (its markup carries `data-site-shell`). */
+/**
+ * The slot's content when site-shell filled it: its markup carries `data-site-shell`, and
+ * the quiz is the current app both in the row and in the phone sheet.
+ */
 function composedSitePath(doc: ParentNode): string | null {
   const slot = doc.querySelector('site-slot[name="site-path"]');
-  return slot?.querySelector('[data-site-shell]') ? slot.innerHTML : null;
+  if (!slot?.querySelector('[data-site-shell]')) return null;
+  const complete = slot.querySelector('nav.sp .sp-apps .sp-app[aria-current]') && slot.querySelector('dialog a[aria-current]');
+  return complete ? slot.innerHTML : null;
+}
+
+/**
+ * `html` (a composed site path) for a page whose crumbs after "Quiz Room" are `tail`, in
+ * site-shell's markup: the quiz is plain text with aria-current="page" at the quiz home and
+ * a link with aria-current="true" below it, and the last crumb is the current page.
+ */
+function sitePathWithTail(html: string, tail: Crumb[]): string {
+  const box = document.createElement('template');
+  box.innerHTML = html;
+  const nav = box.content.querySelector('nav.sp')!;
+  const app = nav.querySelector('.sp-apps .sp-app[aria-current]')!;
+  const sheetApp = box.content.querySelector('dialog a[aria-current]')!;
+  const atHome = tail.length === 0;
+
+  const here = document.createElement(atHome ? 'span' : 'a');
+  here.className = atHome ? 'sp-here sp-app' : 'sp-app';
+  if (!atHome) here.setAttribute('href', sheetApp.getAttribute('href')!);
+  here.setAttribute('aria-current', atHome ? 'page' : 'true');
+  here.append(...app.childNodes);
+  app.replaceWith(here);
+  sheetApp.setAttribute('aria-current', atHome ? 'page' : 'true');
+
+  nav.querySelectorAll('.sp-crumb').forEach((c) => c.remove());
+  tail.forEach((c, i) => {
+    const last = i === tail.length - 1;
+    const sep = document.createElement('span');
+    sep.className = 'sp-sep';
+    sep.setAttribute('aria-hidden', 'true');
+    sep.textContent = '/';
+    const item = document.createElement(!last && c.href ? 'a' : 'span');
+    if (last) {
+      item.className = 'sp-here sp-page';
+      item.setAttribute('aria-current', 'page');
+    } else if (c.href) {
+      item.setAttribute('href', c.href);
+    } else {
+      item.className = 'sp-here';
+    }
+    item.textContent = c.label;
+    const crumb = document.createElement('span');
+    crumb.className = 'sp-crumb';
+    crumb.append(sep, item);
+    nav.append(crumb);
+  });
+  return box.innerHTML;
 }
 
 /**
  * The markup to render first. On the first client render the document is still the one
  * the server sent (hydrating, or about to be replaced by a Suspense boundary that renders
- * on the client), so its composed slot is read before React replaces it.
+ * on the client), so its composed slot is read before React replaces it and rendered as is.
  */
-function initialSitePath(pathname: string): string {
+function initialSitePath(tail: Crumb[]): string {
   if (typeof document === 'undefined') return FALLBACK;
-  if (!startPageRead) {
-    startPageRead = true;
-    sitePaths.set(pathname, composedSitePath(document));
+  if (composed === undefined) {
+    composed = composedSitePath(document);
+    return composed ?? FALLBACK;
   }
-  return sitePaths.get(pathname) ?? FALLBACK;
+  return composed === null ? FALLBACK : sitePathWithTail(composed, tail);
 }
 
 /** Fetches the route's page (composed at the edge) and reads its site path; null on any failure. */
@@ -71,8 +123,8 @@ async function fetchSitePath(pathname: string): Promise<string | null> {
  * (akshayDev17/site-themes, shell/) fills at the edge from the site's app list; `tail` is
  * this page's crumbs after "Quiz Room", passed as `data-tail`. React must never replace
  * what site-shell put there, so the slot renders through dangerouslySetInnerHTML with
- * suppressHydrationWarning, and client-side navigations reuse the composed markup (see
- * `sitePaths`). Where site-shell is absent, the slot keeps the old breadcrumb (`FALLBACK`).
+ * suppressHydrationWarning, and client-side navigations reuse the composed markup with
+ * their own crumbs (see `composed`). Where site-shell is absent, the slot keeps the old breadcrumb (`FALLBACK`).
  *
  * `me` is null while it loads. The display name is shown once there is one; until then the
  * email stands in for it. History is for everyone; Admin only for admins. The theme picker
@@ -82,14 +134,16 @@ async function fetchSitePath(pathname: string): Promise<string | null> {
  */
 export default function Masthead({ me, onSignOut, tail }: { me: Me | null; onSignOut: () => void; tail: Crumb[] }) {
   const pathname = usePathname();
-  const [sitePath, setSitePath] = useState(() => initialSitePath(pathname));
+  const [sitePath, setSitePath] = useState(() => initialSitePath(tail));
 
   useEffect(() => {
-    if (sitePaths.has(pathname)) return;
+    if (composed || fetched.has(pathname)) return;
+    fetched.add(pathname);
     let live = true;
     fetchSitePath(pathname).then((html) => {
-      sitePaths.set(pathname, html);
-      if (live && html) setSitePath(html);
+      if (!html) return;
+      composed ??= html;
+      if (live) setSitePath(html);
     });
     return () => {
       live = false;
