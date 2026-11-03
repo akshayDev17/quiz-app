@@ -26,7 +26,7 @@ const FALLBACK =
  * this markup with their own crumbs (`sitePathWithTail`) rather than waiting for a fetch.
  */
 let composed: string | null | undefined;
-/** Routes whose page has been fetched for its site path while none was composed yet. */
+/** Routes whose page was fetched while no site path was composed yet and came back without one. */
 const fetched = new Set<string>();
 
 /**
@@ -100,15 +100,14 @@ function initialSitePath(tail: Crumb[]): string {
   return composed === null ? FALLBACK : sitePathWithTail(composed, tail);
 }
 
-/** Fetches the route's page (composed at the edge) and reads its site path; null on any failure. */
+/**
+ * Fetches the route's page (composed at the edge) and reads its site path: null when the
+ * page came back without one; rejects when no page came back (network, status, sign-in).
+ */
 async function fetchSitePath(pathname: string): Promise<string | null> {
-  try {
-    const res = await fetch(`${BASE_PATH}${pathname}`, { credentials: 'same-origin' });
-    if (!res.ok || !(res.headers.get('content-type') ?? '').startsWith('text/html')) return null;
-    return composedSitePath(new DOMParser().parseFromString(await res.text(), 'text/html'));
-  } catch {
-    return null;
-  }
+  const res = await fetch(`${BASE_PATH}${pathname}`, { credentials: 'same-origin' });
+  if (!res.ok || !(res.headers.get('content-type') ?? '').startsWith('text/html')) throw new Error(`${pathname}: no page`);
+  return composedSitePath(new DOMParser().parseFromString(await res.text(), 'text/html'));
 }
 
 /**
@@ -138,13 +137,13 @@ export default function Masthead({ me, onSignOut, tail }: { me: Me | null; onSig
 
   useEffect(() => {
     if (composed || fetched.has(pathname)) return;
-    fetched.add(pathname);
     let live = true;
     fetchSitePath(pathname).then((html) => {
+      fetched.add(pathname);
       if (!html) return;
       composed ??= html;
       if (live) setSitePath(html);
-    });
+    }, () => {});
     return () => {
       live = false;
     };

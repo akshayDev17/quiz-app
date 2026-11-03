@@ -185,11 +185,42 @@ test('unbound: every page falls back to Classic Light from globals.css, with no 
         accent: css.getPropertyValue('--accent').trim(),
         picker: customElements.get('site-theme-picker') !== undefined,
         breadcrumb: document.querySelector('header.masthead site-slot[name="site-path"] nav[aria-label="Breadcrumb"]')?.textContent,
+        slot: getComputedStyle(document.querySelector('header.masthead site-slot[name="site-path"]')).display,
       };
     });
     await page.close();
 
-    assert.deepEqual(state, { theme: null, surface: '#EEF1F8', accent: '#3A4BD8', picker: false, breadcrumb: 'akshayprabhakant.com/quiz' }, path);
+    assert.deepEqual(state, { theme: null, surface: '#EEF1F8', accent: '#3A4BD8', picker: false, breadcrumb: 'akshayprabhakant.com/quiz', slot: 'block' }, path);
     assert.deepEqual(problems, [], path);
   }
+});
+
+test('unbound: a route whose page fetch failed is fetched again on the next visit; one that came back plain is not', async (t) => {
+  const s = await session(t, [UNBOUND]);
+  const problems = [];
+  const { page } = await open(s.base, '/quiz/', problems, { navigableTo: ['/quiz/history', '/quiz/index'] });
+  const pageFetches = [];
+  let failNext = true;
+  await page.route((url) => url.pathname === '/quiz/history' && !url.searchParams.has('_rsc'), (route) => {
+    pageFetches.push(failNext ? 'failed' : 'ok');
+    if (failNext) {
+      failNext = false;
+      return route.abort();
+    }
+    return route.continue();
+  });
+  const visitHistory = async () => {
+    await page.click('header.masthead .who a[href="/quiz/history"]');
+    await page.waitForURL('**/quiz/history');
+    await page.waitForTimeout(500);
+    await page.goBack();
+    await page.waitForURL((url) => url.pathname === '/quiz/');
+    await page.waitForTimeout(500);
+  };
+  await visitHistory();
+  await visitHistory();
+  await visitHistory();
+  await page.close();
+
+  assert.deepEqual(pageFetches, ['failed', 'ok'], 'retried after the failure, then not again once the page came back without a site path');
 });

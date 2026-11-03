@@ -49,6 +49,7 @@ a { color: inherit; }
 .masthead .name { font-weight: 600; font-size: clamp(1.7rem, 5vw, 2.6rem); line-height: 1; letter-spacing: -.02em;
                  display: inline-block; color: inherit; text-decoration: none; }
 .masthead .name:hover, .masthead .name:focus-visible { color: var(--accent); }
+.masthead site-slot[name="site-path"] { display: block; }
 .masthead .crumb { display: flex; align-items: baseline; gap: var(--s2); }
 .masthead .crumb a { color: inherit; text-decoration: none; }
 .masthead .crumb a:hover, .masthead .crumb a:focus-visible { color: var(--ink); text-decoration: underline; }
