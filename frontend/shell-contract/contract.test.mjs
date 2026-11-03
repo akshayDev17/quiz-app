@@ -44,23 +44,27 @@ function slotContent(html) {
 }
 const withSlotContent = (html, content) => html.replace(SLOT, (_, open, _old, close) => open + content + close);
 
-/** The site path site-shell put in the slot: every listed app linked, the quiz marked, this page's crumbs. */
+/**
+ * The site path site-shell put in the slot: the row of every listed app, with the quiz
+ * marked current and no other link to the site, then this page's trail on its own line
+ * ("Quiz Room › History"), or no trail at the quiz home.
+ */
 function assertSitePath(html, tail, where) {
-  assert.match(html, /<nav class="sp" aria-label="Site path">/, `${where}: the site path`);
-  for (const app of apps.filter((a) => a.listed && a.id !== 'quiz')) {
-    assert.ok(html.includes(`<a href="${app.path}">${app.label}`), `${where}: links to ${app.label}`);
-  }
+  const row = html.match(/<nav class="sp" aria-label="Site"><ul class="sp-apps">([\s\S]*?)<\/ul><\/nav>/);
+  assert.ok(row, `${where}: the site row`);
   const quiz = apps.find((a) => a.id === 'quiz');
-  const marked = tail.length === 0
-    ? `<span class="sp-here sp-app" aria-current="page"><span class="sp-label">${quiz.label}</span>`
-    : `<a class="sp-app" href="${quiz.path}" aria-current="true"><span class="sp-label">${quiz.label}</span>`;
-  assert.ok(html.includes(marked), `${where}: ${quiz.label} is the current app`);
-  tail.forEach((crumb, i) => {
-    const expected = i === tail.length - 1
-      ? `<span class="sp-here sp-page" aria-current="page">${crumb.label}</span>`
-      : `<a href="${crumb.href}">${crumb.label}</a>`;
-    assert.ok(html.includes(expected), `${where}: crumb ${crumb.label}`);
-  });
+  const gated = (a) => (a.gated ? '<span class="site-vh"> (sign-in required)</span>' : '');
+  const items = apps.filter((a) => a.listed).map((a) => a === quiz
+    ? `<li><a class="sp-app" href="${a.path}" aria-current="${tail.length === 0 ? 'page' : 'true'}"><span class="sp-label">${a.label}</span>${gated(a)}</a></li>`
+    : `<li><a href="${a.path}">${a.label}${gated(a)}</a></li>`);
+  assert.equal(row[1], items.join(''), `${where}: every listed app, ${quiz.label} the current one`);
+
+  const trail = html.slice(row.index + row[0].length);
+  if (tail.length === 0) return assert.equal(trail, '', `${where}: no trail at the quiz home`);
+  const crumbs = [{ label: quiz.label, href: quiz.path }, ...tail].map((c, i, all) => i === all.length - 1
+    ? `<li><span aria-current="page">${c.label}</span></li>`
+    : `<li><a href="${c.href}">${c.label}</a></li>`);
+  assert.equal(trail, `<nav class="sp-trail" aria-label="Breadcrumb"><ol>${crumbs.join('')}</ol></nav>`, `${where}: the trail`);
 }
 /** The exported page plus site-shell's one insertion, right after its leading <meta charset>. */
 function composed(file) {

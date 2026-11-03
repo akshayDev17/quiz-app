@@ -56,14 +56,12 @@ test('every page\'s masthead renders the plain <site-theme-picker hide-label> el
   }
 });
 
-test('every page\'s masthead has one site path slot holding the old breadcrumb as its fallback', () => {
-  const fallback = '<nav class="mc crumb" aria-label="Breadcrumb"><a href="https://akshayprabhakant.com">akshayprabhakant.com</a>'
-    + '<span class="sep" aria-hidden="true">/</span><span aria-current="page">quiz</span></nav>';
+test('every page\'s masthead has one site path slot, empty until site-shell fills it', () => {
   for (const name of MASTHEAD_PAGES) {
     const html = readFileSync(join(out, name), 'utf8');
     const slots = [...html.matchAll(/<site-slot name="site-path" data-tail="[^"]*"[^>]*>([\s\S]*?)<\/site-slot>/g)];
     assert.equal(slots.length, 1, `${name}: one site path slot`);
-    assert.equal(slots[0][1], fallback, `${name}: the fallback`);
+    assert.equal(slots[0][1], '', `${name}: no fallback of the app's own`);
     assert.ok(html.indexOf('<site-slot') > html.indexOf('<header class="masthead">'), `${name}: the slot is in the masthead`);
   }
 });
