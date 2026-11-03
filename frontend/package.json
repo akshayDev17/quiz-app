@@ -8,6 +8,7 @@
     "build:check": "NEXT_DIST_DIR=.next-build next build",
     "test:lib": "node --experimental-strip-types --test lib/*.test.ts",
     "test:worker": "node --test worker.test.mjs",
+    "test:export": "node --test export.test.mjs",
     "test:shell": "node --test shell-contract/contract.test.mjs",
     "test:hydration": "node --test shell-contract/hydration.test.mjs"
   },
@@ -18,8 +19,7 @@
     "react-dom": "^19.0.0",
     "react-markdown": "^10.1.0",
     "rehype-highlight": "^7.0.2",
-    "remark-gfm": "^4.0.1",
-    "site-themes": "github:akshayDev17/site-themes#v0.2.0"
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

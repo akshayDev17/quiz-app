@@ -1,9 +1,9 @@
 import type { Metadata } from 'next';
 import { Newsreader, IBM_Plex_Mono } from 'next/font/google';
-import { bootScript } from 'site-themes';
-// The shared site themes come first: globals.css aliases this app's variable
-// names to their tokens, so it must load after them.
-import 'site-themes/themes.css';
+// The shared theme (boot script, tokens, picker) is not bundled: site-shell
+// adds it to every page's <head> at the edge (worker.js). globals.css aliases
+// this app's variable names onto the shared tokens and carries the Classic
+// Light fallback.
 import 'highlight.js/styles/github.css';
 import './globals.css';
 
@@ -29,13 +29,9 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    // suppressHydrationWarning: the boot script sets data-theme on <html> before
-    // React hydrates, so the server HTML and the live element differ on purpose.
+    // suppressHydrationWarning: site-shell's boot script sets data-theme on
+    // <html> before React hydrates, so the exported markup never carries it.
     <html lang="en" className={`${newsreader.variable} ${plexMono.variable}`} suppressHydrationWarning>
-      <head>
-        {/* Inline, so the theme is set before first paint with nothing fetched. */}
-        <script dangerouslySetInnerHTML={{ __html: bootScript }} />
-      </head>
       <body>{children}</body>
     </html>
   );

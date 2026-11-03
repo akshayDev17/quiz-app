@@ -116,11 +116,15 @@ empty list, so it deploys fine but nobody is an admin and `/quiz/admin` shows
 **The shared site theme: site-shell.** The frontend Worker binds the Worker
 `site-shell` (`akshayDev17/site-themes`, `shell/`) as `SHELL` and passes every
 200 HTML page through its `compose()`, which inserts the theme's boot script and
-tokens right after `<meta charset>`. `/quiz/_site/*` forwards to site-shell's own
-files (its picker script); Access covers it like every other `/quiz/*` path. It
-fails open: with site-shell missing, unreachable or throwing, `worker.js` fetches
-the page again and serves it exactly as built, and the `:where(:root)` Classic
-Light block at the top of `globals.css` keeps every shared token defined.
+tokens right after `<meta charset>`, plus the script that defines the masthead's
+`<site-theme-picker>`. The app bundles no theme code of its own, so a theme or
+catalogue change reaches it with site-shell's next deploy, with no change here.
+Composed pages load that script from `/_site/<build>/site.js`, which the zone
+routes to site-shell (public, outside Access); `/quiz/_site/*` also forwards to
+site-shell's files. It fails open: with site-shell missing, unreachable or
+throwing, `worker.js` fetches the page again and serves it exactly as built
+(Classic Light, from the `:where(:root)` block at the top of `globals.css`, with
+an empty picker element).
 **Deploy order:** site-shell must exist before this Worker is deployed with the
 binding, or `wrangler deploy` refuses ("Worker A declares a binding to Worker B,
 which does not yet exist").
@@ -142,10 +146,12 @@ and cannot be copied across or read back, so both must be entered again:
   a token only once.
 
 `.github/workflows/ci.yml` runs the tests on every push and pull request,
-including the site-shell contract: the static export served by `wrangler dev`
-with `akshayDev17/site-themes` `main`'s site-shell (`npm run test:shell`), and
-each composed page hydrating in headless Chrome with no console error
-(`npm run test:hydration`). On
+including the export tests (`npm run test:export`: no bundled theme, the picker
+element, tokens only in the fallback), the site-shell contract: the static export
+served by `wrangler dev` with `akshayDev17/site-themes` `main`'s site-shell
+(`npm run test:shell`), and each composed page hydrating in headless Chrome with
+no console error and an upgraded `<site-theme-picker>`, and each unbound page in
+Classic Light (`npm run test:hydration`). On
 `main`, after the tests pass, two jobs run under `environment: production`:
 **Deploy API** (Access check, secrets check, D1 reachability check,
 `d1 migrations apply`, `pywrangler deploy`) and **Deploy Frontend** (Access
@@ -225,14 +231,16 @@ Tests:
 cd backend  && for t in test/test_*.py; do python3 $t || exit 1; done && uv run pytest -q
 cd frontend && npm run test:lib && npm run test:worker && npm run build:check
 
-# the Worker with the real site-shell (needs out/ and a checkout of akshayDev17/site-themes)
-cd frontend && NEXT_PUBLIC_API_BASE= npm run build && SITE_THEMES_DIR=../../site-themes npm run test:shell
-# the same composed pages in a local Google Chrome: no hydration or console error
+# the export, then the Worker with the real site-shell (needs out/ and a checkout of akshayDev17/site-themes)
+cd frontend && NEXT_PUBLIC_API_BASE= npm run build && npm run test:export && SITE_THEMES_DIR=../../site-themes npm run test:shell
+# the same pages in a local Google Chrome: no hydration or console error, picker upgraded; Classic Light unbound
 cd frontend && SITE_THEMES_DIR=../../site-themes npm run test:hydration
 ```
 
-`next dev` has no Worker in front of it, so the dev server shows the theme the
-app still bundles from the `site-themes` package, not site-shell's.
+`next dev` has no Worker in front of it, so the dev server shows the Classic
+Light fallback and an empty picker. For theme work, serve the export with
+site-shell: `npm run build && npx wrangler dev -c wrangler.jsonc -c
+<site-themes>/shell/wrangler.jsonc`.
 
 ---
 

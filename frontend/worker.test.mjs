@@ -182,6 +182,14 @@ test('/quiz/_site/* forwards to site-shell with the prefix stripped', async () =
   assert.deepEqual(env.ASSETS.seen, []);
 });
 
+test('/_site/* forwards to site-shell as is (only under wrangler dev; the zone routes it to site-shell)', async () => {
+  const env = { ASSETS: assets(page), SHELL: shell() };
+  const res = await call(env, 'http://127.0.0.1:8787/_site/1132669f0ee1/site.js');
+  assert.equal(await res.text(), 'site.js');
+  assert.deepEqual(env.SHELL.calls.fetch, ['/_site/1132669f0ee1/site.js']);
+  assert.deepEqual(env.ASSETS.seen, []);
+});
+
 test('/quiz/_site/* without SHELL falls through to ASSETS as before', async () => {
   const env = { ASSETS: assets(() => new Response('Not Found', { status: 404 })) };
   const res = await call(env, 'https://akshayprabhakant.com/quiz/_site/1132669f0ee1/site.js');
