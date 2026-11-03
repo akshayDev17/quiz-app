@@ -12,9 +12,11 @@
  *
  * Every HTML page then passes through site-shell (the `SHELL` service binding,
  * akshayDev17/site-themes `shell/`), which adds the shared site theme to the
- * page's <head> as it streams out. `/quiz/_site/*` forwards to site-shell's own
- * files (its picker script), through this route until akshayprabhakant.com/_site/*
- * is routed to site-shell directly.
+ * page's <head> as it streams out; the app bundles no theme code of its own.
+ * `/quiz/_site/*` and `/_site/*` forward to site-shell's own files (its picker
+ * script). In production the zone routes akshayprabhakant.com/_site/* to
+ * site-shell directly, so this Worker sees a bare `/_site/*` only under
+ * `wrangler dev`, where it stands in for that route.
  */
 const PREFIX = /^\/quiz(?=\/|$)/;
 

@@ -330,15 +330,14 @@ The quiz must look like part of the same site as `my-github-io/index.html` and
 `ai-chat-archive`. It uses their shared palette and type, not its own:
 
 - **Tokens**: colours, elevation, card radius and fonts come from the shared
-  build-time package `site-themes`, pinned to a git tag in
-  `frontend/package.json` and bundled into the build. In production the
-  frontend Worker also passes every page through site-shell
-  (`akshayDev17/site-themes`, `shell/`), which inlines the same boot script and
-  tokens in `<head>` and adds its picker script (`/quiz/_site/<id>/site.js`);
-  a `:where(:root)` Classic Light block in `globals.css` covers site-shell
-  being down (docs/deploy.md §D). `app/globals.css` aliases the app's own names to its tokens
+  site theme, which site-shell (`akshayDev17/site-themes`, `shell/`) adds at
+  the edge: the frontend Worker passes every page through it, and it inlines
+  the boot script and tokens in `<head>` and adds its picker script
+  (`/_site/<id>/site.js`). Nothing theme-related is bundled into the build; a
+  `:where(:root)` Classic Light block in `globals.css` covers site-shell being
+  down (docs/deploy.md §D). `app/globals.css` aliases the app's own names to its tokens
   (`--paper` → `--surface`, `--ink` → `--text`, `--rule` → `--line`, …) and
-  uses the package's names (`--accent`, `--card`, `--card-line`, `--danger`,
+  uses the theme's names (`--accent`, `--card`, `--card-line`, `--danger`,
   `--warn`, `--ok`, …) directly. The `--s1…--s7` spacing and `--ease` stay
   app-owned. Classic Light is the archive's palette: `--surface #EEF1F8`,
   `--text #0F1220`, `--accent #3A4BD8`, danger `#B00020`, warn `#8A5A00`,
@@ -351,10 +350,11 @@ The quiz must look like part of the same site as `my-github-io/index.html` and
   hover lift; mono pill chips; ink `.btn` turning accent on hover, with a
   `.ghost` variant; and the portfolio's three-cell hairline `.stats` row for
   the score.
-- **Themes.** The masthead carries the shared theme picker (System plus every
-  `site-themes` theme, light and dark). The choice lives in the `site-theme`
-  localStorage key shared by every app on the origin, and an inline head
-  script applies it before first paint. Fenced-code syntax colours follow the
+- **Themes.** The masthead carries the shared theme picker,
+  `<site-theme-picker>` (System plus every site theme, light and dark), which
+  site-shell's script defines. The choice lives in the `site-theme`
+  localStorage key shared by every app on the origin, and site-shell's inline
+  head script applies it before first paint. Fenced-code syntax colours follow the
   theme's colour scheme (GitHub Light or GitHub Dark).
 - The masthead name "The Quiz Room" is a placeholder. **(my call)**
 - **Sketch-only, must not ship:** the "Spark, not the product…" note, the

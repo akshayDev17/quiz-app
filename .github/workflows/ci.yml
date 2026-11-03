@@ -93,9 +93,10 @@ jobs:
         working-directory: frontend
         run: npm run build:check
 
-      # The Worker against the real site-shell, in local workerd (no account):
-      # every page composed byte for byte, and the fail-open cases (unbound,
-      # site-shell not running, site-shell throwing). site-themes is public,
+      # The export carries no theme of its own (test:export), and the Worker
+      # against the real site-shell, in local workerd (no account): every page
+      # composed byte for byte, and the fail-open cases (unbound, site-shell not
+      # running, site-shell throwing). site-themes is public,
       # and its main branch is what deploys site-shell. `build`, not
       # `build:check`: wrangler.jsonc serves out/, which only `build` writes.
       - uses: actions/checkout@v6
@@ -109,11 +110,13 @@ jobs:
         env:
           NEXT_PUBLIC_API_BASE: ''
           SITE_THEMES_DIR: ${{ github.workspace }}/site-themes
-        run: npm run build && npm run test:shell
+        run: npm run build && npm run test:export && npm run test:shell
 
       # The same composed pages in headless Chrome (the runner's own, through
       # playwright-core): React hydrates each one with no hydration warning or
-      # error and no console error. Reuses the export and checkout above.
+      # error and no console error, and site-shell's site.js defines
+      # <site-theme-picker>; unbound, each page falls back to Classic Light.
+      # Reuses the export and checkout above.
       - name: Frontend — site-shell hydration
         working-directory: frontend
         env:
