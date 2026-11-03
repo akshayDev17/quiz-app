@@ -84,3 +84,102 @@ test('passes a 404 through untouched', async () => {
   assert.equal(res.status, 404);
   assert.equal(await res.text(), 'nope');
 });
+
+// ── site-shell: the SHELL binding, the hook and its fail-open paths ──────────
+// Stand-in bindings only; the real compose() runs only in workerd, which
+// shell-contract/contract.test.mjs covers.
+
+const HTML = '<!DOCTYPE html><html><head><meta charSet="utf-8"/></head><body>page</body></html>';
+const page = () => new Response(HTML, { headers: { 'content-type': 'text/html' } });
+
+/** SHELL: compose() marks the page (reading its body, as the RPC transfer does); fetch() echoes the path. */
+function shell({ fail } = {}) {
+  const calls = { compose: [], fetch: [] };
+  return {
+    calls,
+    compose: async (res, opts) => {
+      calls.compose.push(opts);
+      const body = await res.text();
+      if (fail) throw new Error(fail);
+      return new Response(body.replace('<meta charSet="utf-8"/>', '$&<script data-site-shell></script>'), {
+        headers: { 'content-type': 'text/html', 'x-site-shell': `test; app=${opts.app}` },
+      });
+    },
+    fetch: async (req) => {
+      calls.fetch.push(new URL(req.url).pathname);
+      return new Response('site.js', { headers: { 'content-type': 'text/javascript' } });
+    },
+  };
+}
+
+test('with SHELL bound, HTML pages are composed with the app name and the forwarded asset base', async () => {
+  const env = { ASSETS: assets(page), SHELL: shell() };
+  for (const url of ['https://akshayprabhakant.com/quiz', 'https://akshayprabhakant.com/quiz/play?set=x']) {
+    const res = await call(env, url);
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('x-site-shell'), 'test; app=quiz');
+    assert.match(await res.text(), /<meta charSet="utf-8"\/><script data-site-shell><\/script>/);
+  }
+  assert.deepEqual(env.SHELL.calls.compose, [
+    { app: 'quiz', assetBase: '/quiz/_site/' },
+    { app: 'quiz', assetBase: '/quiz/_site/' },
+  ]);
+  assert.deepEqual(env.ASSETS.seen.map((u) => u.pathname), ['/', '/play'], 'one ASSETS fetch per page when compose succeeds');
+});
+
+test('unbound: no SHELL binding serves the page exactly as built', async () => {
+  const env = { ASSETS: assets(page) };
+  const res = await call(env, 'https://akshayprabhakant.com/quiz/');
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('x-site-shell'), null);
+  assert.equal(await res.text(), HTML);
+});
+
+test('fail open: compose() rejecting (site-shell missing, unreachable or throwing) re-fetches the page as built', async (t) => {
+  const errors = t.mock.method(console, 'error', () => {});
+  for (const fail of ['Worker "site-shell" not found.', 'fault: compose threw']) {
+    const env = { ASSETS: assets(page), SHELL: shell({ fail }) };
+    const res = await call(env, 'https://akshayprabhakant.com/quiz/history');
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('x-site-shell'), null);
+    assert.equal(await res.text(), HTML, 'the page as built, not a 500 from the spent body');
+    assert.deepEqual(env.ASSETS.seen.map((u) => u.pathname), ['/history', '/history'], 'the same page fetched again');
+  }
+  assert.equal(errors.mock.callCount(), 2);
+  assert.match(String(errors.mock.calls[0].arguments[0]), /site-shell: compose failed/);
+});
+
+test('with SHELL bound, non-HTML, non-200 and redirects never reach compose(); redirects are still re-prefixed', async () => {
+  const responses = {
+    '/_next/static/css/app.css': () => new Response('a{}', { headers: { 'content-type': 'text/css', etag: 'W/"1"' } }),
+    '/icon.svg': () => new Response('<svg/>', { headers: { 'content-type': 'image/svg+xml' } }),
+    '/missing': () => new Response('nope', { status: 404, headers: { 'content-type': 'text/html' } }),
+    '/play/': () => new Response(null, { status: 308, headers: { location: '/play' } }),
+    '/cached': () => new Response(null, { status: 304, headers: { 'content-type': 'text/html' } }),
+  };
+  const env = { ASSETS: assets((u) => responses[u.pathname]()), SHELL: shell() };
+  for (const path of Object.keys(responses)) {
+    const res = await call(env, `https://akshayprabhakant.com/quiz${path}`);
+    assert.equal(res.headers.get('x-site-shell'), null, path);
+  }
+  assert.equal(env.SHELL.calls.compose.length, 0);
+  const css = await call(env, 'https://akshayprabhakant.com/quiz/_next/static/css/app.css');
+  assert.equal(css.headers.get('etag'), 'W/"1"', 'validators kept');
+  const redirect = await call(env, 'https://akshayprabhakant.com/quiz/play/');
+  assert.equal(redirect.headers.get('location'), '/quiz/play');
+});
+
+test('/quiz/_site/* forwards to site-shell with the prefix stripped', async () => {
+  const env = { ASSETS: assets(page), SHELL: shell() };
+  const res = await call(env, 'https://akshayprabhakant.com/quiz/_site/1132669f0ee1/site.js');
+  assert.equal(await res.text(), 'site.js');
+  assert.deepEqual(env.SHELL.calls.fetch, ['/_site/1132669f0ee1/site.js']);
+  assert.deepEqual(env.ASSETS.seen, []);
+});
+
+test('/quiz/_site/* without SHELL falls through to ASSETS as before', async () => {
+  const env = { ASSETS: assets(() => new Response('Not Found', { status: 404 })) };
+  const res = await call(env, 'https://akshayprabhakant.com/quiz/_site/1132669f0ee1/site.js');
+  assert.equal(res.status, 404);
+  assert.deepEqual(env.ASSETS.seen.map((u) => u.pathname), ['/_site/1132669f0ee1/site.js']);
+});
