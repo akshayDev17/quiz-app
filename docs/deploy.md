@@ -126,10 +126,10 @@ throwing, `worker.js` fetches the page again and serves it exactly as built
 (Classic Light, from the `:where(:root)` block at the top of `globals.css`, with
 an empty picker element).
 `compose()` also fills the masthead's `<site-slot name="site-path">` with the
-site path switcher, built from site-themes' app list (`src/apps.ts`), so adding,
-renaming or hiding an app there reaches the quiz with no change here. Each page
-passes its own crumbs after "Quiz Room" as `data-tail`. Where site-shell does not
-run, the slot shows the old `akshayprabhakant.com / quiz` breadcrumb.
+site row and the page's trail, built from site-themes' app list (`src/apps.ts`),
+so adding, renaming or hiding an app there reaches the quiz with no change here.
+Each page passes its own crumbs after "Quiz Room" as `data-tail`. Where site-shell
+does not run, the slot stays empty.
 **Deploy order:** site-shell must exist before this Worker is deployed with the
 binding, or `wrangler deploy` refuses ("Worker A declares a binding to Worker B,
 which does not yet exist").

@@ -358,11 +358,13 @@ The quiz must look like part of the same site as `my-github-io/index.html` and
   theme's colour scheme (GitHub Light or GitHub Dark).
 - **The site path.** Under the masthead name sits the site's shared switcher,
   `<site-slot name="site-path">`, which site-shell fills from site-themes' app
-  list: `akshayprabhakant.com / Portfolio  AI Digest  Quiz Room  Graph Notes
-  Election Atlas / <this page>`, folding into a bottom sheet on portrait
-  phones. Each page passes its crumbs after "Quiz Room" (`History`, `Quiz`,
-  `Attempt`, `Results`, `Admin`, `Admin / Edit set`). Without site-shell it
-  shows the old `akshayprabhakant.com / quiz` breadcrumb.
+  list: the row `Home  AI Digest  Quiz Room  Graph Notes  Election Atlas` with
+  Quiz Room marked, and below the quiz home the page's trail on its own line
+  (`Quiz Room › History`). On portrait phones the row is one line that scrolls
+  sideways. Each page passes its crumbs after "Quiz Room" (`History`, `Quiz`,
+  `Attempt`, `Results`, `Admin`, `Admin / Edit set`). A client-side move keeps
+  the row as composed and redraws only the trail. Without site-shell the slot
+  stays empty.
 - The masthead name "The Quiz Room" is a placeholder. **(my call)**
 - **Sketch-only, must not ship:** the "Spark, not the product…" note, the
   sample data, the 60-second demo timer and its scaled amber/red thresholds,
