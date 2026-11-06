@@ -153,7 +153,7 @@ select { -webkit-appearance: none; -moz-appearance: none; appearance: none; --ch
 .timer.paused { color: var(--muted); border-color: var(--rule-2); border-style: dashed; animation: none; }
 @keyframes live { 50% { opacity: .45; } }
 .layout { display: grid; grid-template-columns: minmax(0, 1fr) 11rem; gap: var(--s5); }
-@media (max-width: 680px) { .layout { grid-template-columns: 1fr; } .qnav { order: -1; } }
+@media (max-width: 680px) { .layout { grid-template-columns: minmax(0, 1fr); } .qnav { order: -1; } }
 .qcard { padding: var(--s5); }
 .qprompt { font-size: 1.25rem; font-weight: 400; line-height: 1.4; letter-spacing: -.01em; margin: var(--s2) 0 var(--s1); }
 .hint { margin-bottom: var(--s4); }
@@ -165,6 +165,14 @@ select { -webkit-appearance: none; -moz-appearance: none; appearance: none; --ch
 .opt input { margin-top: .45em; accent-color: var(--accent); }
 .letter { font-family: var(--mono); font-size: .8125rem; width: 1.75rem; flex: none; color: var(--muted); padding-top: .2em; }
 .opt.sel .letter { color: var(--accent); }
+/* On a phone, quiz Markdown (prompts, options, explanations) never widens its card
+   or the page: the flex items may shrink below their longest line, so a fenced block
+   scrolls inside them, and a long unbroken word or URL breaks instead of running past
+   the edge. */
+@media (max-width: 680px) {
+  .opt > div, .ropt > div, .rq-head h3 { min-width: 0; }
+  .qprompt, .opt > div, .rq-head h3, .ropt > div, .expl { overflow-wrap: anywhere; }
+}
 .row { display: flex; justify-content: space-between; align-items: center; margin-top: var(--s5); gap: var(--s2); }
 .saved { min-width: 5rem; text-align: center; }
 .qnav { padding: var(--s4); align-self: start; }
@@ -241,7 +249,9 @@ pre code, pre code.hljs { display: block; overflow: visible; background: none; p
 .expl { font-size: .9375rem; color: var(--muted); margin-top: var(--s3); padding-top: var(--s3); border-top: 1px solid var(--rule); }
 .banner { font-family: var(--mono); font-size: .75rem; letter-spacing: .06em; text-transform: uppercase; color: var(--danger);
           border-left: 2px solid var(--danger); padding: var(--s1) var(--s3); margin-bottom: var(--s4); }
-/* tables (history, admin): hairline rules, mono headers */
+/* tables (history, admin): hairline rules, mono headers. Each sits in a .table-scroll,
+   which scrolls sideways when the table is wider than the screen, so the page never does. */
+.table-scroll { overflow-x: auto; }
 .table { width: 100%; border-collapse: collapse; font-size: 1rem; }
 .table th { text-align: left; font-weight: 400; padding: var(--s2) var(--s3); border-bottom: 1px solid var(--rule-2); }
 .table td { padding: var(--s3); border-bottom: 1px solid var(--rule); vertical-align: baseline; }
@@ -402,6 +412,7 @@ pre code, pre code.hljs { display: block; overflow: visible; background: none; p
   .ed-promptrow { grid-template-columns: minmax(0, 1fr) 4.5rem; }
   .ed-bar-title span { display: block; margin-left: 0; }
   .ed-pager .range { display: none; }
+  .ed-ph .meta { white-space: normal; min-width: 0; text-align: right; overflow-wrap: anywhere; }
   .editor-page input[type="text"], .editor-page input:not([type]), .editor-page textarea,
   .editor-page select { font-size: 16px; }
 }

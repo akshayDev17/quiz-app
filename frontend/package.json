@@ -10,7 +10,8 @@
     "test:worker": "node --test worker.test.mjs",
     "test:export": "node --test export.test.mjs",
     "test:shell": "node --test shell-contract/contract.test.mjs",
-    "test:hydration": "node --test shell-contract/hydration.test.mjs"
+    "test:hydration": "node --test shell-contract/hydration.test.mjs",
+    "test:overflow": "node --test shell-contract/overflow.test.mjs"
   },
   "dependencies": {
     "highlight.js": "^11.12.0",
