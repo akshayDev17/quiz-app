@@ -181,58 +181,56 @@ export default function AdminPage() {
           {!sets && !error && <p className="mc">Loading…</p>}
           {sets && sets.length === 0 && <p className="mc">No sets yet.</p>}
           {sets && sets.length > 0 && (
-            <div className="table-scroll">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th className="mc">Name</th>
-                    <th className="mc">Topic</th>
-                    <th className="mc">Status</th>
-                    <th className="mc num">Questions</th>
-                    <th className="mc num">Attempts</th>
-                    <th className="mc">Actions</th>
+            <table className="table">
+              <thead>
+                <tr>
+                  <th className="mc">Name</th>
+                  <th className="mc">Topic</th>
+                  <th className="mc">Status</th>
+                  <th className="mc num">Questions</th>
+                  <th className="mc num">Attempts</th>
+                  <th className="mc">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sets.map((s) => (
+                  <tr key={s.id}>
+                    <td>{s.name}</td>
+                    <td>{s.topic}</td>
+                    <td className="mc">{s.status}</td>
+                    <td className="num">{s.question_count}</td>
+                    <td className="num">{s.attempt_count}</td>
+                    <td>
+                      <div className="actions">
+                        {s.status !== 'published' && (
+                          <button className="iconbtn" disabled={busy} title="Publish" aria-label={`Publish ${s.name}`}
+                                  onClick={() => act(() => adminSetStatus(s.id, 'publish'))}>
+                            {Icons.publish}
+                          </button>
+                        )}
+                        {s.status === 'published' && (
+                          <button className="iconbtn" disabled={busy} title="Archive" aria-label={`Archive ${s.name}`}
+                                  onClick={() => act(() => adminSetStatus(s.id, 'archive'))}>
+                            {Icons.archive}
+                          </button>
+                        )}
+                        <button className="iconbtn" disabled={busy} title="Clone" aria-label={`Clone ${s.name}`}
+                                onClick={() => act(() => adminClone(s.id))}>
+                          {Icons.clone}
+                        </button>
+                        <Link className="iconbtn" href={`/admin/edit?id=${s.id}`} title="Edit" aria-label={`Edit ${s.name}`}>
+                          {Icons.edit}
+                        </Link>
+                        <button className="iconbtn danger" disabled={busy} title="Delete forever" aria-label={`Delete ${s.name} forever`}
+                                onClick={() => remove(s.id, s.name)}>
+                          {Icons.trash}
+                        </button>
+                      </div>
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {sets.map((s) => (
-                    <tr key={s.id}>
-                      <td>{s.name}</td>
-                      <td>{s.topic}</td>
-                      <td className="mc">{s.status}</td>
-                      <td className="num">{s.question_count}</td>
-                      <td className="num">{s.attempt_count}</td>
-                      <td>
-                        <div className="actions">
-                          {s.status !== 'published' && (
-                            <button className="iconbtn" disabled={busy} title="Publish" aria-label={`Publish ${s.name}`}
-                                    onClick={() => act(() => adminSetStatus(s.id, 'publish'))}>
-                              {Icons.publish}
-                            </button>
-                          )}
-                          {s.status === 'published' && (
-                            <button className="iconbtn" disabled={busy} title="Archive" aria-label={`Archive ${s.name}`}
-                                    onClick={() => act(() => adminSetStatus(s.id, 'archive'))}>
-                              {Icons.archive}
-                            </button>
-                          )}
-                          <button className="iconbtn" disabled={busy} title="Clone" aria-label={`Clone ${s.name}`}
-                                  onClick={() => act(() => adminClone(s.id))}>
-                            {Icons.clone}
-                          </button>
-                          <Link className="iconbtn" href={`/admin/edit?id=${s.id}`} title="Edit" aria-label={`Edit ${s.name}`}>
-                            {Icons.edit}
-                          </Link>
-                          <button className="iconbtn danger" disabled={busy} title="Delete forever" aria-label={`Delete ${s.name} forever`}
-                                  onClick={() => remove(s.id, s.name)}>
-                            {Icons.trash}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                ))}
+              </tbody>
+            </table>
           )}
         </>
       )}

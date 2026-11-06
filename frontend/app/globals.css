@@ -430,9 +430,6 @@ pre code, pre code.hljs { display: block; overflow: visible; background: none; p
      beside its name on a 360px phone, so it wraps after the dot (its only
      ordinary space, page.tsx) instead of widening the page */
   .shead .counts { white-space: normal; }
-  /* the history and admin tables are wider than a phone: they scroll sideways
-     in their box so the page itself still lays out at the device width */
-  .table-scroll { overflow-x: auto; }
 }
 
 @media (prefers-reduced-motion: reduce) { .card, .opt { transition: none; } .set-card:hover { transform: none; } .timer.red { animation: none; } }
