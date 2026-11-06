@@ -57,34 +57,36 @@ export default function HistoryPage() {
       {!error && !expired && !attempts && <p className="mc">Loading…</p>}
       {attempts && attempts.length === 0 && <p className="mc">No attempts yet.</p>}
       {attempts && attempts.length > 0 && (
-        <table className="table">
-          <thead>
-            <tr>
-              <th className="mc">Quiz</th>
-              <th className="mc">Topic</th>
-              <th className="mc">Date</th>
-              <th className="mc">Status</th>
-              <th className="mc num">Score</th>
-            </tr>
-          </thead>
-          <tbody>
-            {attempts.map((a) => (
-              <tr key={a.id}>
-                <td>
-                  <Link href={attemptHref(a)}>{a.name}</Link>
-                </td>
-                <td>{a.topic}</td>
-                <td>{new Date(a.started_at).toLocaleString()}</td>
-                <td className="mc">{STATUS_LABEL[a.status]}</td>
-                <td className="num">
-                  {a.score !== null && a.max_score !== null
-                    ? `${formatScore(a.score)} / ${formatScore(a.max_score)}`
-                    : '—'}
-                </td>
+        <div className="table-scroll">
+          <table className="table">
+            <thead>
+              <tr>
+                <th className="mc">Quiz</th>
+                <th className="mc">Topic</th>
+                <th className="mc">Date</th>
+                <th className="mc">Status</th>
+                <th className="mc num">Score</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {attempts.map((a) => (
+                <tr key={a.id}>
+                  <td>
+                    <Link href={attemptHref(a)}>{a.name}</Link>
+                  </td>
+                  <td>{a.topic}</td>
+                  <td>{new Date(a.started_at).toLocaleString()}</td>
+                  <td className="mc">{STATUS_LABEL[a.status]}</td>
+                  <td className="num">
+                    {a.score !== null && a.max_score !== null
+                      ? `${formatScore(a.score)} / ${formatScore(a.max_score)}`
+                      : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );

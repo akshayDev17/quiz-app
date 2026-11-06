@@ -123,6 +123,16 @@ jobs:
           SITE_THEMES_DIR: ${{ github.workspace }}/site-themes
         run: npm run test:hydration
 
+      # Every page type, filled with realistic data from fixtures, on a phone
+      # (mobile emulation @3x at 360, 390 and 412 px, both themes): the page
+      # lays out at exactly the phone's width, so Android never zooms it out.
+      # Reuses the export and checkout above.
+      - name: Frontend — phone-width overflow
+        working-directory: frontend
+        env:
+          SITE_THEMES_DIR: ${{ github.workspace }}/site-themes
+        run: npm run test:overflow
+
   deploy-api:
     name: Deploy API
     runs-on: ubuntu-latest
