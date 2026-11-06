@@ -81,7 +81,7 @@ export default function Home() {
               <span className="num">{String(i + 1).padStart(2, '0')}</span>
               <span className="shead-name">{topic.name}</span>
               <span className="counts">
-                {pluralize(subtopicCount, 'subtopic')} · {pluralize(quizCount, 'quiz')}
+                {pluralize(subtopicCount, 'subtopic').replace(' ', '\u00a0')}{'\u00a0· '}{pluralize(quizCount, 'quiz').replace(' ', '\u00a0')}
               </span>
               <span className="fill" />
               <span className="chev">{topicOpen ? '−' : '+'}</span>
