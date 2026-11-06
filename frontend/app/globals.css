@@ -417,4 +417,15 @@ pre code, pre code.hljs { display: block; overflow: visible; background: none; p
   .editor-page select { font-size: 16px; }
 }
 
+/* Phones only: the mono label voice (10-11px above) is too small to read on a
+   phone, so every label under 12px is raised to 12px here. Desktop keeps the
+   declarations above untouched; body text is not changed. */
+@media (max-width: 40rem) {
+  .mc, .kicker, .linkbtn, .chip, .mark, .import-sub,
+  .masthead site-theme-picker::part(select),
+  .shead .num, .shead .counts, .subhead .label, .subhead .cnt,
+  .set-card .kicker-c, .stats .k, .rq-head .n,
+  .ed-ph .meta, .ed-opt .idx { font-size: .75rem; }
+}
+
 @media (prefers-reduced-motion: reduce) { .card, .opt { transition: none; } .set-card:hover { transform: none; } .timer.red { animation: none; } }
