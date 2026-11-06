@@ -426,6 +426,9 @@ pre code, pre code.hljs { display: block; overflow: visible; background: none; p
   .shead .num, .shead .counts, .subhead .label, .subhead .cnt,
   .set-card .kicker-c, .stats .k, .rq-head .n,
   .ed-ph .meta, .ed-opt .idx { font-size: .75rem; }
+  /* the history and admin tables are wider than a phone: they scroll sideways
+     in their box so the page itself still lays out at the device width */
+  .table-scroll { overflow-x: auto; }
 }
 
 @media (prefers-reduced-motion: reduce) { .card, .opt { transition: none; } .set-card:hover { transform: none; } .timer.red { animation: none; } }

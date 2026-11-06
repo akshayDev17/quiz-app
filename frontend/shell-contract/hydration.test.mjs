@@ -286,6 +286,52 @@ test('unbound: every page falls back to Classic Light from globals.css, with no 
   }
 });
 
+// Signed-in admin data for the two pages with tables: rows like the real ones (long
+// names, an in-progress attempt, a draft set with every action button).
+const TABLE_API = {
+  '/quiz/api/me': { email: 'admin@example.com', display_name: 'Admin', role: 'admin' },
+  '/quiz/api/attempts': { attempts: [
+    { id: 'a1', set_id: 1, name: 'Distributed systems · Consensus and replication', topic: 'Distributed systems',
+      status: 'in_progress', started_at: Date.UTC(2026, 10, 6, 14, 5), finished_at: null, score: null, max_score: null },
+    { id: 'a2', set_id: 2, name: 'Networking · TCP congestion control', topic: 'Networking',
+      status: 'expired', started_at: Date.UTC(2026, 10, 5, 9, 30), finished_at: Date.UTC(2026, 10, 5, 9, 50), score: 7, max_score: 12 },
+  ] },
+  '/quiz/api/admin/sets': { sets: [
+    { id: 1, topic: 'Distributed systems', name: 'Distributed systems · Consensus and replication', status: 'published', question_count: 12, attempt_count: 1 },
+    { id: 2, topic: 'Networking', name: 'Networking · TCP congestion control', status: 'draft', question_count: 10, attempt_count: 1 },
+  ] },
+};
+
+test('unbound: on a phone the history and admin tables scroll sideways inside the page, which lays out at the device width', async (t) => {
+  const s = await session(t, [UNBOUND]);
+  for (const width of [360, 390, 412]) {
+    const context = await browser.newContext({ viewport: { width, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true });
+    t.after(() => context.close());
+    await context.route((url) => url.pathname.startsWith('/quiz/api/') || url.searchParams.has('_rsc'), (route) => {
+      const body = TABLE_API[new URL(route.request().url()).pathname];
+      return body ? route.fulfill({ json: body }) : route.abort();
+    });
+    for (const path of ['/quiz/history', '/quiz/admin']) {
+      const page = await context.newPage();
+      await page.goto(`${s.base}${path}`, { waitUntil: 'load' });
+      await page.waitForSelector('table.table tbody tr');
+      const state = await page.evaluate(() => {
+        const table = document.querySelector('table.table');
+        const box = table.parentElement;
+        return {
+          layoutWidth: window.innerWidth,
+          pageWidth: document.documentElement.scrollWidth,
+          tableScrolls: box.scrollWidth > box.clientWidth && getComputedStyle(box).overflowX === 'auto',
+        };
+      });
+      await page.close();
+      // On a phone the layout viewport widens to fit any content wider than the screen
+      // (and Android zooms the page out to match), so the page must lay out at `width`.
+      assert.deepEqual(state, { layoutWidth: width, pageWidth: width, tableScrolls: true }, `${path} at ${width} px`);
+    }
+  }
+});
+
 test('unbound: a route whose page fetch failed is fetched again on the next visit; one that came back plain is not', async (t) => {
   const s = await session(t, [UNBOUND]);
   const problems = [];
