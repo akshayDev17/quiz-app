@@ -157,7 +157,9 @@ served by `wrangler dev` with `akshayDev17/site-themes` `main`'s site-shell
 (`npm run test:shell`), and each composed page hydrating in headless Chrome with
 no console error, an upgraded `<site-theme-picker>` and the site path still in
 the masthead after hydration and after a client-side navigation, and each unbound
-page in Classic Light (`npm run test:hydration`). On
+page in Classic Light (`npm run test:hydration`), and every page type, filled from
+fixtures, laying out at exactly the phone's width at 360, 390 and 412 px in both
+themes (`npm run test:overflow`). On
 `main`, after the tests pass, two jobs run under `environment: production`:
 **Deploy API** (Access check, secrets check, D1 reachability check,
 `d1 migrations apply`, `pywrangler deploy`) and **Deploy Frontend** (Access
@@ -241,6 +243,8 @@ cd frontend && npm run test:lib && npm run test:worker && npm run build:check
 cd frontend && NEXT_PUBLIC_API_BASE= npm run build && npm run test:export && SITE_THEMES_DIR=../../site-themes npm run test:shell
 # the same pages in a local Google Chrome: no hydration or console error, picker upgraded; Classic Light unbound
 cd frontend && SITE_THEMES_DIR=../../site-themes npm run test:hydration
+# every page type on a phone (360, 390, 412 px, both themes): no page wider than the screen
+cd frontend && SITE_THEMES_DIR=../../site-themes npm run test:overflow
 ```
 
 `next dev` has no Worker in front of it, so the dev server shows the Classic
