@@ -2,7 +2,7 @@
 
 Follow this instead of SKILL.md's prose rules when the material is **code**: a
 repo, a folder, or one flow/sub-flow within it. SKILL.md's steps, the
-justification sidecar, and rules 9–10 (right-size, scoring) still apply; this
+justification sidecar, and the rules it says apply to both (9–12) still apply; this
 file replaces rules 1–8 and the sidecar's "not source-locked" line.
 
 ## Navigate the code
