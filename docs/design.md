@@ -327,7 +327,7 @@ not charged the −2 when left blank. Results show it with `points`,
 | **Single Responsibility** | `AttemptService` (lifecycle), `Grader` (marking), `QuizValidator` (publish rules), serializers (wire shape) | Each one has one reason to change. |
 | **Guarded state transitions** | `Attempt` has `record_selection`, `submit(now)` and `expire(now)`, which raise `AttemptClosed` from any non-open state. | A full State-pattern class hierarchy would be overkill for 3 states and 2 transitions. An enum plus guarded methods on one class is enough. |
 | **Repository + contract test** | three implementations, one test suite | Same as the archive: an implementation that drifts fails on its own. |
-| **Not used (on purpose)** | a `QuestionTypeFactory` | Only one question type exists. Add it the day a second type shows up, not before. |
+| **Not used (on purpose)** | a `QuestionTypeFactory` | The two question kinds (`choice`, `subjective`) differ only in a handful of `kind` checks in the attempt service, its D1 store and the serializers. Add it the day a third kind, or kind-specific grading, makes those checks spread. |
 
 ### Authoring in v1 (my call)
 
@@ -356,7 +356,7 @@ phase 2. JSON shape:
 `topic` and `subtopic` are found by slug or created, `subtopic` may be
 omitted (a whole-topic set), and `seq` is assigned by the server.
 `QuizValidator` rejects any question with fewer than 2 options or 0 correct
-options, and any empty prompt.
+options, any empty prompt, and any `type` other than `choice` (the default).
 
 ---
 
