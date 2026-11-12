@@ -209,9 +209,10 @@ backend/
 
 ### API
 
-All paths are under `/quiz/api`. All require an identity. `attempt` endpoints
-also require `attempt.user_email == caller` and return **404, not 403**,
-otherwise, so an attempt's existence isn't revealed.
+All paths are under `/quiz/api`. All require an identity except `/public/*`
+(below), and answer `401` without one. `attempt` endpoints also require
+`attempt.user_email == caller` and return **404, not 403**, otherwise, so an
+attempt's existence isn't revealed.
 
 | Method & path | Does |
 |---|---|
@@ -227,6 +228,18 @@ otherwise, so an attempt's existence isn't revealed.
 | `POST /admin/sets` | import a set from JSON (admin) |
 | `POST /admin/sets/{id}/publish` · `/archive` · `/clone` | lifecycle (admin) |
 | `GET  /admin/sets/{id}/attempts` | who took it, scores (admin) |
+
+The `/public/*` routes are for the signed-out View. They are matched before the
+identity check, never read or create a user, accept only `GET` (anything else is
+`405`) and send `Cache-Control: public, max-age=60`. They serve published sets
+only, and nothing of any person: no email, score, last attempt or open attempt.
+They stay behind the quiz's Access app until a separate Access change makes them
+public.
+
+| Method & path | Does |
+|---|---|
+| `GET  /public/topics` | the `/topics` cards, without `last` and `open_attempt` |
+| `GET  /public/sets/{id}` | a published set (drafts and archived sets are 404) with its questions in authored order, each with its options, their `correct` flags and the explanation. No points. When `reveal_answers` is false, `correct` and `explanation` are `null`. |
 
 ### How time is enforced
 

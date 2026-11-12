@@ -1,13 +1,16 @@
 """Wire shapes: one function per type in the wire contract (snake_case keys, epoch-ms times).
 
 Solver-facing serializers read only from solver-facing models, so nothing here can leak
-an answer while an attempt is open. ``results`` is the one place answers are exposed, and
-it is reachable only for a finished attempt.
+an answer while an attempt is open. Answers are exposed in two places only: ``results``,
+reachable only for a finished attempt, and ``public_set``, the signed-out View of a
+published set. Both follow the set's ``reveal_answers``.
 """
 
 from __future__ import annotations
 
-from .models import Attempt, QuestionResult, QuizSetInfo, User
+from collections.abc import Callable
+
+from .models import Attempt, QuestionResult, QuizSetInfo, ReviewQuestion, User
 from .services.attempts import AttemptSession, ResultsView
 from .validation import QuestionImport
 
@@ -16,9 +19,8 @@ def me(user: User) -> dict:
     return {"email": user.email, "display_name": user.display_name, "role": user.role}
 
 
-def _card(
-    info: QuizSetInfo, last: Attempt | None, open_attempt: Attempt | None, now_ms: int
-) -> dict:
+def _public_card(info: QuizSetInfo) -> dict:
+    """A set's card as anyone may see it: what the set is, nothing about who took it."""
     return {
         "id": info.id,
         "name": info.name,
@@ -27,6 +29,14 @@ def _card(
         "style": info.style,
         "time_limit_minutes": info.time_limit_minutes,
         "question_count": info.question_count,
+    }
+
+
+def _card(
+    info: QuizSetInfo, last: Attempt | None, open_attempt: Attempt | None, now_ms: int
+) -> dict:
+    return {
+        **_public_card(info),
         "last": None if last is None else {
             "attempt_id": last.id,
             "status": last.status,
@@ -45,6 +55,15 @@ def _card(
 def topics(
     sets: list[QuizSetInfo], last: dict[int, Attempt], open_: dict[int, Attempt], now_ms: int
 ) -> dict:
+    return _grouped(sets, lambda info: _card(info, last.get(info.id), open_.get(info.id), now_ms))
+
+
+def public_topics(sets: list[QuizSetInfo]) -> dict:
+    """``topics`` for a signed-out visitor: the same grouping, cards without ``last`` or ``open_attempt``."""
+    return _grouped(sets, _public_card)
+
+
+def _grouped(sets: list[QuizSetInfo], card: Callable[[QuizSetInfo], dict]) -> dict:
     """Topics by position then id; in each, the whole-topic group first, then subtopics by position."""
     by_topic: dict[int, tuple[QuizSetInfo, list[QuizSetInfo]]] = {}
     for info in sets:
@@ -66,7 +85,7 @@ def topics(
                 {
                     "subtopic": None if g[0].subtopic_id is None
                     else {"id": g[0].subtopic_id, "name": g[0].subtopic_name},
-                    "sets": [_card(i, last.get(i.id), open_.get(i.id), now_ms) for i in g],
+                    "sets": [card(i) for i in g],
                 }
                 for g in ordered
             ],
@@ -217,6 +236,38 @@ def admin_set_detail(info: QuizSetInfo, questions: list[QuestionImport]) -> dict
                 "explanation": q.explanation,
                 "points": q.points,
                 "options": [{"body": body, "correct": correct} for body, correct in q.options],
+            }
+            for q in questions
+        ],
+    }
+
+
+def public_set(info: QuizSetInfo, questions: list[ReviewQuestion]) -> dict:
+    """A published set for the signed-out View: questions with the answer key, never a score.
+
+    The key and explanations follow the set's ``reveal_answers``, so View never shows more
+    than a signed-in solver sees after finishing. No points: View has nothing to mark."""
+    reveal = info.reveal_answers
+    return {
+        "set": {
+            "id": info.id,
+            "name": info.name,
+            "topic": info.topic_name,
+            "subtopic": info.subtopic_name,
+            "description": info.description,
+            "time_limit_minutes": info.time_limit_minutes,
+            "question_count": info.question_count,
+            "reveal_answers": reveal,
+        },
+        "questions": [
+            {
+                "id": q.id,
+                "prompt": q.prompt,
+                "explanation": q.explanation if reveal else None,
+                "options": [
+                    {"id": o.id, "body": o.body, "correct": o.is_correct if reveal else None}
+                    for o in q.options
+                ],
             }
             for q in questions
         ],

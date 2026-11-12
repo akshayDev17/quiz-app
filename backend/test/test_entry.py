@@ -68,6 +68,16 @@ class ResponseMappingTest(unittest.TestCase):
         r = entry._response(404, None)
         self.assertEqual((r.status, r.body, r.headers), (404, "", None))
 
+    def test_extra_headers_join_the_content_type(self):
+        r = entry._response(200, {"a": 1}, {"cache-control": "public, max-age=60"})
+        self.assertEqual(
+            r.headers, {"content-type": "application/json", "cache-control": "public, max-age=60"}
+        )
+
+    def test_extra_headers_survive_an_empty_body(self):
+        r = entry._response(404, None, {"allow": "GET"})
+        self.assertEqual((r.status, r.body, r.headers), (404, "", {"allow": "GET"}))
+
 
 if __name__ == "__main__":
     unittest.main()

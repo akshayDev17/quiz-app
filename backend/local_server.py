@@ -25,7 +25,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from quiz_app.api import decode_body
+from quiz_app.api import decode_body, response_headers
 from quiz_app.auth import DevIdentity, normalize_email, parse_emails
 from quiz_app.composition import build_api
 from quiz_app.d1.sqlite_binding import SqliteD1
@@ -64,11 +64,13 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Access-Control-Allow-Credentials", "true")
             self.send_header("Vary", "Origin")
 
-    def _send(self, status: int, body: dict | None) -> None:
+    def _send(self, status: int, body: dict | None, extra: dict[str, str]) -> None:
         payload = b"" if status == 204 or body is None else json.dumps(body).encode("utf-8")
         self.send_response(status)
         if payload:
             self.send_header("Content-Type", "application/json")
+        for name, value in extra.items():
+            self.send_header(name, value)
         self._cors_headers()
         if status != 204:
             self.send_header("Content-Length", str(len(payload)))
@@ -87,7 +89,7 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:  # noqa: BLE001 - surface any bug as a 500 instead of a dropped connection
             traceback.print_exc()
             status, payload = 500, {"error": "internal error"}
-        self._send(status, payload)
+        self._send(status, payload, response_headers(path, status))
 
     # DELETE is a real route (/admin/sets/{id}); the dev server must speak it too.
     do_GET = do_POST = do_PUT = do_PATCH = do_DELETE = _handle

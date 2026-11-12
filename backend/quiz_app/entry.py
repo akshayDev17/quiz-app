@@ -11,17 +11,19 @@ import json
 
 from workers import Response, WorkerEntrypoint
 
-from .api import decode_body
+from .api import decode_body, response_headers
 from .auth import CloudflareAccessIdentity, parse_emails, request_path
 from .composition import build_api
 
 
-def _response(status: int, body: dict | None) -> Response:
+def _response(status: int, body: dict | None, extra: dict[str, str] | None = None) -> Response:
+    """``extra`` holds headers beyond content-type, from ``api.response_headers``."""
+    extra = extra or {}
     if status == 204 or body is None:
         # An empty string, not None: empty-string bodies are proven on Python Workers.
         # A 204 carries neither body nor content-type.
-        return Response("", status=status)
-    return Response(json.dumps(body), headers={"content-type": "application/json"}, status=status)
+        return Response("", headers=extra or None, status=status)
+    return Response(json.dumps(body), headers={"content-type": "application/json", **extra}, status=status)
 
 
 def _admin_emails(env) -> frozenset[str]:
@@ -38,5 +40,6 @@ class Default(WorkerEntrypoint):
             body = decode_body(str(await request.text()))
         identity = await CloudflareAccessIdentity(getattr(self, "ctx", None)).identify(request)
         api = build_api(self.env.DB, _admin_emails(self.env))
-        status, payload = await api.handle(method, request_path(request), body, identity)
-        return _response(status, payload)
+        path = request_path(request)
+        status, payload = await api.handle(method, path, body, identity)
+        return _response(status, payload, response_headers(path, status))

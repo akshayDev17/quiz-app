@@ -2,7 +2,9 @@
 
 No framework and no I/O of its own: the Worker and the local server each turn a
 real request into these four arguments and the returned ``(status, body)`` back
-into a real response. Every route needs an identity and upserts the user first.
+into a real response (with :func:`response_headers`). Every route needs an identity
+and upserts the user first, except the read-only ``/public/*`` routes: they answer
+anyone, never look at the identity, and serve nothing of any person.
 """
 
 from __future__ import annotations
@@ -17,9 +19,14 @@ from .errors import Conflict, Forbidden, Invalid, NotFound, QuizError
 from .models import User
 from .services.attempts import AttemptService
 from .services.authoring import AuthoringService
+from .services.catalog import PublicCatalogService
 from .services.users import UserService
 
 PREFIX = "/quiz/api"
+PUBLIC = PREFIX + "/public"
+
+#: Public reads change only when an admin publishes, so a minute of caching is safe.
+PUBLIC_CACHE = "public, max-age=60"
 
 _STATUS = {NotFound: 404, Conflict: 409, Invalid: 422, Forbidden: 403}
 
@@ -50,6 +57,27 @@ def decode_body(raw: str | bytes | None) -> object:
 
 Response = tuple[int, dict | None]
 Handler = Callable[..., Awaitable[Response]]
+
+
+def _local(path: str) -> str:
+    return path.rstrip("/")
+
+
+def is_public(path: str) -> bool:
+    """Whether ``path`` (without query string) is in the identity-free ``/public`` namespace."""
+    local = _local(path)
+    return local == PUBLIC or local.startswith(PUBLIC + "/")
+
+
+def response_headers(path: str, status: int) -> dict[str, str]:
+    """Headers beyond content-type that :meth:`Api.handle`'s answer for ``path`` needs."""
+    if not is_public(path):
+        return {}
+    if status == 200:
+        return {"cache-control": PUBLIC_CACHE}
+    if status == 405:
+        return {"allow": "GET"}
+    return {}
 
 
 def _object(body: object) -> dict:
@@ -89,11 +117,26 @@ def _option_ids(body: object) -> list[int]:
 
 
 class Api:
-    def __init__(self, users: UserService, authoring: AuthoringService, attempts: AttemptService):
+    def __init__(
+        self,
+        users: UserService,
+        authoring: AuthoringService,
+        attempts: AttemptService,
+        public: PublicCatalogService,
+    ):
         self._users = users
         self._authoring = authoring
         self._attempts = attempts
+        self._public = public
         sid, aid, qid = r"(\d{1,15})", r"([^/]{1,64})", r"(\d{1,15})"
+        #: GET only, relative to /public. Handlers take no user.
+        self._public_routes: list[tuple[re.Pattern[str], Handler]] = [
+            (re.compile(f"^{pattern}$"), handler)
+            for pattern, handler in [
+                ("/topics", self._public_topics),
+                (f"/sets/{sid}", self._public_set),
+            ]
+        ]
         self._routes: list[tuple[str, re.Pattern[str], Handler]] = [
             (method, re.compile(f"^{pattern}$"), handler)
             for method, pattern, handler in [
@@ -122,9 +165,11 @@ class Api:
 
     async def handle(self, method: str, path: str, body: object, identity: Identity | None) -> Response:
         """``path`` is the full request path, without query string."""
-        local = path.rstrip("/")
+        local = _local(path)
         if local != PREFIX and not local.startswith(PREFIX + "/"):
             return 404, {"error": "not found"}
+        if is_public(local):
+            return await self._handle_public(method, local[len(PUBLIC):])
         if identity is None:
             return 401, {"error": "sign-in required"}
         local = local[len(PREFIX):]
@@ -137,6 +182,27 @@ class Api:
         except QuizError as e:
             return _status_of(e), {"error": e.message}
         return 404, {"error": "not found"}
+
+    async def _handle_public(self, method: str, local: str) -> Response:
+        """Matched before the identity check, so it must never touch a user: no ``users.me``."""
+        if method.upper() != "GET":
+            return 405, {"error": "method not allowed"}
+        try:
+            for pattern, handler in self._public_routes:
+                match = pattern.match(local)
+                if match:
+                    return await handler(*match.groups())
+        except QuizError as e:
+            return _status_of(e), {"error": e.message}
+        return 404, {"error": "not found"}
+
+    # -- public --------------------------------------------------------------
+
+    async def _public_topics(self) -> Response:
+        return 200, serializers.public_topics(await self._public.published())
+
+    async def _public_set(self, set_id: str) -> Response:
+        return 200, serializers.public_set(*await self._public.view(int(set_id)))
 
     # -- me ------------------------------------------------------------------
 
