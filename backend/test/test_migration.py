@@ -330,5 +330,125 @@ class ShuffleOnMigrationTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.db.prepare("PRAGMA foreign_key_check").all()).results, [])
 
 
+# Live texts 0007 rewrites (its guards), plus look-alikes it must leave alone.
+SET6_Q64 = (
+    "Correct: it generalizes away dates, times and quantities while keeping the narrative, the topic "
+    "and the named entities -- a summary keeps what the story was about and abstracts away the exact "
+    "values, which is why the useful compactor rule is specific ('preserve dates, times and quantities "
+    "verbatim') rather than vague ('keep the important bits'). Wrong: the first option inverts that, "
+    "claiming exact quantities survive while the narrative goes. The third claims the relational "
+    "structure linking events is lost, but relational and event structure is exactly what a summary "
+    "preserves. And the fourth claims numbers survive because they are short, which confuses token "
+    "cost with what a summary chooses to keep."
+)
+SET24_Q1014 = (
+    "k1 calibrates term-frequency scaling: a value of 0 gives a binary (present/absent) model, and a "
+    "large value approaches raw term frequency. Option B describes the b parameter (length "
+    "normalization), option C describes the IDF component, and option D is a retrieval top-k setting "
+    "rather than a BM25 scoring parameter."
+)
+SET24_Q1014_AFTER = (
+    "k1 calibrates term-frequency scaling: a value of 0 gives a binary (present/absent) model, and a "
+    "large value approaches raw term frequency. The document-length option describes the b parameter "
+    "(length normalization), the query-term-rarity option describes the IDF component, and the "
+    "maximum-number-of-documents option is a retrieval top-k setting rather than a BM25 scoring parameter."
+)
+# Question 1015's live text with one edit, as if an author had touched it since: 0007 must skip it.
+SET24_Q1015_EDITED = (
+    "b scales length normalization (edited). Option B describes k1 (term-frequency saturation), "
+    "option C describes the IDF component, and option D is a preprocessing choice (stopword/stemmer "
+    "configuration) rather than b."
+)
+SET12_NUMBERED = (
+    "Attribution held, faithfulness failed. Option 2 inverts the two; option 3 is wrong because "
+    "attribution genuinely held; option 4 is a red herring."
+)
+
+
+def _sql(text: str) -> str:
+    return "'" + text.replace("'", "''") + "'"
+
+
+EXPLANATIONS_SEED = f"""
+INSERT INTO quiz_sets (id, topic_id, subtopic_id, difficulty, style, seq, title, description,
+  time_limit_minutes, scoring_policy, shuffle_questions, shuffle_options, reveal_answers,
+  max_attempts, status, created_by, created_at, updated_at) VALUES
+  (6, 1, 1, 'easy', 'standard', 1, NULL, NULL, NULL, 'partial', 0, 0, 1, NULL, 'published', 'a@x.com', 1, 1),
+  (24, 1, 1, 'medium', 'standard', 1, NULL, NULL, NULL, 'partial', 0, 0, 1, NULL, 'published', 'a@x.com', 1, 1),
+  (12, 1, 1, 'hard', 'standard', 2, NULL, NULL, NULL, 'partial', 0, 0, 1, NULL, 'published', 'a@x.com', 1, 1),
+  (34, 1, 1, 'hard', 'standard', 3, NULL, NULL, NULL, 'partial', 0, 0, 1, NULL, 'published', 'a@x.com', 1, 1);
+INSERT INTO questions (id, set_id, position, prompt, explanation, points) VALUES
+  (64, 6, 0, 'What does a summarizer lose?', {_sql(SET6_Q64)}, 1),
+  (65, 6, 1, 'Unrelated?', 'Nothing here names an option by place.', 1),
+  (1014, 24, 0, 'What does k1 control?', {_sql(SET24_Q1014)}, 1),
+  (1015, 24, 1, 'What does b control?', {_sql(SET24_Q1015_EDITED)}, 1),
+  (360, 12, 0, 'Attribution or faithfulness?', {_sql(SET12_NUMBERED)}, 1),
+  (1597, 34, 0, 'Plain?', 'Nothing here numbers an option.', 1);
+-- the paper of an attempt that was served set 6 in authored order
+INSERT INTO attempt_questions (id, attempt_id, source_question_id, position, prompt, explanation, points)
+  VALUES (900, 'finished', 64, 9, 'What does a summarizer lose?', {_sql(SET6_Q64)}, 1);
+"""
+
+
+class ExplanationsByContentMigrationTest(unittest.IsolatedAsyncioTestCase):
+    """0007 rewrites the explanations that name options by position in the sets 0006 left
+    unshuffled, turns their option shuffle on once none is left, and turns option shuffle
+    back off for the sets that number their options."""
+
+    async def asyncSetUp(self):
+        db = SqliteD1(":memory:")
+        for path in sorted(MIGRATIONS.glob("*.sql")):
+            if path.name == "0003_attempt_papers.sql":
+                db.executescript(SEED)
+            if path.name == "0006_shuffle_on.sql":
+                db.executescript(EXPLANATIONS_SEED)
+            db.executescript(path.read_text())
+        self.db = db
+
+    async def explanation(self, table, row_id):
+        rows = (await self.db.prepare(f"SELECT explanation FROM {table} WHERE id = ?").bind(row_id).all()).results
+        return rows[0]["explanation"]
+
+    async def flags(self):
+        rows = (await self.db.prepare(
+            "SELECT id, shuffle_questions, shuffle_options FROM quiz_sets ORDER BY id"
+        ).all()).results
+        return {r["id"]: (r["shuffle_questions"], r["shuffle_options"]) for r in rows}
+
+    async def test_a_flagged_explanation_names_the_options_by_content(self):
+        self.assertEqual(await self.explanation("questions", 1014), SET24_Q1014_AFTER)
+        q64 = await self.explanation("questions", 64)
+        for phrase in ("the first option", "The third claims", "the fourth claims"):
+            self.assertNotIn(phrase, q64)
+        self.assertIn("Wrong: the option keeping dates, times and quantities exactly inverts that", q64)
+        self.assertTrue(q64.startswith(SET6_Q64.split(" Wrong:")[0]))  # the rest is unchanged
+
+    async def test_unrelated_and_already_edited_explanations_are_left_alone(self):
+        self.assertEqual(await self.explanation("questions", 65), "Nothing here names an option by place.")
+        self.assertEqual(await self.explanation("questions", 1015), SET24_Q1015_EDITED)
+
+    async def test_option_shuffle_goes_on_only_where_no_position_reference_is_left(self):
+        flags = await self.flags()
+        self.assertEqual(flags[6], (1, 1))   # its one flagged explanation was rewritten
+        self.assertEqual(flags[24], (1, 0))  # 1015 still says "Option B describes k1"
+        self.assertEqual(flags[3], (1, 1))   # not on any list
+
+    async def test_sets_that_number_their_options_keep_option_order(self):
+        flags = await self.flags()
+        self.assertEqual(flags[12], (1, 0))  # "Option 2 inverts the two; option 3 …"
+        self.assertEqual(flags[34], (1, 1))  # id on the list, but not that set's text
+
+    async def test_past_papers_keep_the_text_they_were_served(self):
+        self.assertEqual(await self.explanation("attempt_questions", 900), SET6_Q64)
+
+    async def test_running_it_again_changes_nothing(self):
+        before = (await self.db.prepare("SELECT id, explanation FROM questions ORDER BY id").all()).results
+        flags = await self.flags()
+        self.db.executescript((MIGRATIONS / "0007_explanations_by_content.sql").read_text())
+        after = (await self.db.prepare("SELECT id, explanation FROM questions ORDER BY id").all()).results
+        self.assertEqual([dict(r) for r in after], [dict(r) for r in before])
+        self.assertEqual(await self.flags(), flags)
+
+
 if __name__ == "__main__":
     unittest.main()
