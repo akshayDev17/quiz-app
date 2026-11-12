@@ -223,7 +223,7 @@ attempt's existence isn't revealed.
 |---|---|
 | `GET  /me` · `PATCH /me` | email, display name, role · set your display name (the first-visit prompt) |
 | `GET  /topics` | topics → subtopic groups → published sets you may take (private ones for admins, or for a solver with an attempt open on it): derived name, chips (difficulty, scenario, time limit, question count), your last score |
-| `GET  /sets/{id}` | set intro: rules, time limit, attempts used / allowed. No questions. A private set is 404 unless you are an admin or have an attempt open on it. |
+| `GET  /sets/{id}` | set intro: rules, time limit, `question_count` and how many of them are subjective (`subjective_count`), attempts used / allowed. No questions. A private set is 404 unless you are an admin or have an attempt open on it. |
 | `POST /sets/{id}/attempts` | **start or resume**: returns attempt, `deadline_at`, `server_now`, questions in solver view (each with its `kind`; a subjective one has no options), saved `selections` and typed `texts`. A new attempt on a private set is 404 unless you are an admin; an open one always resumes. |
 | `GET  /attempts/{id}` | resume (same payload). **Lazily expires** if past deadline (see below). |
 | `PUT  /attempts/{id}/answers/{questionId}` | body `{"option_ids":[…]}` for a choice question or `{"text":"…"}` for a subjective one, autosave. Blank text clears the answer. 409 if finished, 422 if an option isn't in that question, the answer doesn't suit the question's kind, or the text is over 10,000 characters. `POST /attempts/{id}/pause` takes the same answers, each with its `question_id`. |
@@ -425,12 +425,12 @@ The quiz must look like part of the same site as `my-github-io/index.html` and
 | Page | What's on it |
 |---|---|
 | `/quiz` | Topics as numbered section heads (`01 RAG`). Under each topic, a small sub-head per subtopic, with whole-topic sets first, then cards. Each card shows the set's name (`Embeddings and vector space · Set 1`), chips for difficulty, **Scenario**, **"15 min" or "Untimed"** and question count, and your last score. A card with an attempt in progress shows **Resume** with the time left. |
-| `/quiz/set?id=` | Intro: rules, time limit, attempts left. **"The timer starts when you press Start."** |
+| `/quiz/set?id=` | Intro: rules, time limit, attempts left. **"The timer starts when you press Start."** A set with no choice questions drops the choice-only rules (more than one correct answer, the marking rule) and says its answers are written and not marked; a mixed set keeps the marking rule and adds that written questions are not marked. |
 | `/quiz/play?attempt=` | The quiz itself (below). |
-| `/quiz/results?attempt=` | Score, then a per-question review (if `reveal_answers`): each option marked *your pick ✓*, *your pick ✗*, *missed*. Explanation underneath. Header says **"Time's up — auto-submitted"** when expired. |
+| `/quiz/results?attempt=` | Score, then a per-question review (if `reveal_answers`): each option marked *your pick ✓*, *your pick ✗*, *missed*. A subjective question is tagged *Not marked* and shows the typed answer, then its model answer. Explanation underneath. Header says **"Time's up — auto-submitted"** when expired. |
 | `/quiz/history` | Your attempts. |
 | `/quiz/admin` | (phase 2) import, publish, attempts table. Each set's visibility shows under its status, with an eye toggle among the actions; the editor has the same choice. |
-| `/quiz/view?id=` | **View**, for anyone: the results layout with every score removed. Correct options marked *correct*, explanations shown (both only if `reveal_answers`). Stats are questions, minutes and correct options. Signed out, its foot repeats *Sign up · coming soon*. |
+| `/quiz/view?id=` | **View**, for anyone: the results layout with every score removed. A subjective question is tagged *Written*. Correct options marked *correct*, a subjective question's model answer and explanations shown (all only if `reveal_answers`). Stats are questions, minutes and correct options. Signed out, its foot repeats *Sign up · coming soon*. |
 | `/quiz/signin` | A protected page whose only job is to be reached: Access signs the reader in on the way, then it returns them to `/quiz`. |
 
 **Signed out.** `/quiz` and `/quiz/view` are open to anyone once Access bypasses
