@@ -20,16 +20,28 @@ export type Topics<C> = {
 export type TopicsResponse = { topics: Topics<SetCard> };
 
 export type SetIntro = { id: number; topic: string; subtopic: string | null; name: string; description: string | null;
-  time_limit_minutes: number | null; question_count: number; max_attempts: number | null; attempts_used: number;
-  open_attempt_id: string | null };
+  time_limit_minutes: number | null; question_count: number;
+  subjective_count: number;  // of question_count, how many are subjective (never marked)
+  max_attempts: number | null; attempts_used: number; open_attempt_id: string | null };
+
+/**
+ * A choice question is answered by ticking options and marked; a subjective one is answered by
+ * typing into a text box and never marked (no points, no -2 when blank). Every subjective
+ * question carries an authored model answer, shown on review when the set reveals answers.
+ */
+export type QuestionKind = 'choice' | 'subjective';
+/** A subjective answer is at most this many characters (the backend's MAX_TEXT_ANSWER). */
+export const MAX_TEXT_ANSWER = 10_000;
 
 export type AttemptSession = {
   attempt: { id: string; set_id: number | null; status: 'in_progress' | 'submitted' | 'expired';
              started_at: number; deadline_at: number | null; paused_at: number | null };
   server_now: number;
   set: { name: string; topic: string; subtopic: string | null };
-  questions: { id: number; prompt: string; options: { id: number; body: string }[] }[];  // display order
+  questions: { id: number; kind: QuestionKind; prompt: string;
+               options: { id: number; body: string }[] }[];  // display order; options [] for subjective
   selections: Record<string, number[]>;   // question id (string key) → option ids
+  texts: Record<string, string>;          // question id (string key) → typed answer; blank ones absent
 };
 
 export type Results = {
@@ -38,9 +50,19 @@ export type Results = {
   // negative_marking for every attempt started now; the other two only on older attempts.
   set: { id: number | null; name: string; topic: string;
          scoring_policy: 'negative_marking' | 'all_or_nothing' | 'partial'; reveal_answers: boolean };
-  questions: { id: number; prompt: string; points: number; awarded_points: number; is_correct: boolean;
-               explanation: string | null;                          // null when !reveal_answers
-               options: { id: number; body: string; selected: boolean; correct: boolean | null }[] }[];  // correct null when !reveal_answers
+  questions: (ChoiceResult | SubjectiveResult)[];
+};
+type ResultBase = { id: number; prompt: string;
+                    explanation: string | null };                   // null when !reveal_answers
+export type ChoiceResult = ResultBase & {
+  kind: 'choice'; points: number; awarded_points: number; is_correct: boolean;
+  options: { id: number; body: string; selected: boolean; correct: boolean | null }[];  // correct null when !reveal_answers
+};
+/** Never marked: no points of any kind. The solver's own text always; the model answer only when revealed. */
+export type SubjectiveResult = ResultBase & {
+  kind: 'subjective'; points: null; awarded_points: null; is_correct: null; options: [];
+  text_answer: string | null;                                       // null when left blank
+  model_answer: string | null;                                      // null when !reveal_answers
 };
 
 export type History = { attempts: { id: string; set_id: number | null; name: string; topic: string;
@@ -62,9 +84,13 @@ export type AdminSetDetail = {
   max_attempts: number | null;
   shuffle_questions: boolean; shuffle_options: boolean; reveal_answers: boolean;
   visibility: Visibility;
-  questions: { prompt: string; explanation: string | null; points: number;
-               options: { body: string; correct: boolean }[] }[];
+  questions: AdminQuestion[];
 };
+/** A question in its import shape, so the editor can send it straight back. */
+export type AdminQuestion =
+  | { type: 'choice'; prompt: string; explanation: string | null; points: number;
+      options: { body: string; correct: boolean }[] }
+  | { type: 'subjective'; prompt: string; explanation: string | null; model_answer: string };
 
 // Small route responses the contract table gives inline.
 export type SubmitResult = { attempt_id: string; status: AttemptSession['attempt']['status'] };
@@ -80,7 +106,8 @@ export type PublicTopicsResponse = { topics: Topics<PublicSetCard> };
 export type PublicSet = {
   set: { id: number; name: string; topic: string; subtopic: string | null; description: string | null;
          time_limit_minutes: number | null; question_count: number; reveal_answers: boolean };
-  questions: { id: number; prompt: string;
+  questions: { id: number; kind: QuestionKind; prompt: string;
                explanation: string | null;                                     // null when !reveal_answers
-               options: { id: number; body: string; correct: boolean | null }[] }[];  // correct null when !reveal_answers
+               model_answer: string | null;                                    // subjective only; null when !reveal_answers
+               options: { id: number; body: string; correct: boolean | null }[] }[];  // correct null when !reveal_answers; [] for subjective
 };

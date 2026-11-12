@@ -30,6 +30,8 @@ const topics = { topics: [
     { subtopic: { id: 2, name: 'Embeddings and vector space' }, sets: [
       card(2, 'Embeddings and vector space · Set 1', 'Set 1', { open_attempt: { attempt_id: 'a2', remaining_ms: 7 * 60_000 } }),
       card(3, 'Embeddings and vector space · Set 2', 'Set 2', { difficulty: 'hard', style: 'scenario' }),
+      card(5, 'Embeddings and vector space · Set 3', 'Set 3', { question_count: 1,
+        last: { attempt_id: 'a4', status: 'submitted', score: 0, max_score: 0 } }),
     ] },
   ] },
   { id: 2, name: 'Distributed systems', groups: [
@@ -41,31 +43,51 @@ const setIntro = { id: 2, topic: 'Retrieval-augmented generation', subtopic: 'Em
   description: 'Cosine similarity, normalisation, approximate nearest-neighbour indexes and their recall trade-offs.',
   time_limit_minutes: 20, question_count: 12, max_attempts: 3, attempts_used: 1, open_attempt_id: null };
 const questions = [
-  { id: 11, prompt: 'Which of these make **cosine similarity** equal to the dot product?\n\n```python\nimport numpy as np\nq = np.asarray(query_embedding, dtype=np.float32) / np.linalg.norm(query_embedding)\n```',
+  { id: 11, kind: 'choice', prompt: 'Which of these make **cosine similarity** equal to the dot product?\n\n```python\nimport numpy as np\nq = np.asarray(query_embedding, dtype=np.float32) / np.linalg.norm(query_embedding)\n```',
     options: [{ id: 111, body: 'Both vectors are L2-normalised' }, { id: 112, body: 'The vectors have the same dimension' },
       { id: 113, body: 'The index is built as\n\n```python\nindex = faiss.IndexFlatIP(dim); index.add(np.stack([v / np.linalg.norm(v) for v in vectors]))\n```' },
       { id: 114, body: 'Neither vector has a negative component (see https://github.com/facebookresearch/faiss/wiki/MetricType-and-distances#metric_inner_product)' }] },
-  { id: 12, prompt: 'An HNSW index returns fewer true neighbours after you lower `efSearch`. Why?',
+  { id: 12, kind: 'choice', prompt: 'An HNSW index returns fewer true neighbours after you lower `efSearch`. Why?',
     options: [{ id: 121, body: 'The search keeps a shorter candidate list per layer' }, { id: 122, body: 'The graph is rebuilt with fewer links' }] },
 ];
-const attemptSession = {
-  attempt: { id: 'a2', set_id: 2, status: 'in_progress', started_at: NOW - 13 * 60_000, deadline_at: NOW + 7 * 60_000, paused_at: null },
+// A subjective question: typed into a text box, never marked, with an authored model answer.
+// The typed answer and the model answer carry a long unbroken URL and a fenced block.
+const LONG_TYPED = 'Each model learns its own space, see https://github.com/facebookresearch/faiss/wiki/MetricType-and-distances#metric_inner_product_and_cosine_similarity_explained\n\nSo re-embed.';
+const written = { id: 13, kind: 'subjective', prompt: 'In two or three sentences: why does swapping the embedding model force a full re-index, even at the same dimension?', options: [] };
+const MODEL_ANSWER = 'Each model learns its own vector space, so old and new vectors are not comparable:\n\n```python\nindex.reset(); index.add(np.stack([new_model.encode(chunk) for chunk in all_chunks_in_the_corpus_without_exception]))\n```';
+const sessionOf = (id, qs, extra = {}) => ({
+  attempt: { id, set_id: 2, status: 'in_progress', started_at: NOW - 13 * 60_000, deadline_at: NOW + 7 * 60_000, paused_at: null },
   server_now: NOW, set: { name: setIntro.name, topic: setIntro.topic, subtopic: setIntro.subtopic },
-  questions, selections: { 11: [111] },
-};
+  questions: qs, selections: {}, texts: {}, ...extra,
+});
+const attemptSession = sessionOf('a2', [...questions, written], { selections: { 11: [111] } });
+/** The same paper opened on its subjective question, with a long typed answer in the box. */
+const writtenSession = sessionOf('a3', [written, ...questions], { texts: { 13: LONG_TYPED } });
 // Negative marking, below zero: the first question is +2 −1, the second left blank at −2.
 const results = {
   attempt: { id: 'a1', status: 'submitted', started_at: NOW - 2 * HOUR, finished_at: NOW - HOUR, score: -1, max_score: 4 },
   set: { id: 2, name: setIntro.name, topic: setIntro.topic, scoring_policy: 'negative_marking', reveal_answers: true },
-  questions: questions.map((q, i) => ({ id: q.id, prompt: q.prompt, points: 2, awarded_points: i ? -2 : 1, is_correct: false,
+  questions: questions.map((q, i) => ({ id: q.id, kind: 'choice', prompt: q.prompt, points: 2, awarded_points: i ? -2 : 1, is_correct: false,
     explanation: 'Normalising both vectors makes the denominator 1, so cosine similarity reduces to the inner product.',
-    options: q.options.map((o, j) => ({ id: o.id, body: o.body, selected: !i && (j === 0 || j === 2), correct: j === 0 })) })),
+    options: q.options.map((o, j) => ({ id: o.id, body: o.body, selected: !i && (j === 0 || j === 2), correct: j === 0 })) })).concat([
+    { id: written.id, kind: 'subjective', prompt: written.prompt, points: null, awarded_points: null, is_correct: null,
+      explanation: 'Same dimension is a storage coincidence, not compatibility.', options: [],
+      text_answer: LONG_TYPED, model_answer: MODEL_ANSWER },
+  ]),
+};
+// A set of only subjective questions: nothing in it is marked, so its attempt scores 0 out of 0.
+const unmarkedResults = {
+  attempt: { id: 'a4', status: 'submitted', started_at: NOW - 3 * HOUR, finished_at: NOW - 3 * HOUR + 10 * 60_000, score: 0, max_score: 0 },
+  set: { id: 5, name: 'Embeddings and vector space · Set 3', topic: setIntro.topic, scoring_policy: 'negative_marking', reveal_answers: true },
+  questions: results.questions.filter((q) => q.kind === 'subjective'),
 };
 const history = { attempts: [
   { id: 'a2', set_id: 2, name: 'Embeddings and vector space · Set 1', topic: 'Retrieval-augmented generation', status: 'in_progress',
     started_at: NOW - 13 * 60_000, finished_at: null, score: null, max_score: null },
   { id: 'a1', set_id: 2, name: 'Embeddings and vector space · Set 1', topic: 'Retrieval-augmented generation', status: 'submitted',
     started_at: NOW - 2 * HOUR, finished_at: NOW - HOUR, score: 9.5, max_score: 12 },
+  { id: 'a4', set_id: 5, name: unmarkedResults.set.name, topic: unmarkedResults.set.topic, status: 'submitted',
+    started_at: unmarkedResults.attempt.started_at, finished_at: unmarkedResults.attempt.finished_at, score: 0, max_score: 0 },
   { id: 'a0', set_id: 4, name: 'Consensus and replication · Set 1', topic: 'Distributed systems', status: 'expired',
     started_at: NOW - 30 * HOUR, finished_at: NOW - 29 * HOUR, score: -13.5, max_score: 24 },
 ] };
@@ -79,8 +101,10 @@ const adminSet = {
   difficulty: 'medium', style: 'standard', title: null, description: setIntro.description, time_limit_minutes: 20,
   scoring_policy: 'partial', max_attempts: 3, shuffle_questions: true, shuffle_options: true, reveal_answers: true,
   visibility: 'public',
-  questions: questions.map((q) => ({ prompt: q.prompt, explanation: null, points: 1,
-    options: q.options.map((o, j) => ({ body: o.body, correct: j === 0 })) })),
+  questions: questions.map((q) => ({ type: 'choice', prompt: q.prompt, explanation: null, points: 1,
+    options: q.options.map((o, j) => ({ body: o.body, correct: j === 0 })) })).concat([
+    { type: 'subjective', prompt: written.prompt, explanation: null, model_answer: MODEL_ANSWER },
+  ]),
 };
 
 // What a signed-out visitor reads: the cards without anyone's attempts, and one set for View.
@@ -89,14 +113,18 @@ const publicTopics = { topics: topics.topics.map((t) => ({ ...t, groups: t.group
 const publicSet = {
   set: { id: 2, name: setIntro.name, topic: setIntro.topic, subtopic: setIntro.subtopic, description: setIntro.description,
     time_limit_minutes: 20, question_count: 2, reveal_answers: true },
-  questions: questions.map((q) => ({ id: q.id, prompt: q.prompt,
+  questions: questions.map((q) => ({ id: q.id, kind: 'choice', prompt: q.prompt,
     explanation: 'Normalising both vectors makes the denominator 1, so cosine similarity reduces to the inner product.',
-    options: q.options.map((o, j) => ({ id: o.id, body: o.body, correct: j === 0 })) })),
+    model_answer: null,
+    options: q.options.map((o, j) => ({ id: o.id, body: o.body, correct: j === 0 })) })).concat([
+    { id: written.id, kind: 'subjective', prompt: written.prompt, explanation: null, model_answer: MODEL_ANSWER, options: [] },
+  ]),
 };
 
 /** GET /quiz/api<path> → body. */
 const API = {
-  '/me': me, '/topics': topics, '/sets/2': setIntro, '/attempts/a2': attemptSession, '/attempts/a1/results': results,
+  '/me': me, '/topics': topics, '/sets/2': setIntro, '/attempts/a2': attemptSession, '/attempts/a3': writtenSession, '/attempts/a1/results': results,
+  '/attempts/a4/results': unmarkedResults,
   '/attempts': history, '/admin/sets': adminSets, '/admin/sets/2': adminSet,
   '/public/topics': publicTopics, '/public/sets/2': publicSet,
 };
@@ -106,13 +134,15 @@ const PAGES = {
   '/quiz': { ready: '.shead' },
   '/quiz/set?id=2': { ready: 'h1, h2' },
   '/quiz/play?attempt=a2': { ready: '.opt' },
-  '/quiz/results?attempt=a1': { ready: '.ropt' },
+  '/quiz/play?attempt=a3': { ready: 'textarea.written' },
+  '/quiz/results?attempt=a1': { ready: '.answer-block.model' },
+  '/quiz/results?attempt=a4': { ready: '.answer-block.model' },
   '/quiz/history': { ready: '.table td' },
   '/quiz/admin': { ready: '.table td' },
   '/quiz/admin/edit?id=2': { ready: 'textarea' },
   // Signed out: Access redirects every protected API call to its sign-in.
   '/quiz?signed-out': { ready: '.shead', signedOut: true },
-  '/quiz/view?id=2': { ready: '.ropt', signedOut: true },
+  '/quiz/view?id=2': { ready: '.answer-block.model', signedOut: true },
 };
 /** The public reads; every other API path is protected. */
 const isPublic = (path) => path.startsWith('/public/');
@@ -124,6 +154,18 @@ before(async () => {
   browser = await chromium.launch({ channel: 'chrome' });
 });
 after(() => browser?.close());
+
+/** Answers the quiz API from the fixtures above; a protected call redirects to sign-in while `signedOut()` holds. */
+function answerApi(context, signedOut = () => false) {
+  return context.route((url) => url.pathname.startsWith('/quiz/api/'), (route) => {
+    const path = new URL(route.request().url()).pathname.slice('/quiz/api'.length);
+    if (signedOut() && !isPublic(path)) {
+      return route.fulfill({ status: 302, headers: { location: 'https://team.cloudflareaccess.com/cdn-cgi/access/login' } });
+    }
+    const body = API[path];
+    return body ? route.fulfill({ json: body }) : route.fulfill({ status: 404, json: { error: 'not found' } });
+  });
+}
 
 /** Opens every collapsed section (the home page's topics and subtopics), so all of its content is laid out. */
 async function expandAll(page) {
@@ -164,14 +206,7 @@ test('every page type lays out at exactly the phone width (360, 390, 412 px; bot
       const context = await browser.newContext({ viewport: { width, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true });
       await context.addInitScript((id) => { try { localStorage.setItem('site-theme', id); } catch {} }, theme);
       let signedOut = false;
-      await context.route((url) => url.pathname.startsWith('/quiz/api/'), (route) => {
-        const path = new URL(route.request().url()).pathname.slice('/quiz/api'.length);
-        if (signedOut && !isPublic(path)) {
-          return route.fulfill({ status: 302, headers: { location: 'https://team.cloudflareaccess.com/cdn-cgi/access/login' } });
-        }
-        const body = API[path];
-        return body ? route.fulfill({ json: body }) : route.fulfill({ status: 404, json: { error: 'not found' } });
-      });
+      await answerApi(context, () => signedOut);
       for (const [path, { ready, signedOut: out = false }] of Object.entries(PAGES)) {
         signedOut = out;
         const page = await context.newPage();
@@ -189,4 +224,30 @@ test('every page type lays out at exactly the phone width (360, 390, 412 px; bot
     }
   }
   assert.deepEqual(failures, []);
+});
+
+test('a set with nothing marked reads Not marked wherever its score shows: results, set card, history', async (t) => {
+  const s = await session(t, [APP, SHELL]);
+  const context = await browser.newContext();
+  await answerApi(context);
+  const page = await context.newPage();
+
+  await page.goto(`${s.base}/quiz/results?attempt=a4`, { waitUntil: 'load' });
+  await page.waitForSelector('.stats .v');
+  const stats = await page.locator('.stats > div').evaluateAll((cells) => cells.map((c) => c.textContent));
+  assert.deepEqual(stats, ['Not markedScore'], 'results: one Not marked cell, no 0 / 0, no percent, no marking label');
+
+  await page.goto(`${s.base}/quiz`, { waitUntil: 'load' });
+  await page.waitForSelector('.shead');
+  await expandAll(page);
+  const foot = (name) => page.locator('.set-card', { has: page.locator('h3', { hasText: new RegExp(`^${name}$`) }) }).locator('.foot').textContent();
+  assert.equal(await foot('Set 3'), 'Last: Not marked', 'set card: an unmarked last attempt');
+  assert.equal(await foot('RAG fundamentals · Set 1'), 'Last: 9.5 / 12', 'set card: a marked last attempt keeps its score');
+
+  await page.goto(`${s.base}/quiz/history`, { waitUntil: 'load' });
+  await page.waitForSelector('.table td');
+  const scores = await page.locator('.table tbody tr td:last-child').allTextContents();
+  assert.deepEqual(scores, ['—', '9.5 / 12', 'Not marked', '−13.5 / 24'], 'history: the unmarked attempt reads Not marked');
+
+  await context.close();
 });

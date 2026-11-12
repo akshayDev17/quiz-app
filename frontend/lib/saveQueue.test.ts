@@ -1,17 +1,20 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, mock, test } from 'node:test';
 
-import { ApiError } from './api.ts';
+import { ApiError, type Answer } from './api.ts';
 import { SaveQueue, submitAfterTimeout, TIMEOUT_SAVE_BUDGET_MS, UnsavedAnswers } from './saveQueue.ts';
 
-type Call = [number, number[]];
+type Call = [number, number[] | string];
+
+/** What a save carried, flattened for short assertions: the option ids, or the typed text. */
+const flat = (answer: Answer) => ('text' in answer ? answer.text : answer.option_ids);
 
 /** A save that records its calls and fails the first `failures` of them. */
 function recorder(failures = 0, error: unknown = new Error('offline')) {
   const calls: Call[] = [];
   let left = failures;
-  const save = async (qid: number, ids: number[]) => {
-    calls.push([qid, ids]);
+  const save = async (qid: number, answer: Answer) => {
+    calls.push([qid, flat(answer)]);
     if (left > 0) {
       left -= 1;
       throw error;
@@ -29,10 +32,10 @@ afterEach(() => mock.timers.reset());
 test('debounces per question, last value wins', async () => {
   const { calls, save } = recorder();
   const q = new SaveQueue(save);
-  q.set(1, [1]);
+  q.set(1, { option_ids: [1] });
   mock.timers.tick(200);
-  q.set(1, [1, 2]);
-  q.set(2, [7]);
+  q.set(1, { option_ids: [1, 2] });
+  q.set(2, { option_ids: [7] });
   mock.timers.tick(399);
   assert.deepEqual(calls, []);
   assert.equal(q.state(), 'saving');
@@ -45,16 +48,16 @@ test('debounces per question, last value wins', async () => {
 test('pendingAnswers is exactly what a pause must carry', async () => {
   const calls: Call[] = [];
   const releases: (() => void)[] = [];
-  const save = (qid: number, ids: number[]) => {
-    calls.push([qid, ids]);
+  const save = (qid: number, answer: Answer) => {
+    calls.push([qid, flat(answer)]);
     return new Promise<void>((r) => releases.push(r));
   };
   const q = new SaveQueue(save);
 
   assert.deepEqual(q.pendingAnswers(), []); // nothing held, nothing to carry
 
-  q.set(1, [4]);
-  q.set(2, [7, 8]);
+  q.set(1, { option_ids: [4] });
+  q.set(2, { option_ids: [7, 8] });
   assert.deepEqual(q.pendingAnswers(), [
     { question_id: 1, option_ids: [4] },
     { question_id: 2, option_ids: [7, 8] },
@@ -74,12 +77,12 @@ test('pendingAnswers is exactly what a pause must carry', async () => {
 test('flush sends pending immediately and awaits it', async () => {
   const calls: Call[] = [];
   let release!: () => void;
-  const save = (qid: number, ids: number[]) => {
-    calls.push([qid, ids]);
+  const save = (qid: number, answer: Answer) => {
+    calls.push([qid, flat(answer)]);
     return new Promise<void>((r) => (release = r));
   };
   const q = new SaveQueue(save);
-  q.set(3, [9]);
+  q.set(3, { option_ids: [9] });
   let done = false;
   const flushed = q.flush().then(() => (done = true));
   assert.deepEqual(calls, [[3, [9]]]); // no 400 ms wait
@@ -98,7 +101,7 @@ test('failed save stays pending, state error, retried', async () => {
   const q = new SaveQueue(save);
   const seen: string[] = [];
   q.onChange(() => seen.push(q.state()));
-  q.set(1, [4]);
+  q.set(1, { option_ids: [4] });
   mock.timers.tick(400);
   await drain();
   assert.equal(q.state(), 'error');
@@ -123,7 +126,7 @@ test('failed save stays pending, state error, retried', async () => {
 test('backoff doubles and caps at 8 s', async () => {
   const { calls, save } = recorder(10);
   const q = new SaveQueue(save);
-  q.set(1, [1]);
+  q.set(1, { option_ids: [1] });
   mock.timers.tick(400);
   await drain();
   const gaps: number[] = [];
@@ -143,11 +146,11 @@ test('backoff doubles and caps at 8 s', async () => {
 test('a newer set supersedes a pending retry', async () => {
   const { calls, save } = recorder(1);
   const q = new SaveQueue(save);
-  q.set(1, [1]);
+  q.set(1, { option_ids: [1] });
   mock.timers.tick(400);
   await drain();
   assert.equal(q.state(), 'error');
-  q.set(1, [2]);
+  q.set(1, { option_ids: [2] });
   mock.timers.tick(400); // debounce of the new value, before the 1 s retry
   await drain();
   assert.deepEqual(calls, [[1, [1]], [1, [2]]]);
@@ -160,7 +163,7 @@ test('a newer set supersedes a pending retry', async () => {
 test('flush after failure retries before resolving', async () => {
   const { calls, save } = recorder(1);
   const q = new SaveQueue(save);
-  q.set(1, [4]);
+  q.set(1, { option_ids: [4] });
   mock.timers.tick(400);
   await drain();
   assert.equal(q.state(), 'error');
@@ -172,7 +175,7 @@ test('flush after failure retries before resolving', async () => {
 test('flush rejects when the immediate retry fails too', async () => {
   const { calls, save } = recorder(Infinity);
   const q = new SaveQueue(save);
-  q.set(1, [4]);
+  q.set(1, { option_ids: [4] });
   mock.timers.tick(400);
   await drain();
   await assert.rejects(q.flush(), /offline/);
@@ -183,7 +186,7 @@ test('flush rejects when the immediate retry fails too', async () => {
 test('an expired session stops retrying and is reported', async () => {
   const { calls, save } = recorder(Infinity, new ApiError(401, 'session expired'));
   const q = new SaveQueue(save);
-  q.set(1, [4]);
+  q.set(1, { option_ids: [4] });
   mock.timers.tick(400);
   await drain();
   assert.equal(q.state(), 'error');
@@ -207,7 +210,7 @@ for (const status of [409, 404, 422]) {
   test(`${status} is terminal: not retried, entry dropped, state error`, async () => {
     const { calls, save } = recorder(Infinity, new ApiError(status, `http ${status}`));
     const q = new SaveQueue(save);
-    q.set(1, [4]);
+    q.set(1, { option_ids: [4] });
     mock.timers.tick(400);
     await drain();
     assert.equal(q.state(), 'error');
@@ -221,7 +224,7 @@ for (const status of [409, 404, 422]) {
 test('5xx is retried with backoff', async () => {
   const { calls, save } = recorder(1, new ApiError(503, 'unavailable'));
   const q = new SaveQueue(save);
-  q.set(1, [4]);
+  q.set(1, { option_ids: [4] });
   mock.timers.tick(400);
   await drain();
   assert.equal(q.state(), 'error');
@@ -234,8 +237,8 @@ test('5xx is retried with backoff', async () => {
 test('flush with a terminal failure settles without sending it again', async () => {
   const { calls, save } = recorder(1, new ApiError(409, 'attempt finished'));
   const q = new SaveQueue(save);
-  q.set(1, [4]);
-  q.set(2, [5]);
+  q.set(1, { option_ids: [4] });
+  q.set(2, { option_ids: [5] });
   await q.flush(); // q1 fails terminally (dropped), q2 saves; flush resolves
   assert.deepEqual(calls, [[1, [4]], [2, [5]]]);
   assert.equal(q.state(), 'error');
@@ -246,11 +249,11 @@ test('flush with a terminal failure settles without sending it again', async () 
 test('a new answer clears that question\'s terminal failure', async () => {
   const { save } = recorder(1, new ApiError(422, 'option is not in this question'));
   const q = new SaveQueue(save);
-  q.set(1, [99]);
+  q.set(1, { option_ids: [99] });
   mock.timers.tick(400);
   await drain();
   assert.equal(q.state(), 'error');
-  q.set(1, [4]);
+  q.set(1, { option_ids: [4] });
   mock.timers.tick(400);
   await drain();
   assert.equal(q.state(), 'saved');
@@ -266,12 +269,12 @@ async function advance(ms: number, step = 100) {
 
 test('a stalled save times out after 5 s, is aborted, and is retried', async () => {
   const signals: AbortSignal[] = [];
-  const save = (_qid: number, _ids: number[], signal: AbortSignal) => {
+  const save = (_qid: number, _answer: Answer, signal: AbortSignal) => {
     signals.push(signal);
     return new Promise<void>(() => {}); // never settles
   };
   const q = new SaveQueue(save);
-  q.set(1, [4]);
+  q.set(1, { option_ids: [4] });
   mock.timers.tick(400);
   await drain();
   assert.equal(q.state(), 'saving');
@@ -287,7 +290,7 @@ test('a stalled save times out after 5 s, is aborted, and is retried', async () 
 test('flush never hangs on a stalled save', async () => {
   const save = () => new Promise<void>(() => {});
   const q = new SaveQueue(save);
-  q.set(1, [4]);
+  q.set(1, { option_ids: [4] });
   let outcome: unknown = 'pending';
   q.flush().then(() => (outcome = 'resolved'), (err) => (outcome = err));
   await advance(4900);
@@ -299,7 +302,7 @@ test('flush never hangs on a stalled save', async () => {
 test('5xx at the buzzer, success within the budget: answer sent before submit', async () => {
   const { calls, save } = recorder(2, new ApiError(503, 'unavailable'));
   const q = new SaveQueue(save);
-  q.set(1, [4]);
+  q.set(1, { option_ids: [4] });
   const order: string[] = [];
   const done = submitAfterTimeout(q, async () => {
     order.push(`submit after ${calls.length} saves`);
@@ -316,8 +319,8 @@ test('5xx at the buzzer, success within the budget: answer sent before submit', 
 test('persistent failure at the buzzer: submit proceeds within the budget, unsaved reported', async () => {
   const { save } = recorder(Infinity, new ApiError(502, 'bad gateway'));
   const q = new SaveQueue(save);
-  q.set(1, [4]);
-  q.set(2, [5]);
+  q.set(1, { option_ids: [4] });
+  q.set(2, { option_ids: [5] });
   let submitted = false;
   let result: unknown = null;
   submitAfterTimeout(q, async () => {
@@ -334,7 +337,7 @@ test('persistent failure at the buzzer: submit proceeds within the budget, unsav
 test('flush with a budget rejects with the unsaved questions', async () => {
   const { save } = recorder(Infinity);
   const q = new SaveQueue(save);
-  q.set(7, [1]);
+  q.set(7, { option_ids: [1] });
   const p = q.flush(3000);
   const check = assert.rejects(p, (err) => err instanceof UnsavedAnswers && err.questionIds.join() === '7');
   await advance(3000);
@@ -344,7 +347,7 @@ test('flush with a budget rejects with the unsaved questions', async () => {
 test('an expired session at the buzzer is not swallowed', async () => {
   const { save } = recorder(Infinity, new ApiError(401, 'session expired'));
   const q = new SaveQueue(save);
-  q.set(1, [4]);
+  q.set(1, { option_ids: [4] });
   let submitted = false;
   const p = submitAfterTimeout(q, async () => {
     submitted = true;
@@ -357,13 +360,13 @@ test('an expired session at the buzzer is not swallowed', async () => {
 });
 
 test('flushKeepalive sends pending values at once, marked keepalive', async () => {
-  const sent: [number, number[], boolean][] = [];
-  const save = async (qid: number, ids: number[], _signal: AbortSignal, keepalive = false) => {
-    sent.push([qid, ids, keepalive]);
+  const sent: [number, number[] | string, boolean][] = [];
+  const save = async (qid: number, answer: Answer, _signal: AbortSignal, keepalive = false) => {
+    sent.push([qid, flat(answer), keepalive]);
   };
   const q = new SaveQueue(save);
-  q.set(1, [4]);
-  q.set(2, [5, 6]);
+  q.set(1, { option_ids: [4] });
+  q.set(2, { option_ids: [5, 6] });
   q.flushKeepalive(); // no debounce wait
   assert.deepEqual(sent, [[1, [4], true], [2, [5, 6], true]]);
   await drain();
@@ -375,12 +378,12 @@ test('flushKeepalive sends pending values at once, marked keepalive', async () =
 
 test('a keepalive save is never aborted, yet the queue still times it out and retries', async () => {
   const calls: { signal: AbortSignal; keepalive: boolean }[] = [];
-  const save = (_qid: number, _ids: number[], signal: AbortSignal, keepalive = false) => {
+  const save = (_qid: number, _answer: Answer, signal: AbortSignal, keepalive = false) => {
     calls.push({ signal, keepalive });
     return new Promise<void>(() => {}); // never settles
   };
   const q = new SaveQueue(save);
-  q.set(1, [4]);
+  q.set(1, { option_ids: [4] });
   q.flushKeepalive();
   await advance(5000);
   assert.equal(q.state(), 'error');
@@ -393,13 +396,67 @@ test('a keepalive save is never aborted, yet the queue still times it out and re
 
 test('flushKeepalive leaves a save already in flight alone', async () => {
   const sent: boolean[] = [];
-  const save = (_qid: number, _ids: number[], _signal: AbortSignal, keepalive = false) => {
+  const save = (_qid: number, _answer: Answer, _signal: AbortSignal, keepalive = false) => {
     sent.push(keepalive);
     return new Promise<void>(() => {});
   };
   const q = new SaveQueue(save);
-  q.set(1, [4]);
+  q.set(1, { option_ids: [4] });
   mock.timers.tick(400);
   q.flushKeepalive();
   assert.deepEqual(sent, [false]);
+});
+
+test('a typed answer saves as text once typing pauses, keystrokes in between coalesced', async () => {
+  const { calls, save } = recorder();
+  const q = new SaveQueue(save);
+  q.set(5, { text: 'B' });
+  mock.timers.tick(150);
+  q.set(5, { text: 'Be' });
+  mock.timers.tick(150);
+  q.set(5, { text: 'Because' });
+  q.set(1, { option_ids: [3] });
+  mock.timers.tick(399);
+  assert.deepEqual(calls, []);
+  mock.timers.tick(1);
+  await drain();
+  assert.deepEqual(calls, [[5, 'Because'], [1, [3]]]);
+  assert.equal(q.state(), 'saved');
+});
+
+test('pendingAnswers carries text and ticks side by side, as a pause sends them', () => {
+  const q = new SaveQueue(() => new Promise<void>(() => {}));
+  q.set(1, { option_ids: [4] });
+  q.set(2, { text: 'Each model has its own space.' });
+  q.set(3, { text: '' });
+  assert.deepEqual(q.pendingAnswers(), [
+    { question_id: 1, option_ids: [4] },
+    { question_id: 2, text: 'Each model has its own space.' },
+    { question_id: 3, text: '' }, // blank text is sent, and clears the server's copy
+  ]);
+});
+
+test('a failed text save is retried with the latest text', async () => {
+  const { calls, save } = recorder(1);
+  const q = new SaveQueue(save);
+  q.set(2, { text: 'draft' });
+  mock.timers.tick(400);
+  await drain();
+  assert.equal(q.state(), 'error');
+  q.set(2, { text: 'draft, finished' });
+  mock.timers.tick(400);
+  await drain();
+  assert.deepEqual(calls, [[2, 'draft'], [2, 'draft, finished']]);
+  assert.equal(q.state(), 'saved');
+});
+
+test('the queued answer is a copy: mutating the caller array changes nothing', async () => {
+  const { calls, save } = recorder();
+  const q = new SaveQueue(save);
+  const ids = [1, 2];
+  q.set(1, { option_ids: ids });
+  ids.push(3);
+  mock.timers.tick(400);
+  await drain();
+  assert.deepEqual(calls, [[1, [1, 2]]]);
 });

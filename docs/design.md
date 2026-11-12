@@ -138,7 +138,7 @@ Design notes:
 | Time left is **computed by the server** wherever it is displayed | A paused attempt's `deadline_at` may already be in the past (the clock only extends on resume), so anything deriving a remainder from the deadline alone reads zero. The topics card carries `remaining_ms`, not `deadline_at`, for exactly this reason. |
 | Partial unique index: one `in_progress` attempt per (set, user) | Pressing "Start" twice, or in two tabs, resumes the same attempt instead of creating a second one. |
 | `attempt_selections` is one row per ticked option | Multi-select needs no JSON column. Saving an answer is a delete-then-insert of that question's rows in one D1 `batch()`. |
-| A **subjective** question (`kind = 'subjective'`) has no options and an authored `model_answer`; the solver's typed answer is one `attempt_text_answers` row | Typed answers get their own table because `attempt_selections` is keyed and foreign-keyed by option. Saving replaces the row; blank text deletes it. The importer still refuses `"type": "subjective"` until the take page and the editor can show one. |
+| A **subjective** question (`kind = 'subjective'`) has no options and an authored `model_answer`; the solver's typed answer is one `attempt_text_answers` row | Typed answers get their own table because `attempt_selections` is keyed and foreign-keyed by option. Saving replaces the row; blank text deletes it. The importer accepts `"type": "subjective"` with a required `model_answer` and no `options` or `points`; the take page answers it in a text box, and the admin editor switches a question between choice and subjective. |
 | `attempt_results` is written **once**, at grading | Scores never move afterwards, even if an author later edits the question. |
 | An attempt **owns its paper**: `attempt_questions`/`attempt_options` are copied at start | Editing or deleting a set must never rewrite a solver's record. Everything after "start" reads the paper, never `questions`/`options`, so the live set can change freely. `source_*_id` is provenance only, deliberately without a foreign key. |
 | The paper is written in **served order**; shuffle happens once, at start | Resuming, re-reading and reviewing all get the same order without re-deriving it, so a later edit to `shuffle_*` cannot reorder a running attempt. |
@@ -223,7 +223,7 @@ attempt's existence isn't revealed.
 |---|---|
 | `GET  /me` · `PATCH /me` | email, display name, role · set your display name (the first-visit prompt) |
 | `GET  /topics` | topics → subtopic groups → published sets you may take (private ones for admins, or for a solver with an attempt open on it): derived name, chips (difficulty, scenario, time limit, question count), your last score |
-| `GET  /sets/{id}` | set intro: rules, time limit, attempts used / allowed. No questions. A private set is 404 unless you are an admin or have an attempt open on it. |
+| `GET  /sets/{id}` | set intro: rules, time limit, `question_count` and how many of them are subjective (`subjective_count`), attempts used / allowed. No questions. A private set is 404 unless you are an admin or have an attempt open on it. |
 | `POST /sets/{id}/attempts` | **start or resume**: returns attempt, `deadline_at`, `server_now`, questions in solver view (each with its `kind`; a subjective one has no options), saved `selections` and typed `texts`. A new attempt on a private set is 404 unless you are an admin; an open one always resumes. |
 | `GET  /attempts/{id}` | resume (same payload). **Lazily expires** if past deadline (see below). |
 | `PUT  /attempts/{id}/answers/{questionId}` | body `{"option_ids":[…]}` for a choice question or `{"text":"…"}` for a subjective one, autosave. Blank text clears the answer. 409 if finished, 422 if an option isn't in that question, the answer doesn't suit the question's kind, or the text is over 10,000 characters. `POST /attempts/{id}/pause` takes the same answers, each with its `question_id`. |
@@ -315,6 +315,9 @@ gets no `attempt_results` row, adds nothing to the score or `max_score`, and is
 not charged the −2 when left blank. Results show it with `points`,
 `awarded_points` and `is_correct` all `null`, the solver's `text_answer`, and the
 `model_answer` when `reveal_answers` is on.
+A set of only subjective questions is allowed; its attempts score 0 out of a
+`max_score` of 0, so the results page, the set card and history read them as
+"Not marked" instead of a score or a percent.
 
 ### Applying SOLID, OOP and patterns, where they're worth it
 
@@ -348,15 +351,21 @@ phase 2. JSON shape:
        {"body": "Every stored vector must be re-embedded", "correct": true},
        {"body": "The vector dimension may change", "correct": true},
        {"body": "The chunking boundaries", "correct": false},
-       {"body": "Similarity thresholds need re-tuning", "correct": true}]}
+       {"body": "Similarity thresholds need re-tuning", "correct": true}]},
+    {"type": "subjective",
+     "prompt": "In two or three sentences: why does a new embedding model force a full re-index?",
+     "model_answer": "Each model learns its own vector space, so …",
+     "explanation": "…"}
   ]
 }
 ```
 
 `topic` and `subtopic` are found by slug or created, `subtopic` may be
 omitted (a whole-topic set), and `seq` is assigned by the server.
-`QuizValidator` rejects any question with fewer than 2 options or 0 correct
-options, any empty prompt, and any `type` other than `choice` (the default).
+`QuizValidator` rejects any empty prompt and any `type` other than `choice`
+(the default) or `subjective`. A choice question needs at least 2 options and
+at least 1 correct one, and takes no `model_answer`. A subjective question
+needs a non-empty `model_answer` and takes no `options` and no `points`.
 
 ---
 
@@ -416,12 +425,12 @@ The quiz must look like part of the same site as `my-github-io/index.html` and
 | Page | What's on it |
 |---|---|
 | `/quiz` | Topics as numbered section heads (`01 RAG`). Under each topic, a small sub-head per subtopic, with whole-topic sets first, then cards. Each card shows the set's name (`Embeddings and vector space · Set 1`), chips for difficulty, **Scenario**, **"15 min" or "Untimed"** and question count, and your last score. A card with an attempt in progress shows **Resume** with the time left. |
-| `/quiz/set?id=` | Intro: rules, time limit, attempts left. **"The timer starts when you press Start."** |
+| `/quiz/set?id=` | Intro: rules, time limit, attempts left. **"The timer starts when you press Start."** A set with no choice questions drops the choice-only rules (more than one correct answer, the marking rule) and says its answers are written and not marked; a mixed set keeps the marking rule and adds that written questions are not marked. |
 | `/quiz/play?attempt=` | The quiz itself (below). |
-| `/quiz/results?attempt=` | Score, then a per-question review (if `reveal_answers`): each option marked *your pick ✓*, *your pick ✗*, *missed*. Explanation underneath. Header says **"Time's up — auto-submitted"** when expired. |
+| `/quiz/results?attempt=` | Score, then a per-question review (if `reveal_answers`): each option marked *your pick ✓*, *your pick ✗*, *missed*. A subjective question is tagged *Not marked* and shows the typed answer, then its model answer. Explanation underneath. Header says **"Time's up — auto-submitted"** when expired. |
 | `/quiz/history` | Your attempts. |
 | `/quiz/admin` | (phase 2) import, publish, attempts table. Each set's visibility shows under its status, with an eye toggle among the actions; the editor has the same choice. |
-| `/quiz/view?id=` | **View**, for anyone: the results layout with every score removed. Correct options marked *correct*, explanations shown (both only if `reveal_answers`). Stats are questions, minutes and correct options. Signed out, its foot repeats *Sign up · coming soon*. |
+| `/quiz/view?id=` | **View**, for anyone: the results layout with every score removed. A subjective question is tagged *Written*. Correct options marked *correct*, a subjective question's model answer and explanations shown (all only if `reveal_answers`). Stats are questions, minutes and correct options. Signed out, its foot repeats *Sign up · coming soon*. |
 | `/quiz/signin` | A protected page whose only job is to be reached: Access signs the reader in on the way, then it returns them to `/quiz`. |
 
 **Signed out.** `/quiz` and `/quiz/view` are open to anyone once Access bypasses
@@ -450,15 +459,20 @@ resumes and submits, and finished results and history stay.
 - **Options are rendered from the array, whatever its length.** Letters come
   from position: A…Z, then AA, AB… (spreadsheet-style), so N > 26 still works.
   Number keys `1–9` toggle options.
-- **Every question uses checkboxes and says "Select all that apply" (my
+- **Every choice question uses checkboxes and says "Select all that apply" (my
   call).** Using radio buttons for single-answer questions would give away
   how many answers are correct. If you'd rather tell solvers "pick 1", it's a
   per-set flag later.
+- **A subjective question is a text box** ("Write your answer · not marked"),
+  up to 10,000 characters, with a counter in the last 1,000. It is answered
+  once its text is more than whitespace. The number and arrow shortcuts stand
+  down while the reader types in it.
 - **Autosave** each answer (debounced ~400 ms) with a quiet "Saved" tick. No
   correctness signal of any kind.
 - **Submit** opens a confirm dialog: *"You've answered 18 of 20. 2 unanswered
   (Q4, Q11). Once submitted you can't change answers."* → **Submit** /
-  **Keep going**.
+  **Keep going**. A blank subjective question is not counted as unanswered:
+  the dialog names it separately as not marked, costing nothing.
 - **At 00:00**: inputs lock, a "Time's up" overlay shows for ~1.5 s, then it
   redirects to results. Refreshing the page mid-quiz resumes with the same
   deadline.

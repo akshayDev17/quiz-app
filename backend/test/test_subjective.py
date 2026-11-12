@@ -1,8 +1,8 @@
-"""Subjective questions, end to end through the API: served, typed, paused, never marked.
+"""Subjective questions, end to end through the API: imported, served, typed, paused,
+edited, never marked.
 
-The importer still refuses ``"type": "subjective"`` (the take page cannot show one
-yet), so these tests store a subjective question the way a later importer will: a
-``SetImport`` handed straight to the authoring repository.
+Most tests store a subjective question as a ``SetImport`` handed straight to the authoring
+repository; ``ImportTest`` and ``EditRoundTripTest`` go through the admin routes.
 
 Run:  python3 test/test_subjective.py
 """
@@ -91,21 +91,65 @@ class SubjectiveCase(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(got, 204, body)
 
 
-class ValidatorGateTest(unittest.TestCase):
-    """Until the take page and the editor can show one, no subjective question uploads."""
+class ValidatorTest(unittest.TestCase):
+    """The import rules for ``"type": "subjective"``; choice questions are unchanged."""
 
     def parse(self, question: dict):
         return QuizValidator.parse(sample_import(questions=[question]))
 
-    def test_subjective_is_refused_as_not_supported_yet(self):
+    def refused(self, question: dict) -> str:
         with self.assertRaises(Invalid) as caught:
-            self.parse({"type": "subjective", "prompt": "Explain.", "model_answer": "Because."})
-        self.assertEqual(caught.exception.message, "question 1: subjective questions are not supported yet")
+            self.parse(question)
+        return caught.exception.message
+
+    def test_a_subjective_question_imports_with_its_model_answer(self):
+        [parsed] = self.parse({
+            "type": "subjective", "prompt": "Explain.", "model_answer": "  Because.  ", "explanation": "Why.",
+        }).questions
+        self.assertEqual(
+            (parsed.kind, parsed.prompt, parsed.model_answer, parsed.explanation, parsed.options),
+            ("subjective", "Explain.", "Because.", "Why.", ()),
+        )
+
+    def test_a_subjective_question_needs_a_model_answer(self):
+        for missing in ({}, {"model_answer": None}, {"model_answer": "   "}):
+            self.assertEqual(
+                self.refused({"type": "subjective", "prompt": "Explain.", **missing}),
+                "question 1: a subjective question needs a model_answer",
+            )
+
+    def test_a_model_answer_must_be_text(self):
+        self.assertEqual(
+            self.refused({"type": "subjective", "prompt": "Explain.", "model_answer": 42}),
+            "question 1: model_answer must be text",
+        )
+
+    def test_a_subjective_question_takes_no_options_and_no_points(self):
+        self.assertEqual(
+            self.refused({
+                "type": "subjective", "prompt": "Explain.", "model_answer": "Because.",
+                "options": [{"body": "a", "correct": True}, {"body": "b", "correct": False}], "points": 1,
+            }),
+            "question 1: a subjective question has no options; "
+            "question 1: a subjective question is not marked, so it takes no points",
+        )
+
+    def test_a_choice_question_takes_no_model_answer(self):
+        options = [{"body": "a", "correct": True}, {"body": "b", "correct": False}]
+        self.assertEqual(
+            self.refused({"prompt": "Q", "options": options, "model_answer": "a"}),
+            "question 1: model_answer is only for subjective questions",
+        )
+
+    def test_a_subjective_question_still_needs_a_prompt(self):
+        self.assertEqual(
+            self.refused({"type": "subjective", "prompt": " ", "model_answer": "Because."}),
+            "question 1: empty prompt",
+        )
 
     def test_an_unknown_type_is_refused(self):
-        with self.assertRaises(Invalid) as caught:
-            self.parse({"type": "essay", "prompt": "Explain."})
-        self.assertEqual(caught.exception.message, "question 1: type must be choice")
+        self.assertEqual(self.refused({"type": "essay", "prompt": "Explain."}),
+                         "question 1: type must be one of choice, subjective")
 
     def test_choice_is_the_default_and_may_be_spelled_out(self):
         options = [{"body": "a", "correct": True}, {"body": "b", "correct": False}]
@@ -114,10 +158,75 @@ class ValidatorGateTest(unittest.TestCase):
             self.assertEqual((parsed.kind, parsed.model_answer), ("choice", None))
 
 
+def written_json(**overrides) -> dict:
+    """``WRITTEN`` in its import shape."""
+    return {
+        "type": "subjective", "prompt": WRITTEN.prompt, "explanation": WRITTEN.explanation,
+        "model_answer": WRITTEN.model_answer, **overrides,
+    }
+
+
+class ImportTest(SubjectiveCase):
+    async def test_an_uploaded_subjective_question_is_served_and_left_unmarked(self):
+        payload = sample_import(difficulty="easy")
+        payload["questions"].insert(1, written_json())
+        made = await self.ok("POST", "/admin/sets", payload, ADMIN, 201)
+        await self.ok("POST", f"/admin/sets/{made['id']}/publish", None, ADMIN)
+        session = await self.start(made["id"])
+        self.assertEqual([q["kind"] for q in session["questions"]], ["choice", "subjective", "choice", "choice"])
+        aid = session["attempt"]["id"]
+        got, body = await self.type(aid, self.written_id(session), "Typed.")
+        self.assertEqual(got, 204, body)
+        await self.ok("POST", f"/attempts/{aid}/submit")
+        results = await self.ok("GET", f"/attempts/{aid}/results")
+        self.assertEqual(results["attempt"]["max_score"], CHOICE_MAX)
+        [written] = [q for q in results["questions"] if q["kind"] == "subjective"]
+        self.assertEqual((written["text_answer"], written["model_answer"], written["points"]),
+                         ("Typed.", WRITTEN.model_answer, None))
+
+    async def test_an_upload_without_a_model_answer_is_refused(self):
+        payload = sample_import(difficulty="easy")
+        payload["questions"].append(written_json(model_answer=""))
+        got, body = await self.call("POST", "/admin/sets", payload, ADMIN)
+        self.assertEqual((got, body), (422, {"error": "question 4: a subjective question needs a model_answer"}))
+
+
+class EditRoundTripTest(SubjectiveCase):
+    """The editor reads a set and sends its questions straight back; a subjective one must survive."""
+
+    def editable(self, detail: dict) -> dict:
+        keep = ("title", "description", "difficulty", "style", "scoring_policy", "time_limit_minutes",
+                "max_attempts", "shuffle_questions", "shuffle_options", "reveal_answers", "visibility")
+        return {**{k: detail[k] for k in keep}, "questions": detail["questions"]}
+
+    async def test_saving_a_set_with_a_subjective_question_unchanged_keeps_it(self):
+        before = await self.ok("GET", f"/admin/sets/{self.sid}", ident=ADMIN)
+        await self.ok("PUT", f"/admin/sets/{self.sid}", self.editable(before), ADMIN)
+        after = await self.ok("GET", f"/admin/sets/{self.sid}", ident=ADMIN)
+        self.assertEqual(after["questions"], before["questions"])
+
+    async def test_switching_a_question_between_choice_and_subjective(self):
+        detail = await self.ok("GET", f"/admin/sets/{self.sid}", ident=ADMIN)
+        body = self.editable(detail)
+        first = body["questions"][0]
+        body["questions"][0] = written_json(prompt=first["prompt"], model_answer="Re-embed; re-tune.")
+        body["questions"][1] = {
+            "type": "choice", "prompt": WRITTEN.prompt, "explanation": None, "points": 1,
+            "options": [{"body": "Spaces differ", "correct": True}, {"body": "Nothing", "correct": False}],
+        }
+        await self.ok("PUT", f"/admin/sets/{self.sid}", body, ADMIN)
+        after = await self.ok("GET", f"/admin/sets/{self.sid}", ident=ADMIN)
+        self.assertEqual([q["type"] for q in after["questions"]], ["subjective", "choice", "choice", "choice"])
+        self.assertEqual(after["questions"][0]["model_answer"], "Re-embed; re-tune.")
+        self.assertNotIn("options", after["questions"][0])
+        self.assertEqual(len(after["questions"][1]["options"]), 2)
+
+
 class ServedTest(SubjectiveCase):
     async def test_starting_an_attempt_serves_every_question(self):
         info = await self.ok("GET", f"/sets/{self.sid}")
         self.assertEqual(info["question_count"], CHOICE_COUNT + 1)
+        self.assertEqual(info["subjective_count"], 1)
         session = await self.start()
         self.assertEqual(len(session["questions"]), CHOICE_COUNT + 1)
         self.assertEqual(
@@ -129,7 +238,10 @@ class ServedTest(SubjectiveCase):
 
     async def test_a_set_of_only_subjective_questions_is_served_whole(self):
         imp = dataclasses.replace(QuizValidator.parse(sample_import(difficulty="easy")), questions=(WRITTEN, WRITTEN))
-        session = await self.start(await self.publish(imp))
+        sid = await self.publish(imp)
+        info = await self.ok("GET", f"/sets/{sid}")
+        self.assertEqual((info["question_count"], info["subjective_count"]), (2, 2))
+        session = await self.start(sid)
         self.assertEqual([q["kind"] for q in session["questions"]], ["subjective", "subjective"])
 
     async def test_shuffling_keeps_the_subjective_question_whole(self):

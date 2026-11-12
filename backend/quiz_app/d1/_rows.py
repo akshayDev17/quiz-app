@@ -17,7 +17,8 @@ QUIZ_SET_COLUMNS = """
   s.difficulty, s.style, s.seq, s.title, s.description, s.status,
   s.time_limit_minutes, s.scoring_policy,
   s.shuffle_questions, s.shuffle_options, s.reveal_answers, s.max_attempts, s.visibility,
-  (SELECT COUNT(*) FROM questions q WHERE q.set_id = s.id) AS question_count"""
+  (SELECT COUNT(*) FROM questions q WHERE q.set_id = s.id) AS question_count,
+  (SELECT COUNT(*) FROM questions q WHERE q.set_id = s.id AND q.kind = 'subjective') AS subjective_count"""
 
 QUIZ_SET_FROM = """
   FROM quiz_sets s
@@ -49,6 +50,7 @@ def quiz_set_from_row(row: dict) -> QuizSetInfo:
         reveal_answers=bool(row["reveal_answers"]),
         max_attempts=row["max_attempts"],
         question_count=row["question_count"],
+        subjective_count=row["subjective_count"],
         visibility=row["visibility"],
     )
 

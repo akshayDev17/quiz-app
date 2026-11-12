@@ -6,7 +6,7 @@ import { Suspense, useEffect, useRef, useState } from 'react';
 import { getAdminSet, getMe, isSessionExpired, signOut, updateAdminSet } from '../../../lib/api';
 import { MARKING_SHORT, maxMarks } from '../../../lib/score';
 import { clearReauthFlag } from '../../../lib/session';
-import type { Me, Visibility } from '../../../lib/types';
+import type { AdminQuestion, Me, QuestionKind, Visibility } from '../../../lib/types';
 import Masthead, { type Crumb } from '../../components/Masthead';
 import SignInAgain from '../../components/SignInAgain';
 
@@ -15,10 +15,15 @@ const TAIL: Crumb[] = [{ label: 'Admin', href: '/quiz/admin' }, { label: 'Edit s
 
 type QOption = { body: string; correct: boolean };
 type QDraft = {
+  kind: QuestionKind;
   prompt: string;
   explanation: string;
+  /** Choice questions only; a subjective question is not marked, so it takes no points. */
   points: number;
+  /** Kept while a question is switched to subjective, so switching back restores them. */
   options: QOption[];
+  /** Subjective questions only: required, shown on review and on View. */
+  model_answer: string;
   /** Marked for deletion. Stays on screen (blurred, undoable) until Save. */
   removed: boolean;
 };
@@ -46,17 +51,53 @@ const VISIBILITY_CHOICES: { value: Visibility; label: string; hint: string }[] =
   { value: 'private', label: 'Private', hint: 'Only admins can see and take it' },
 ];
 
+/** The two question types, as the editor offers them. */
+const KIND_CHOICES: { value: QuestionKind; label: string; hint: string }[] = [
+  { value: 'choice', label: 'Choice', hint: 'Tick options · marked' },
+  { value: 'subjective', label: 'Written', hint: 'Typed answer · not marked' },
+];
+
 const message = (err: unknown) => (err instanceof Error ? err.message : 'Something went wrong');
+const blankOptions = (): QOption[] => [
+  { body: '', correct: true },
+  { body: '', correct: false },
+];
 const blankQuestion = (): QDraft => ({
+  kind: 'choice',
   prompt: '',
   explanation: '',
   points: 1,
-  options: [
-    { body: '', correct: true },
-    { body: '', correct: false },
-  ],
+  options: blankOptions(),
+  model_answer: '',
   removed: false,
 });
+
+/** A question as the server sent it, as the editor holds it. */
+function draftOf(q: AdminQuestion): QDraft {
+  const common = { prompt: q.prompt, explanation: q.explanation ?? '', removed: false };
+  if (q.type === 'subjective') {
+    return { ...common, kind: 'subjective', points: 1, options: blankOptions(), model_answer: q.model_answer };
+  }
+  return {
+    ...common,
+    kind: 'choice',
+    points: q.points,
+    options: q.options.map((o) => ({ body: o.body, correct: o.correct })),
+    model_answer: '',
+  };
+}
+
+/** A question in its import shape: a subjective one carries no options and no points. */
+function payloadOf(q: QDraft) {
+  const common = { prompt: q.prompt, explanation: q.explanation.trim() || null };
+  if (q.kind === 'subjective') return { type: 'subjective', ...common, model_answer: q.model_answer };
+  return {
+    type: 'choice',
+    ...common,
+    points: Number(q.points),
+    options: q.options.map((o) => ({ body: o.body, correct: o.correct })),
+  };
+}
 
 /**
  * Page buttons with ellipsis: 1 … 4 5 6 … 20. Sets are small, but the editor
@@ -120,13 +161,7 @@ function Editor() {
           shuffle_options: d.shuffle_options,
           reveal_answers: d.reveal_answers,
           visibility: d.visibility,
-          questions: d.questions.map((q) => ({
-            prompt: q.prompt,
-            explanation: q.explanation ?? '',
-            points: q.points,
-            options: q.options.map((o) => ({ body: o.body, correct: o.correct })),
-            removed: false,
-          })),
+          questions: d.questions.map(draftOf),
         });
       },
       (err) => {
@@ -140,7 +175,10 @@ function Editor() {
   const questions = draft?.questions ?? [];
   const live = questions.filter((q) => !q.removed);
   const removedCount = questions.length - live.length;
-  const totalMarks = live.reduce((sum, q) => sum + maxMarks(q.options.filter((o) => o.correct).length), 0);
+  const totalMarks = live.reduce(
+    (sum, q) => sum + (q.kind === 'subjective' ? 0 : maxMarks(q.options.filter((o) => o.correct).length)),
+    0,
+  );
   const totalPages = Math.max(1, Math.ceil(questions.length / perPage));
   const current = Math.min(page, totalPages);
   const from = (current - 1) * perPage;
@@ -208,12 +246,7 @@ function Editor() {
         shuffle_options: draft.shuffle_options,
         reveal_answers: draft.reveal_answers,
         visibility: draft.visibility,
-        questions: live.map((q) => ({
-          prompt: q.prompt,
-          explanation: q.explanation.trim() || null,
-          points: Number(q.points),
-          options: q.options.map((o) => ({ body: o.body, correct: o.correct })),
-        })),
+        questions: live.map(payloadOf),
       });
       router.push('/admin');
     } catch (err) {
@@ -373,7 +406,9 @@ function Editor() {
                     <header className="ed-ph">
                       <b>Question {qi + 1}</b>
                       <span className="meta">
-                        {correct} of {q.options.length} correct · up to {maxMarks(correct)} marks
+                        {q.kind === 'subjective'
+                          ? 'Written · not marked'
+                          : `${correct} of ${q.options.length} correct · up to ${maxMarks(correct)} marks`}
                       </span>
                       {!q.removed && (
                         <button className="ed-btn ed-remove" disabled={lastLive}
@@ -386,6 +421,19 @@ function Editor() {
 
                     <div className="ed-pb" inert={q.removed || undefined}>
                       <div className="ed-field">
+                        <span className="lab" id={`ed-kind-${qi}`}>Type</span>
+                        <div className="ed-vis ed-kind" role="radiogroup" aria-labelledby={`ed-kind-${qi}`}>
+                          {KIND_CHOICES.map((c) => (
+                            <label key={c.value} className={q.kind === c.value ? 'on' : ''}>
+                              <input type="radio" name={`ed-kind-${qi}`} value={c.value} checked={q.kind === c.value}
+                                     onChange={() => setQuestion(qi, { kind: c.value })} />
+                              <b>{c.label}</b>
+                              <span>{c.hint}</span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="ed-field">
                         <label className="lab">Prompt</label>
                         <textarea rows={2} value={q.prompt}
                                   onChange={(e) => setQuestion(qi, { prompt: e.target.value })} />
@@ -396,27 +444,37 @@ function Editor() {
                                   onChange={(e) => setQuestion(qi, { explanation: e.target.value })} />
                       </div>
 
-                      <div className="ed-field">
-                        <span className="lab">Options — tick the correct ones</span>
-                        {q.options.map((o, oi) => (
-                          <div className="ed-opt" key={oi}>
-                            <span className="idx">{oi + 1}</span>
-                            <input type="checkbox" checked={o.correct} title="Correct"
-                                   onChange={(e) => setOption(qi, oi, { correct: e.target.checked })} />
-                            <input value={o.body} placeholder="Option body"
-                                   onChange={(e) => setOption(qi, oi, { body: e.target.value })} />
-                            <button className="ed-x" disabled={q.options.length <= 2}
-                                    title="Remove option" aria-label="Remove option"
-                                    onClick={() => setQuestion(qi, { options: q.options.filter((_, j) => j !== oi) })}>
-                              {CloseIcon}
-                            </button>
-                          </div>
-                        ))}
-                        <button className="ed-btn"
-                                onClick={() => setQuestion(qi, { options: [...q.options, { body: '', correct: false }] })}>
-                          Add option
-                        </button>
-                      </div>
+                      {q.kind === 'subjective' ? (
+                        <div className="ed-field">
+                          <label className="lab" htmlFor={`ed-model-${qi}`}>
+                            Model answer (required · shown on review and View)
+                          </label>
+                          <textarea id={`ed-model-${qi}`} rows={4} value={q.model_answer}
+                                    onChange={(e) => setQuestion(qi, { model_answer: e.target.value })} />
+                        </div>
+                      ) : (
+                        <div className="ed-field">
+                          <span className="lab">Options — tick the correct ones</span>
+                          {q.options.map((o, oi) => (
+                            <div className="ed-opt" key={oi}>
+                              <span className="idx">{oi + 1}</span>
+                              <input type="checkbox" checked={o.correct} title="Correct"
+                                     onChange={(e) => setOption(qi, oi, { correct: e.target.checked })} />
+                              <input value={o.body} placeholder="Option body"
+                                     onChange={(e) => setOption(qi, oi, { body: e.target.value })} />
+                              <button className="ed-x" disabled={q.options.length <= 2}
+                                      title="Remove option" aria-label="Remove option"
+                                      onClick={() => setQuestion(qi, { options: q.options.filter((_, j) => j !== oi) })}>
+                                {CloseIcon}
+                              </button>
+                            </div>
+                          ))}
+                          <button className="ed-btn"
+                                  onClick={() => setQuestion(qi, { options: [...q.options, { body: '', correct: false }] })}>
+                            Add option
+                          </button>
+                        </div>
+                      )}
                     </div>
 
                     {q.removed && (

@@ -1,12 +1,17 @@
-import { ApiError, isSessionExpired } from './api.ts';
+import { ApiError, isSessionExpired, type Answer, type PendingAnswer } from './api.ts';
 import { AUTOSAVE_DEBOUNCE_MS } from './countdown.ts';
 
 export type SaveState = 'idle' | 'saving' | 'saved' | 'error';
 /**
- * Saves one answer. The queue aborts `signal` when the save outlives `SAVE_TIMEOUT_MS`, except for
- * a `keepalive` save (sent as the page goes away), which is left to finish on its own.
+ * Saves one answer: ticked options or typed text. The queue aborts `signal` when the save outlives
+ * `SAVE_TIMEOUT_MS`, except for a `keepalive` save (sent as the page goes away), which is left to
+ * finish on its own.
  */
-export type SaveFn = (qid: number, ids: number[], signal: AbortSignal, keepalive?: boolean) => Promise<void>;
+export type SaveFn = (qid: number, answer: Answer, signal: AbortSignal, keepalive?: boolean) => Promise<void>;
+
+/** A copy of `answer`, so a caller mutating its own array cannot change what is queued. */
+const copyAnswer = (answer: Answer): Answer =>
+  'text' in answer ? { text: answer.text } : { option_ids: [...answer.option_ids] };
 
 /** Retry delays after the 1st, 2nd, 3rd… consecutive failure; the last one repeats. */
 const BACKOFF_MS = [1000, 2000, 4000, 8000];
@@ -53,7 +58,7 @@ export function isTerminal(error: unknown): boolean {
 
 /** One question's latest unsaved value and where it is in its save. */
 type Entry = {
-  ids: number[];
+  answer: Answer;
   /** Bumped by every `set`, so a finishing save can tell whether it sent the latest value. */
   version: number;
   /** The debounce or retry timer, if one is waiting. */
@@ -91,11 +96,14 @@ export class SaveQueue {
     this.debounceMs = debounceMs;
   }
 
-  /** Records `ids` as the answer to `qid` and saves it once `qid` has been quiet for the debounce. */
-  set(qid: number, ids: number[]): void {
+  /**
+   * Records `answer` for `qid` and saves it once `qid` has been quiet for the debounce. Typing
+   * calls this on every keystroke; the debounce sends the text once the solver pauses.
+   */
+  set(qid: number, answer: Answer): void {
     const prev = this.entries.get(qid);
-    const entry: Entry = prev ?? { ids, version: 0, timer: null, inFlight: null, failures: 0, error: null };
-    entry.ids = [...ids];
+    const entry: Entry = prev ?? { answer, version: 0, timer: null, inFlight: null, failures: 0, error: null };
+    entry.answer = copyAnswer(answer);
     entry.version += 1;
     entry.failures = 0;
     entry.error = null;
@@ -146,11 +154,8 @@ export class SaveQueue {
    * sends these so the freeze and the answers commit together rather than the freeze
    * landing first and the autosave being refused behind it.
    */
-  pendingAnswers(): { question_id: number; option_ids: number[] }[] {
-    return [...this.entries].map(([questionId, entry]) => ({
-      question_id: questionId,
-      option_ids: [...entry.ids],
-    }));
+  pendingAnswers(): PendingAnswer[] {
+    return [...this.entries].map(([questionId, entry]) => ({ question_id: questionId, ...copyAnswer(entry.answer) }));
   }
 
   /** Questions whose latest answer the server has not confirmed (rejected ones excluded). */
@@ -234,7 +239,7 @@ export class SaveQueue {
         reject(new SaveTimeoutError());
       }, SAVE_TIMEOUT_MS);
     });
-    const attempt = Promise.race([this.save(qid, entry.ids, controller.signal, keepalive), timedOut]);
+    const attempt = Promise.race([this.save(qid, entry.answer, controller.signal, keepalive), timedOut]);
     entry.inFlight = attempt.finally(() => clearTimeout(timer)).then(
       () => {
         entry.inFlight = null;

@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { getHistory, getMe, isSessionExpired, signOut } from '../../lib/api';
-import { formatScore } from '../../lib/score';
+import { scoreLine } from '../../lib/score';
 import { clearReauthFlag, handleSessionExpired } from '../../lib/session';
 import type { History, Me } from '../../lib/types';
 import Masthead from '../components/Masthead';
@@ -79,7 +79,7 @@ export default function HistoryPage() {
                   <td className="mc">{STATUS_LABEL[a.status]}</td>
                   <td className="num">
                     {a.score !== null && a.max_score !== null
-                      ? `${formatScore(a.score)} / ${formatScore(a.max_score)}`
+                      ? scoreLine(a.score, a.max_score)
                       : '—'}
                   </td>
                 </tr>

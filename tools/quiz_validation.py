@@ -31,6 +31,9 @@ SET_SCORING_POLICIES = ("all_or_nothing", "partial")
 DIFFICULTIES = ("easy", "medium", "hard")
 STYLES = ("standard", "scenario")
 VISIBILITIES = ("public", "private")
+#: A question's ``type``: ``choice`` (the default) is ticked and marked; ``subjective`` is typed
+#: into a text box, never marked, and carries a required ``model_answer``.
+QUESTION_TYPES = ("choice", "subjective")
 _SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 
@@ -196,19 +199,33 @@ def _parse_question(raw, number: int, errors: list[str]) -> QuestionImport | Non
     before = len(errors)
 
     kind = raw.get("type", "choice")
-    if kind == "subjective":
-        # Storage, attempts and results already handle a subjective question; the take
-        # page and the editor do not yet, so none may be uploaded until they do.
-        errors.append(f"{where}: subjective questions are not supported yet")
-        return None
-    if kind != "choice":
-        errors.append(f"{where}: type must be choice")
+    if kind not in QUESTION_TYPES:
+        errors.append(f"{where}: type must be one of {', '.join(QUESTION_TYPES)}")
         return None
 
     prompt = raw.get("prompt")
     if not isinstance(prompt, str) or not prompt.strip():
         errors.append(f"{where}: empty prompt")
     explanation = _optional_text(raw.get("explanation"), f"{where}: explanation", errors)
+
+    if kind == "subjective":
+        # Never marked: no options and no points (a number would imply marks). The model
+        # answer is what review and View show, and what a later comparison would use.
+        raw_model = raw.get("model_answer")
+        model_answer = _optional_text(raw_model, f"{where}: model_answer", errors)
+        if model_answer is None and (raw_model is None or isinstance(raw_model, str)):
+            # Absent or blank; a non-text value was reported by _optional_text already.
+            errors.append(f"{where}: a subjective question needs a model_answer")
+        if "options" in raw:
+            errors.append(f"{where}: a subjective question has no options")
+        if "points" in raw:
+            errors.append(f"{where}: a subjective question is not marked, so it takes no points")
+        if len(errors) > before:
+            return None
+        return QuestionImport(prompt=prompt, explanation=explanation, kind="subjective", model_answer=model_answer)
+
+    if "model_answer" in raw:
+        errors.append(f"{where}: model_answer is only for subjective questions")
     points = raw.get("points", 1)
     if not (_is_number(points) and points > 0):
         errors.append(f"{where}: points must be a positive number")

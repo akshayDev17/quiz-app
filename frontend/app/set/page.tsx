@@ -4,8 +4,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
 import { getMe, getSet, isSessionExpired, signOut, startAttempt } from '../../lib/api';
-import { pluralize } from '../../lib/names';
-import { MARKING_RULE } from '../../lib/score';
+import { writeIntroRules } from '../../lib/score';
 import type { Me, SetIntro } from '../../lib/types';
 import { clearReauthFlag, handleSessionExpired } from '../../lib/session';
 import Masthead, { type Crumb } from '../components/Masthead';
@@ -60,6 +59,7 @@ function Intro() {
   const resuming = intro?.open_attempt_id != null;
   const attemptsLeft = intro?.max_attempts != null ? intro.max_attempts - intro.attempts_used : null;
   const noAttemptsLeft = intro !== null && !resuming && attemptsLeft !== null && attemptsLeft <= 0;
+  const rules = intro && writeIntroRules(intro.question_count, intro.subjective_count);
 
   return (
     <div className="frame">
@@ -70,19 +70,19 @@ function Intro() {
       {expired && <SignInAgain />}
       {error && <div className="banner">{error}</div>}
       {!error && !expired && !intro && <p className="mc">Loading…</p>}
-      {intro && (
+      {intro && rules && (
         <div className="card intro">
           <div className="kicker">{intro.topic + (intro.subtopic ? ` › ${intro.subtopic}` : '')}</div>
           <h2 className="hl">{intro.name}</h2>
           {intro.description && <p className="standfirst">{intro.description}</p>}
           <ul className="rules">
-            <li>{pluralize(intro.question_count, 'question')}. Some have more than one correct answer.</li>
+            <li>{rules.questions}</li>
             <li>
               {minutes
                 ? `${minutes}-minute time limit. When it runs out, your saved answers are submitted automatically.`
                 : 'No time limit.'}
             </li>
-            <li>{MARKING_RULE}</li>
+            <li>{rules.marking}</li>
             <li>You won’t see whether an answer is right until you submit.</li>
             {attemptsLeft !== null && attemptsLeft > 0 && (
               <li>{`${attemptsLeft} of ${intro.max_attempts} attempts left.`}</li>

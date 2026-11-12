@@ -143,6 +143,8 @@ rules 9–10 (right-size, scoring) apply to both.
 10. **Score fair.** Every quiz is marked +2 per correct option ticked, −1 per
     wrong one, −2 for a blank question, so a question's worth is 2 × its
     correct options. Keep wrong options plausible, not traps that only punish.
+    A subjective question is never marked (no points, no −2 when blank), so it
+    adds nothing to the score or the maximum.
     Check: no question has a wrong option that is wrong only on a technicality.
 11. **Justify every question.** Each question has its two-line sidecar entry,
     and the "not source-locked" line is true — a question only the source's
@@ -165,7 +167,8 @@ validation on upload.
   "scoring_policy": "all_or_nothing",
   "questions": [
     {"prompt": "…", "explanation": "…", "points": 1,
-     "options": [{"body": "…", "correct": true}, {"body": "…", "correct": false}]}
+     "options": [{"body": "…", "correct": true}, {"body": "…", "correct": false}]},
+    {"type": "subjective", "prompt": "…", "model_answer": "…", "explanation": "…"}
   ]
 }
 ```
@@ -180,6 +183,31 @@ validation on upload.
 - `shuffle_questions`, `shuffle_options`, `reveal_answers`: booleans (defaults false, false, true).
 - `visibility`: `public` (default: signed-out visitors can View it, signed-in solvers can take it)
   | `private` (only admins see and take it). Changeable later in the admin editor.
-- `questions`: at least 1. Each: non-empty `prompt`, `points > 0` (default 1; stored but no
-  longer weights marking), at least
-  2 `options`, at least 1 option with `correct: true`. `explanation` optional.
+- `questions`: at least 1. Each has a `type`: `choice` (the default, may be omitted) or
+  `subjective`.
+  - **choice**: non-empty `prompt`, `points > 0` (default 1; stored but no longer weights
+    marking), at least 2 `options`, at least 1 option with `correct: true`. `explanation`
+    optional. No `model_answer`.
+  - **subjective**: the solver types the answer into a text box (up to 10,000 characters).
+    Non-empty `prompt` and a required, non-empty `model_answer`; `explanation` optional.
+    No `options` and no `points`: it is never marked, so it counts toward neither the
+    score nor the maximum, and a blank one costs nothing. `model_answer` is Markdown, shown
+    on results and View when `reveal_answers` is true.
+
+### Subjective questions
+
+Add one only when the invocation asks for written answers, or an idea is best tested by
+having the solver explain it (a mechanism, a tradeoff, a "why"). The prose rules still
+apply to the prompt: quiz the idea, solvable cold, a fresh scenario, no exact figure as
+the answer. Rules 5 and 7 (traps, hidden correct count) are about options, so they do not
+apply.
+
+- **Ask for a bounded answer.** Say how much is wanted ("In two or three sentences: …"),
+  so the solver and the model answer aim at the same size.
+- **The model answer is the answer a strong solver would write**, complete enough to
+  compare a submitted answer against: every point a full answer must make, in plain
+  prose, nothing the prompt did not ask for. It is the reference a later comparison of
+  typed answers would use, so never leave it a stub ("see explanation").
+- **The explanation**, if any, says why that answer is right or names the common wrong
+  answer; it does not repeat the model answer.
+- Check: the prompt bounds the answer; the model answer alone fully answers the prompt.

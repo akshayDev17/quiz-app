@@ -2,24 +2,37 @@
 export default function ConfirmDialog({
   total,
   unanswered,
+  blankWritten = [],
   onConfirm,
   onCancel,
 }: {
   total: number;
-  /** Labels of the unanswered questions, e.g. `["Q4", "Q11"]`. */
+  /** Labels of the unanswered choice questions, e.g. `["Q4", "Q11"]`: each costs −2. */
   unanswered: string[];
+  /**
+   * Labels of the subjective questions left blank. They are never marked, so they cost
+   * nothing and are not counted as unanswered; they are named so none is skipped by mistake.
+   */
+  blankWritten?: string[];
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  const answered = total - unanswered.length - blankWritten.length;
   return (
     <div className="scrim on">
       <div className="card dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
         <h3 id="confirm-title">Submit your answers?</h3>
         <p>
-          You’ve answered {total - unanswered.length} of {total}.
+          You’ve answered {answered} of {total}.
           {unanswered.length > 0 && (
             <>
               {' '}<b>{unanswered.length} unanswered</b> ({unanswered.join(', ')}).
+            </>
+          )}
+          {blankWritten.length > 0 && (
+            <>
+              {' '}Written {blankWritten.length === 1 ? 'answer' : 'answers'} left blank ({blankWritten.join(', ')}):
+              not marked, so {blankWritten.length === 1 ? 'it costs' : 'they cost'} nothing.
             </>
           )}
           <br />
