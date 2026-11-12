@@ -22,8 +22,12 @@ before(async () => {
 });
 after(() => browser?.close());
 
+/** A signed-in reader, for the one API call the masthead's links wait on. */
+const ME = { email: 'reader@example.com', display_name: 'Reader', role: 'solver' };
+
 /**
- * Opens `path` with the API and prefetches held open; resolves once React has hydrated.
+ * Opens `path` with the API and prefetches held open, except /me, which answers signed in
+ * (the quiz home shows History and Sign out once it does); resolves once React has hydrated.
  * `navigableTo` lets through the RSC fetches for those pages (each exported page's path
  * without its extension), which a client-side navigation to them needs.
  */
@@ -33,7 +37,9 @@ async function open(base, path, problems, { viewport = { width: 1280, height: 80
   page.on('console', (msg) => {
     if (msg.type() === 'error' || /hydrat/i.test(msg.text())) problems.push(`console.${msg.type()}: ${msg.text()} (${msg.location().url})`);
   });
-  await page.route((url) => url.pathname.startsWith('/quiz/api/') || (url.searchParams.has('_rsc') && !navigableTo.some((p) => url.pathname.startsWith(`${p}.`))), () => {});
+  await page.route((url) => url.pathname.startsWith('/quiz/api/') || (url.searchParams.has('_rsc') && !navigableTo.some((p) => url.pathname.startsWith(`${p}.`))), (route) => {
+    if (new URL(route.request().url()).pathname === '/quiz/api/me') return route.fulfill({ json: ME });
+  });
   const res = await page.goto(`${base}${path}`, { waitUntil: 'load' });
   await page.waitForFunction(() => Object.keys(document.body).some((k) => k.startsWith('__reactFiber$')));
   return { page, res };
@@ -74,9 +80,12 @@ const expectedSitePath = (tail) => ({
   small: [],
 });
 
+/** Pages that leave as soon as they load, by design: /signin hands the reader back to the quiz home. */
+const LEAVES = { '/quiz/signin': '/quiz' };
+
 test('bound to site-shell: every composed page hydrates with no console error and defines <site-theme-picker>', async (t) => {
   const s = await session(t, [APP, SHELL]);
-  for (const path of Object.keys(PAGES)) {
+  for (const path of Object.keys(PAGES).filter((p) => !(p in LEAVES))) {
     const problems = [];
     const { page, res } = await open(s.base, path, problems);
     assert.match(res.headers()['x-site-shell'] ?? '', /; app=quiz$/, `${path} was composed`);
@@ -88,6 +97,20 @@ test('bound to site-shell: every composed page hydrates with no console error an
 
     assert.ok(pickers.every(Boolean), `${path}: every <site-theme-picker> is upgraded`);
     assert.deepEqual(sitePath, expectedSitePath(TAILS[PAGES[path]]), `${path}: the site path survives hydration`);
+    assert.deepEqual(problems, [], path);
+  }
+});
+
+test('bound: /signin hands the reader straight back to the quiz home', async (t) => {
+  const s = await session(t, [APP, SHELL]);
+  for (const [path, home] of Object.entries(LEAVES)) {
+    const problems = [];
+    const page = await browser.newPage();
+    page.on('pageerror', (err) => problems.push(`uncaught: ${err.message}`));
+    await page.route((url) => url.pathname.startsWith('/quiz/api/'), () => {});
+    await page.goto(`${s.base}${path}`);
+    await page.waitForURL((url) => url.pathname.replace(/\/$/, '') === home, { timeout: 10_000 });
+    await page.close();
     assert.deepEqual(problems, [], path);
   }
 });

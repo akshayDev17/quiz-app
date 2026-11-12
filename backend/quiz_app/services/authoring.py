@@ -1,4 +1,4 @@
-"""Authoring: import a set from JSON, then publish, archive or clone it. Admins only.
+"""Authoring: import a set from JSON, then publish, archive, clone it or set its visibility. Admins only.
 
 v1 has no edit: clone is how a set is revised.
 """
@@ -6,14 +6,14 @@ v1 has no edit: clone is how a set is revised.
 from __future__ import annotations
 
 from ..clock import Clock
-from ..errors import Forbidden, NotFound
+from ..errors import Forbidden, Invalid, NotFound
 from ..models import QuizSetInfo, User
 from ..ports import QuizAuthoring
-from ..validation import QuestionImport, QuizValidator
+from ..validation import QuestionImport, QuizValidator, parse_visibility
 
 
 def _require_admin(user: User) -> None:
-    if user.role != "admin":
+    if not user.can_edit_sets:
         raise Forbidden("admin only")
 
 
@@ -33,6 +33,17 @@ class AuthoringService:
 
     async def archive(self, user: User, set_id: int) -> QuizSetInfo:
         return await self._set_status(user, set_id, "archived")
+
+    async def set_visibility(self, user: User, set_id: int, payload: object) -> QuizSetInfo:
+        """``{"visibility": "public" | "private"}``. Any status: a draft keeps it for publishing."""
+        _require_admin(user)
+        errors: list[str] = []
+        visibility = parse_visibility(payload.get("visibility") if isinstance(payload, dict) else None, errors)
+        if visibility is None:
+            raise Invalid(errors[0] if errors else "visibility must be one of public, private")
+        await self._existing(set_id)
+        await self._repo.set_visibility(set_id, visibility)
+        return await self._existing(set_id)
 
     async def clone(self, user: User, set_id: int) -> QuizSetInfo:
         _require_admin(user)

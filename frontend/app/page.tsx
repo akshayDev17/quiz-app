@@ -1,16 +1,19 @@
 'use client';
 
 import { Fragment, useEffect, useState } from 'react';
-import { getMe, getTopics, isSessionExpired, signOut } from '../lib/api';
+import { getMe, getPublicTopics, getTopics, isSessionExpired, isSignedOut, signOut } from '../lib/api';
 import { pluralize, subtopicGroupLabel } from '../lib/names';
 import { clearReauthFlag, handleSessionExpired } from '../lib/session';
-import type { Me, TopicsResponse } from '../lib/types';
-import Masthead from './components/Masthead';
+import type { Me, PublicSetCard as PublicCard, SetCard as Card, Topics } from '../lib/types';
+import Masthead, { type Session } from './components/Masthead';
 import NamePrompt from './components/NamePrompt';
+import PublicSetCard from './components/PublicSetCard';
 import SetCard from './components/SetCard';
 import SignInAgain from './components/SignInAgain';
 
-type Group = TopicsResponse['topics'][number]['groups'][number];
+/** A signed-in reader's cards carry their own attempts; a signed-out visitor's do not. */
+type AnyCard = Card | PublicCard;
+type Group = Topics<AnyCard>[number]['groups'][number];
 
 /** Free = a subtopic with ≥2 sets (own collapsible row), or the whole-course group.
  *  Single = a subtopic with exactly one set, merged into the "Other modules" bucket. */
@@ -24,9 +27,23 @@ function splitGroups(groups: Group[]) {
   return { free, singles };
 }
 
+/** Today's card for a signed-in reader; for a signed-out visitor, the card with Sign up and View. */
+function CardFor({ card, kicker }: { card: AnyCard; kicker?: string }) {
+  return 'open_attempt' in card ? <SetCard card={card} kicker={kicker} /> : <PublicSetCard card={card} kicker={kicker} />;
+}
+
+/**
+ * The quiz home. Anyone may open it: `/me` decides what it shows. Signed in (200), today's
+ * catalogue with the reader's own attempts. No Access session (`isSignedOut`), the public
+ * catalogue with Sign up and View on each card. A real 401 is an expired session, as on every
+ * protected page: the "sign-in expired" banner and one reload. So is a signed-out answer while
+ * the public catalogue is itself behind sign-in (before Access opens it), which keeps this page
+ * exactly as it was until then.
+ */
 export default function Home() {
   const [me, setMe] = useState<Me | null>(null);
-  const [topics, setTopics] = useState<TopicsResponse['topics'] | null>(null);
+  const [session, setSession] = useState<Session>('pending');
+  const [topics, setTopics] = useState<Topics<AnyCard> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [expired, setExpired] = useState(false);
   // Default view = topics only: everything starts collapsed.
@@ -34,19 +51,32 @@ export default function Home() {
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    Promise.all([getMe(), getTopics()]).then(
-      ([m, t]) => {
-        clearReauthFlag();
-        setMe(m);
-        setTopics(t.topics);
-      },
-      (err) => {
-        if (isSessionExpired(err)) {
-          setExpired(true);
-          handleSessionExpired();
-        } else setError(err instanceof Error ? err.message : 'Something went wrong');
-      },
+    const fail = (err: unknown) => {
+      if (isSessionExpired(err)) {
+        setExpired(true);
+        handleSessionExpired();
+      } else setError(err instanceof Error ? err.message : 'Something went wrong');
+    };
+    // Both at once, as before, so a signed-in reader waits no longer than they used to.
+    const meCall = getMe();
+    // The masthead's links follow /me alone, without waiting for the catalogue. Anything but
+    // "signed out" keeps today's History and Sign out.
+    meCall.then(
+      () => setSession('signed-in'),
+      (err) => setSession(isSignedOut(err) ? 'signed-out' : 'signed-in'),
     );
+    Promise.allSettled([meCall, getTopics()]).then(([m, t]) => {
+      if (m.status === 'fulfilled' && t.status === 'fulfilled') {
+        clearReauthFlag();
+        setMe(m.value);
+        setTopics(t.value.topics);
+      } else if (m.status === 'rejected' && isSignedOut(m.reason)) {
+        getPublicTopics().then((p) => setTopics(p.topics), (err) => {
+          setSession('signed-in');
+          fail(err);
+        });
+      } else fail(m.status === 'rejected' ? m.reason : (t as PromiseRejectedResult).reason);
+    });
   }, []);
 
   const toggleTopic = (id: number) =>
@@ -65,7 +95,7 @@ export default function Home() {
 
   return (
     <div className="frame">
-      <Masthead me={me} onSignOut={signOut} tail={[]} />
+      <Masthead me={me} onSignOut={signOut} tail={[]} session={expired ? 'signed-in' : session} />
       {expired && <SignInAgain />}
       {error && <div className="banner">{error}</div>}
       {!error && !expired && !topics && <p className="mc">Loading…</p>}
@@ -104,7 +134,7 @@ export default function Home() {
                         <ul className="cards">
                           {g.sets.map((c) => (
                             <li key={c.id}>
-                              <SetCard card={c} />
+                              <CardFor card={c} />
                             </li>
                           ))}
                         </ul>
@@ -130,7 +160,7 @@ export default function Home() {
                         {singles.map((g) =>
                           g.sets.map((c) => (
                             <li key={c.id}>
-                              <SetCard card={c} kicker={g.subtopic!.name} />
+                              <CardFor card={c} kicker={g.subtopic!.name} />
                             </li>
                           )),
                         )}

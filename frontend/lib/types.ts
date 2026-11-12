@@ -12,10 +12,12 @@ export type SetCard = {
   /** `remaining_ms` is computed by the server with pause already folded in. */
   open_attempt: { attempt_id: string; remaining_ms: number | null } | null;
 };
-export type TopicsResponse = { topics: {
+/** The home page's catalogue, with cards of type C. */
+export type Topics<C> = {
   id: number; name: string;
-  groups: { subtopic: { id: number; name: string } | null; sets: SetCard[] }[];   // null group first, then subtopic position
-}[] };                                                                              // topics by position, then id
+  groups: { subtopic: { id: number; name: string } | null; sets: C[] }[];   // null group first, then subtopic position
+}[];                                                                        // topics by position, then id
+export type TopicsResponse = { topics: Topics<SetCard> };
 
 export type SetIntro = { id: number; topic: string; subtopic: string | null; name: string; description: string | null;
   time_limit_minutes: number | null; question_count: number; max_attempts: number | null; attempts_used: number;
@@ -45,8 +47,11 @@ export type History = { attempts: { id: string; set_id: number | null; name: str
   status: 'in_progress' | 'submitted' | 'expired'; started_at: number; finished_at: number | null;
   score: number | null; max_score: number | null }[] };            // newest first
 
+/** Who may see a published set: public = anyone may View it and solvers may take it; private = admins only. */
+export type Visibility = 'public' | 'private';
+
 export type AdminSets = { sets: { id: number; topic: string; name: string; status: 'draft' | 'published' | 'archived';
-  question_count: number; attempt_count: number }[] };
+  visibility: Visibility; question_count: number; attempt_count: number }[] };
 
 export type AdminSetDetail = {
   id: number; name: string; topic: string; subtopic: string | null;
@@ -56,6 +61,7 @@ export type AdminSetDetail = {
   time_limit_minutes: number | null; scoring_policy: 'all_or_nothing' | 'partial';
   max_attempts: number | null;
   shuffle_questions: boolean; shuffle_options: boolean; reveal_answers: boolean;
+  visibility: Visibility;
   questions: { prompt: string; explanation: string | null; points: number;
                options: { body: string; correct: boolean }[] }[];
 };
@@ -64,3 +70,17 @@ export type AdminSetDetail = {
 export type SubmitResult = { attempt_id: string; status: AttemptSession['attempt']['status'] };
 export type ImportResult = { id: number; name: string };
 export type SetStatusResult = { id: number; status: AdminSets['sets'][number]['status'] };
+export type SetVisibilityResult = { id: number; visibility: Visibility };
+
+// The signed-out reads (GET /quiz/api/public/*): published, public sets only; nothing of any person.
+/** A card as anyone may see it: SetCard without the reader's own last score and open attempt. */
+export type PublicSetCard = Omit<SetCard, 'last' | 'open_attempt'>;
+export type PublicTopicsResponse = { topics: Topics<PublicSetCard> };
+/** One set for View: questions in authored order with the answer key, never a score or points. */
+export type PublicSet = {
+  set: { id: number; name: string; topic: string; subtopic: string | null; description: string | null;
+         time_limit_minutes: number | null; question_count: number; reveal_answers: boolean };
+  questions: { id: number; prompt: string;
+               explanation: string | null;                                     // null when !reveal_answers
+               options: { id: number; body: string; correct: boolean | null }[] }[];  // correct null when !reveal_answers
+};

@@ -6,7 +6,7 @@ import { Suspense, useEffect, useRef, useState } from 'react';
 import { getAdminSet, getMe, isSessionExpired, signOut, updateAdminSet } from '../../../lib/api';
 import { MARKING_SHORT, maxMarks } from '../../../lib/score';
 import { clearReauthFlag } from '../../../lib/session';
-import type { Me } from '../../../lib/types';
+import type { Me, Visibility } from '../../../lib/types';
 import Masthead, { type Crumb } from '../../components/Masthead';
 import SignInAgain from '../../components/SignInAgain';
 
@@ -33,11 +33,18 @@ type Draft = {
   shuffle_questions: boolean;
   shuffle_options: boolean;
   reveal_answers: boolean;
+  visibility: Visibility;
   questions: QDraft[];
 };
 type Meta = { topic: string; subtopic: string | null; status: string };
 
 const PER_PAGE = [10, 25, 50] as const;
+
+/** The two visibilities, as the editor offers them. Applies once the set is published. */
+const VISIBILITY_CHOICES: { value: Visibility; label: string; hint: string }[] = [
+  { value: 'public', label: 'Public', hint: 'Anyone can view it; signed-in solvers can take it' },
+  { value: 'private', label: 'Private', hint: 'Only admins can see and take it' },
+];
 
 const message = (err: unknown) => (err instanceof Error ? err.message : 'Something went wrong');
 const blankQuestion = (): QDraft => ({
@@ -112,6 +119,7 @@ function Editor() {
           shuffle_questions: d.shuffle_questions,
           shuffle_options: d.shuffle_options,
           reveal_answers: d.reveal_answers,
+          visibility: d.visibility,
           questions: d.questions.map((q) => ({
             prompt: q.prompt,
             explanation: q.explanation ?? '',
@@ -199,6 +207,7 @@ function Editor() {
         shuffle_questions: draft.shuffle_questions,
         shuffle_options: draft.shuffle_options,
         reveal_answers: draft.reveal_answers,
+        visibility: draft.visibility,
         questions: live.map((q) => ({
           prompt: q.prompt,
           explanation: q.explanation.trim() || null,
@@ -290,6 +299,19 @@ function Editor() {
                   <label className="lab" htmlFor="ed-desc">Description</label>
                   <textarea id="ed-desc" rows={2} value={draft.description}
                             onChange={(e) => set('description', e.target.value)} />
+                </div>
+                <div className="ed-field">
+                  <span className="lab" id="ed-vis-label">Visibility</span>
+                  <div className="ed-vis" role="radiogroup" aria-labelledby="ed-vis-label">
+                    {VISIBILITY_CHOICES.map((c) => (
+                      <label key={c.value} className={draft.visibility === c.value ? 'on' : ''}>
+                        <input type="radio" name="ed-vis" value={c.value} checked={draft.visibility === c.value}
+                               onChange={() => set('visibility', c.value)} />
+                        <b>{c.label}</b>
+                        <span>{c.hint}</span>
+                      </label>
+                    ))}
+                  </div>
                 </div>
                 <div className="ed-grid3">
                   <div>

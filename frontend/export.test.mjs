@@ -35,7 +35,7 @@ function rules(css) {
 }
 
 test('no exported page carries a theme boot script or theme tokens of its own', () => {
-  assert.ok(pages().length >= 8, 'the quiz pages were exported');
+  assert.ok(pages().length >= 10, 'the quiz pages were exported');
   for (const file of pages()) {
     const html = readFileSync(file, 'utf8');
     const head = html.slice(0, html.indexOf('</head>'));
@@ -47,7 +47,8 @@ test('no exported page carries a theme boot script or theme tokens of its own', 
 
 // Every page prerenders its masthead (the pages that read the query string have
 // it as their Suspense fallback), so site-shell finds the site path slot in each.
-const MASTHEAD_PAGES = ['index.html', 'set.html', 'play.html', 'results.html', 'history.html', 'admin.html', 'admin/edit.html'];
+const MASTHEAD_PAGES = ['index.html', 'set.html', 'play.html', 'results.html', 'history.html', 'admin.html', 'admin/edit.html',
+  'view.html', 'signin.html'];
 
 test('every page\'s masthead renders the plain <site-theme-picker hide-label> element', () => {
   for (const name of MASTHEAD_PAGES) {
@@ -63,6 +64,20 @@ test('every page\'s masthead has one site path slot, empty until site-shell fill
     assert.equal(slots.length, 1, `${name}: one site path slot`);
     assert.equal(slots[0][1], '', `${name}: no fallback of the app's own`);
     assert.ok(html.indexOf('<site-slot') > html.indexOf('<header class="masthead">'), `${name}: the slot is in the masthead`);
+  }
+});
+
+// The pages a signed-out visitor can reach prerender neither set of masthead links: which one
+// applies is known only once /me answers, so neither History/Sign out nor Sign in flashes wrongly.
+test('the home page and View prerender no sign-in links; protected pages keep History and Sign out', () => {
+  for (const name of ['index.html', 'view.html', 'signin.html']) {
+    const html = readFileSync(join(out, name), 'utf8');
+    assert.equal(/>(History|Sign out|Sign in)</.test(html), false, `${name}: no masthead links before /me answers`);
+  }
+  for (const name of ['set.html', 'results.html', 'history.html']) {
+    const html = readFileSync(join(out, name), 'utf8');
+    assert.match(html, />History</, name);
+    assert.match(html, />Sign out</, name);
   }
 });
 

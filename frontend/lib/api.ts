@@ -5,11 +5,15 @@ import type {
   History,
   ImportResult,
   Me,
+  PublicSet,
+  PublicTopicsResponse,
   Results,
   SetIntro,
   SetStatusResult,
+  SetVisibilityResult,
   SubmitResult,
   TopicsResponse,
+  Visibility,
 } from './types';
 
 // Empty in production, where the Worker shares the site's origin. Point it at
@@ -22,14 +26,20 @@ export const AUTH_RETRY_DELAY_MS = 300;
 /**
  * An HTTP failure carrying its status, so the UI can tell "your session ended"
  * (offer sign-in) from "the server is broken" (offer a retry).
+ *
+ * `signedOut` marks the one 401 that came from Cloudflare Access rather than the
+ * Worker: the request carried no Access session at all, so Access redirected it
+ * to its sign-in page. A real 401 from the Worker means a session it failed to read.
  */
 export class ApiError extends Error {
   readonly status: number;
+  readonly signedOut: boolean;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, signedOut = false) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.signedOut = signedOut;
   }
 }
 
@@ -39,13 +49,22 @@ export function isSessionExpired(error: unknown): boolean {
 }
 
 /**
+ * True when Access redirected the request to its sign-in: the reader has no session at all.
+ * On a page anyone may open (the quiz home, View) that means a signed-out visitor, not an
+ * expired session; protected pages keep treating it as `isSessionExpired`.
+ */
+export function isSignedOut(error: unknown): boolean {
+  return error instanceof ApiError && error.signedOut;
+}
+
+/**
  * One fetch for every route.
  *
  * `redirect: 'manual'` matters: when the Cloudflare Access session has expired,
  * Access answers an API call with a 302 to `*.cloudflareaccess.com`. A followed
  * redirect would be a cross-origin fetch that fails with an opaque network
  * error. Manual mode surfaces it as an `opaqueredirect` response instead, which
- * we turn into the same 401 the Worker itself returns for "no identity".
+ * we turn into a 401 marked `signedOut` (see `isSignedOut`).
  *
  * A real 401 is retried once after a short pause. The Worker sometimes fails to
  * read a valid session's identity, and sibling requests with the same cookies
@@ -66,9 +85,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     await new Promise((resolve) => setTimeout(resolve, AUTH_RETRY_DELAY_MS));
     res = await call();
   }
-  if (res.type === 'opaqueredirect' || res.status === 401) {
-    throw new ApiError(401, 'session expired');
-  }
+  if (res.type === 'opaqueredirect') throw new ApiError(401, 'not signed in', true);
+  if (res.status === 401) throw new ApiError(401, 'session expired');
   if (res.status === 204) return undefined as T;
   const data = (await res.json().catch(() => ({}))) as T & { error?: string };
   if (!res.ok) {
@@ -100,6 +118,15 @@ export const getMe = () => request<Me>('/me');
 export const renameMe = (displayName: string) => send<Me>('PATCH', '/me', { display_name: displayName });
 
 export const getTopics = () => request<TopicsResponse>('/topics');
+/** The catalogue for a signed-out visitor: published, public sets, nothing of any person. */
+export const getPublicTopics = () => request<PublicTopicsResponse>('/public/topics');
+/** One published, public set with its answer key, for View. */
+export const getPublicSet = (setId: number) => request<PublicSet>(`/public/sets/${id(setId)}`);
+/**
+ * A protected page whose only job is to be reached: Access signs the reader in on the way
+ * (it is not among the paths anyone may open), then it hands them back to the quiz home.
+ */
+export const SIGN_IN_HREF = '/quiz/signin';
 export const getSet = (setId: number) => request<SetIntro>(`/sets/${id(setId)}`);
 
 /** Starts a new attempt (201) or resumes the open one (200); both return the session. */
@@ -152,6 +179,8 @@ export const adminListSets = () => request<AdminSets>('/admin/sets');
 export const adminImport = (setJson: unknown) => send<ImportResult>('POST', '/admin/sets', setJson);
 export const adminSetStatus = (setId: number, action: 'publish' | 'archive') =>
   send<SetStatusResult>('POST', `/admin/sets/${id(setId)}/${action}`);
+export const adminSetVisibility = (setId: number, visibility: Visibility) =>
+  send<SetVisibilityResult>('POST', `/admin/sets/${id(setId)}/visibility`, { visibility });
 export const adminClone = (setId: number) =>
   send<SetStatusResult>('POST', `/admin/sets/${id(setId)}/clone`);
 export const adminDelete = (setId: number) => send<void>('DELETE', `/admin/sets/${id(setId)}`);

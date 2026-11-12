@@ -1,4 +1,6 @@
-"""0003 backfills papers for attempts that already exist in a live database.
+"""Migrations that touch a live database's existing rows: 0003 backfills papers, 0004 adds visibility.
+
+0003 backfills papers for attempts that already exist in a live database.
 
 The migration is the only part of this change that touches data it did not create,
 so it gets its own test: build a pre-0003 database by hand, seed it the way the old
@@ -9,6 +11,7 @@ result is usable through the repositories.
 from __future__ import annotations
 
 import re
+import sqlite3
 import unittest
 
 import helpers  # noqa: F401  (sys.path)
@@ -180,6 +183,44 @@ class MigrationTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(await self.repo.paper("finished")), 2)
         self.assertEqual(len(await self.repo.review("finished")), 2)
         self.assertEqual(len(await self.repo.selections("finished")), 2)
+
+
+class VisibilityMigrationTest(unittest.IsolatedAsyncioTestCase):
+    """0004 adds quiz_sets.visibility. Every set that exists already becomes public, so
+    nobody signed in sees anything different the day it deploys."""
+
+    async def asyncSetUp(self):
+        self.db = _pre_migration_db()  # through 0003, with a published set and two attempts
+        self.db.executescript((MIGRATIONS / "0004_visibility.sql").read_text())
+
+    async def rows(self, sql, *params):
+        return [dict(r) for r in (await self.db.prepare(sql).bind(*params).all()).results]
+
+    async def test_existing_sets_become_public(self):
+        self.assertEqual(await self.rows("SELECT id, visibility FROM quiz_sets"), [{"id": 3, "visibility": "public"}])
+
+    async def test_new_rows_default_to_public(self):
+        await self.db.prepare(
+            "INSERT INTO quiz_sets (id, topic_id, style, seq, scoring_policy, status, created_by, "
+            "created_at, updated_at) VALUES (4, 1, 'standard', 2, 'partial', 'draft', 'a@x.com', 1, 1)"
+        ).run()
+        self.assertEqual((await self.rows("SELECT visibility FROM quiz_sets WHERE id = 4"))[0]["visibility"], "public")
+
+    async def test_only_public_and_private_are_allowed(self):
+        await self.db.prepare("UPDATE quiz_sets SET visibility = 'private' WHERE id = 3").run()
+        with self.assertRaises(sqlite3.IntegrityError):
+            await self.db.prepare("UPDATE quiz_sets SET visibility = 'hidden' WHERE id = 3").run()
+        with self.assertRaises(sqlite3.IntegrityError):
+            await self.db.prepare("UPDATE quiz_sets SET visibility = NULL WHERE id = 3").run()
+
+    async def test_attempts_are_untouched(self):
+        attempts = await self.rows("SELECT id, status, score FROM attempts ORDER BY id")
+        self.assertEqual(
+            attempts,
+            [{"id": "finished", "status": "submitted", "score": 2.0},
+             {"id": "paused", "status": "in_progress", "score": None}],
+        )
+        self.assertEqual(await self.rows("PRAGMA foreign_key_check"), [])
 
 
 if __name__ == "__main__":

@@ -36,6 +36,12 @@ class User:
     display_name: str | None
     role: str
 
+    @property
+    def can_edit_sets(self) -> bool:
+        """Whether this person authors sets: edits them, sets their visibility, and sees and
+        takes private ones. Admins only today; no other role or permission exists."""
+        return self.role == "admin"
+
 
 @dataclass(frozen=True)
 class QuizSetInfo:
@@ -59,6 +65,7 @@ class QuizSetInfo:
     reveal_answers: bool
     max_attempts: int | None
     question_count: int
+    visibility: str  # 'public' | 'private'; see migrations/0004_visibility.sql
 
     @property
     def name(self) -> str:

@@ -8,6 +8,7 @@ import {
   adminImport,
   adminListSets,
   adminSetStatus,
+  adminSetVisibility,
   getMe,
   isSessionExpired,
   signOut,
@@ -51,6 +52,19 @@ const Icons = {
   upload: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><path d="M7 9l5-5 5 5" /><path d="M12 4v12" />
+    </svg>
+  ),
+  /* Visibility: the open eye means anyone may see the set, the struck one only admins. */
+  public: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" />
+    </svg>
+  ),
+  private: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M10.7 5.1A10.7 10.7 0 0 1 12 5c6.5 0 10 7 10 7a17.6 17.6 0 0 1-2.2 3.2" />
+      <path d="M6.6 6.6C3.9 8.4 2 12 2 12s3.5 7 10 7a9.7 9.7 0 0 0 5.4-1.6" />
+      <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" /><path d="m2 2 20 20" />
     </svg>
   ),
   edit: (
@@ -198,7 +212,10 @@ export default function AdminPage() {
                     <tr key={s.id}>
                       <td>{s.name}</td>
                       <td>{s.topic}</td>
-                      <td className="mc">{s.status}</td>
+                      <td className="mc">
+                        {s.status}
+                        {s.visibility === 'private' && <span className="vis-private">private</span>}
+                      </td>
                       <td className="num">{s.question_count}</td>
                       <td className="num">{s.attempt_count}</td>
                       <td>
@@ -215,6 +232,13 @@ export default function AdminPage() {
                               {Icons.archive}
                             </button>
                           )}
+                          <button className="iconbtn" disabled={busy}
+                                  title={s.visibility === 'public' ? 'Public: anyone can view it — make private' : 'Private: only admins can see it — make public'}
+                                  aria-label={s.visibility === 'public' ? `Make ${s.name} private` : `Make ${s.name} public`}
+                                  aria-pressed={s.visibility === 'private'}
+                                  onClick={() => act(() => adminSetVisibility(s.id, s.visibility === 'public' ? 'private' : 'public'))}>
+                            {s.visibility === 'public' ? Icons.public : Icons.private}
+                          </button>
                           <button className="iconbtn" disabled={busy} title="Clone" aria-label={`Clone ${s.name}`}
                                   onClick={() => act(() => adminClone(s.id))}>
                             {Icons.clone}

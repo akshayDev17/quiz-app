@@ -7,6 +7,10 @@
 ``parse`` collects every problem and raises one ``Invalid`` joining them with
 ``"; "``, so an author fixes the whole file in one pass. ``parse_update`` validates
 an in-place edit: the set already owns its topic, so only the body is checked.
+
+``visibility`` is optional: an import without it is ``public``; an edit without it
+keeps the set's current visibility (``None``), so an editor that does not know the
+field can never flip a private set to public.
 """
 
 from __future__ import annotations
@@ -25,6 +29,7 @@ SCORING_POLICIES = ("all_or_nothing", "partial")
 
 DIFFICULTIES = ("easy", "medium", "hard")
 STYLES = ("standard", "scenario")
+VISIBILITIES = ("public", "private")
 _SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 
@@ -50,6 +55,7 @@ class SetImport:
     shuffle_options: bool = False
     reveal_answers: bool = True
     max_attempts: int | None = None
+    visibility: str | None = "public"               # None on an edit = keep the current one
     questions: tuple[QuestionImport, ...] = ()
 
 
@@ -61,8 +67,16 @@ def _is_number(value) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
+def parse_visibility(value, errors: list[str]) -> str | None:
+    """A visibility, or ``None`` when absent (the caller picks the default)."""
+    if value is not None and value not in VISIBILITIES:
+        errors.append(f"visibility must be one of {', '.join(VISIBILITIES)}")
+        return None
+    return value
+
+
 def _parse_fields(payload: dict, errors: list[str]) -> dict:
-    """Everything except topic/subtopic — shared by import and edit."""
+    """Everything except topic/subtopic and visibility — shared by import and edit."""
     difficulty = payload.get("difficulty")
     if difficulty is not None and difficulty not in DIFFICULTIES:
         errors.append(f"difficulty must be one of {', '.join(DIFFICULTIES)}")
@@ -122,9 +136,10 @@ class QuizValidator:
         topic = _parse_named(payload.get("topic"), "topic", errors, required=True)
         subtopic = _parse_named(payload.get("subtopic"), "subtopic", errors, required=False)
         fields = _parse_fields(payload, errors)
+        visibility = parse_visibility(payload.get("visibility"), errors) or "public"
         if errors:
             raise Invalid("; ".join(errors))
-        return SetImport(topic=topic, subtopic=subtopic, **fields)
+        return SetImport(topic=topic, subtopic=subtopic, visibility=visibility, **fields)
 
     @staticmethod
     def parse_update(payload: dict) -> SetImport:
@@ -134,9 +149,10 @@ class QuizValidator:
             raise Invalid("payload must be a JSON object")
         errors: list[str] = []
         fields = _parse_fields(payload, errors)
+        visibility = parse_visibility(payload.get("visibility"), errors)
         if errors:
             raise Invalid("; ".join(errors))
-        return SetImport(topic=("", ""), subtopic=None, **fields)
+        return SetImport(topic=("", ""), subtopic=None, visibility=visibility, **fields)
 
 
 def _optional_text(value, label: str, errors: list[str]) -> str | None:

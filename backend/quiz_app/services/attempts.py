@@ -6,6 +6,11 @@ The server clock decides time. Reads expire a due attempt (at ``deadline_at``);
 Everything an attempt needs after it starts lives on the attempt and its paper, so
 no operation here reads the live set: editing, archiving or deleting a set cannot
 change, strand or break an attempt that is already running or finished.
+
+Visibility works the same way. ``include_private`` (true for the set's editors) lets a
+private set into the catalogue reads; without it a private set reads as missing, so
+nobody else sees it or starts on it. Making a set private refuses only new attempts:
+an open one still resumes and submits, and finished results and history stay.
 """
 
 from __future__ import annotations
@@ -55,10 +60,10 @@ class AttemptService:
         self._clock = clock
         self._grace_ms = grace_ms
 
-    async def start_or_resume(self, email: str, set_id: int) -> AttemptSession:
+    async def start_or_resume(self, email: str, set_id: int, include_private: bool = False) -> AttemptSession:
         now = self._clock.now_ms()
         # An attempt already on this set resumes even if the set has since been
-        # archived or deleted: it reads its own paper, never the catalogue.
+        # archived, deleted or made private: it reads its own paper, never the catalogue.
         attempt = await self._attempts.open_for(set_id, email)
         if attempt is not None and attempt.is_due(now):
             # Its time ran out: hand back the now-expired attempt (the caller shows its results)
@@ -68,7 +73,7 @@ class AttemptService:
         if attempt is not None:
             return await self._session(attempt, created=False)
 
-        info = await self._catalog.get_set(set_id)
+        info = await self._catalog.get_set(set_id, include_private=include_private)
         if info is None:
             raise NotFound("quiz set not found")
         if info.max_attempts is not None and await self._attempts.count_finished(
@@ -179,27 +184,43 @@ class AttemptService:
                 await self._expire(attempt)
 
     async def overview(
-        self, email: str
+        self, email: str, include_private: bool = False
     ) -> tuple[list[QuizSetInfo], dict[int, Attempt], dict[int, Attempt], int]:
-        """The published sets, the caller's last finished and open attempt per set id,
-        and the server time the cards were computed against."""
+        """The published sets the caller may take, their last finished and open attempt per
+        set id, and the server time the cards were computed against.
+
+        As in ``intro``, a private set stays for a caller without ``include_private`` while
+        they still have an attempt open on it."""
         await self.expire_due_for(email)
+        open_ = {a.set_id: a for a in await self._attempts.open_for_user(email)}
+        sets = [
+            info
+            for info in await self._catalog.list_published(include_private=True)
+            if include_private or info.visibility == "public" or info.id in open_
+        ]
         return (
-            await self._catalog.list_published(),
+            sets,
             await self._attempts.last_finished_by_set(email),
-            {a.set_id: a for a in await self._attempts.open_for_user(email)},
+            open_,
             self._clock.now_ms(),
         )
 
-    async def intro(self, email: str, set_id: int) -> tuple[QuizSetInfo, int, str | None]:
-        """A published set, how many attempts the caller has finished on it, and their open one (if any)."""
-        info = await self._catalog.get_set(set_id)
+    async def intro(
+        self, email: str, set_id: int, include_private: bool = False
+    ) -> tuple[QuizSetInfo, int, str | None]:
+        """A published set, how many attempts the caller has finished on it, and their open one (if any).
+
+        A private set is missing to anyone without ``include_private``, except a caller who
+        still has an attempt open on it: their intro stays, so they can resume it."""
+        info = await self._catalog.get_set(set_id, include_private=True)
         if info is None:
             raise NotFound("quiz set not found")
         open_attempt = await self._attempts.open_for(set_id, email)
         if open_attempt is not None and open_attempt.is_due(self._clock.now_ms()):
             await self._expire(open_attempt)
             open_attempt = None
+        if info.visibility == "private" and not include_private and open_attempt is None:
+            raise NotFound("quiz set not found")
         used = await self._attempts.count_finished(set_id, email)
         return info, used, open_attempt.id if open_attempt else None
 

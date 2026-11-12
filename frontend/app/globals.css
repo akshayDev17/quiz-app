@@ -136,6 +136,16 @@ select { -webkit-appearance: none; -moz-appearance: none; appearance: none; --ch
                   border-radius: 999px; padding: .45rem .85rem; letter-spacing: .08em; }
 .set-card .pill .arrow { font-weight: 500; }
 .set-card .pill .time { font-variant-numeric: tabular-nums; opacity: .9; animation: live 1.4s ease-in-out infinite; }
+/* the signed-out card (PublicSetCard): not a link, so it does not lift; its foot is two equal
+   buttons, Sign up (disabled, "coming soon" as its caption) and View */
+.set-card.public { cursor: default; }
+@media (hover: hover) and (pointer: fine) {
+  .set-card.public:hover { border-color: var(--card-line); box-shadow: var(--shadow-rest); transform: none; }
+}
+.set-card .foot.actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s2); }
+.set-card .foot.actions .btn { padding: .5rem; min-height: 2.75rem; }
+.btn.soon { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.15; }
+.btn.soon .sub { font-size: .5625rem; letter-spacing: .1em; text-transform: uppercase; }
 
 /* intro */
 .intro { padding: var(--s6); }
@@ -248,6 +258,10 @@ pre code, pre code.hljs { display: block; overflow: visible; background: none; p
 .ropt .tag { margin-left: auto; white-space: nowrap; }
 .ropt.hit .tag { color: var(--ok); } .ropt.wrong .tag { color: var(--danger); } .ropt.missed .tag { color: var(--warn); }
 .expl { font-size: .9375rem; color: var(--muted); margin-top: var(--s3); padding-top: var(--s3); border-top: 1px solid var(--rule); }
+/* View's foot: Sign up (signed out only) on the left, Back to quizzes on the right */
+.view-foot { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s3); margin: var(--s5) 0; }
+.view-foot .btn { min-height: 2.75rem; padding-block: .35rem; }
+.view-foot a.btn { margin-left: auto; }
 .banner { font-family: var(--mono); font-size: .75rem; letter-spacing: .06em; text-transform: uppercase; color: var(--danger);
           border-left: 2px solid var(--danger); padding: var(--s1) var(--s3); margin-bottom: var(--s4); }
 /* tables (history, admin): hairline rules, mono headers. Each sits in a .table-scroll,
@@ -270,6 +284,8 @@ pre code, pre code.hljs { display: block; overflow: visible; background: none; p
 .iconbtn:active { transform: scale(.96); }
 .iconbtn:disabled { opacity: .45; cursor: not-allowed; }
 .iconbtn.danger { color: var(--danger); }
+/* a private set's status cell: "private" on its own line under the status */
+.vis-private { display: block; color: var(--accent); }
 .iconbtn.danger:hover { border-color: var(--danger); background: color-mix(in oklab, var(--danger) 7%, transparent); }
 
 /* admin — import row */
@@ -347,6 +363,14 @@ pre code, pre code.hljs { display: block; overflow: visible; background: none; p
 /* A fixed setting shown where an input would be: same box, no border to suggest it edits. */
 .editor-page .ed-static { margin: 0; font-size: .8125rem; color: var(--body); padding: .35rem 0;
   border: 1px solid transparent; font-variant-numeric: tabular-nums; }
+/* visibility: two choices side by side, each a radio with its name and what it means */
+.ed-vis { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem; }
+.ed-vis label { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: .45rem; align-items: center;
+  border: 1px solid var(--card-line); border-radius: 5px; background: var(--card); padding: .4rem .6rem; cursor: pointer; }
+.ed-vis label.on { border-color: var(--accent); background: color-mix(in oklab, var(--accent) 7%, var(--card)); }
+.ed-vis input { margin: 0; width: 1rem; height: 1rem; accent-color: var(--accent); cursor: pointer; }
+.ed-vis b { font-size: .8125rem; font-weight: 600; }
+.ed-vis span { grid-column: 2; font-size: .75rem; color: var(--muted); }
 .ed-grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .5rem; }
 .ed-grid3 + .ed-grid3 { margin-top: .6rem; }
 .ed-checks { display: flex; flex-wrap: wrap; gap: .3rem 1.1rem; }
@@ -408,6 +432,7 @@ pre code, pre code.hljs { display: block; overflow: visible; background: none; p
 
 @media (max-width: 40rem) {
   .ed-grid3 { grid-template-columns: 1fr 1fr; }
+  .ed-vis { grid-template-columns: minmax(0, 1fr); }
   .ed-bar-title span { display: block; margin-left: 0; }
   .ed-pager .range { display: none; }
   .ed-ph .meta { white-space: normal; min-width: 0; text-align: right; overflow-wrap: anywhere; }
@@ -422,12 +447,14 @@ pre code, pre code.hljs { display: block; overflow: visible; background: none; p
   .mc, .kicker, .linkbtn, .chip, .mark, .import-sub,
   .masthead site-theme-picker::part(select),
   .shead .num, .shead .counts, .subhead .label, .subhead .cnt,
-  .set-card .kicker-c, .stats .k, .rq-head .n,
+  .set-card .kicker-c, .stats .k, .rq-head .n, .btn.soon .sub,
   .ed-ph .meta, .ed-opt .idx { font-size: .75rem; }
   /* at that size a topic's "N subtopics · N quizzes" no longer fits one line
      beside its name on a 360px phone, so it wraps after the dot (its only
      ordinary space, page.tsx) instead of widening the page */
   .shead .counts { white-space: normal; }
+  /* raised to 12px, the caption would outweigh "Sign up" at its old tracking */
+  .btn.soon .sub { letter-spacing: .03em; }
 }
 
 @media (prefers-reduced-motion: reduce) { .card, .opt { transition: none; } .set-card:hover { transform: none; } .timer.red { animation: none; } }

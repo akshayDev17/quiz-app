@@ -70,34 +70,52 @@ const history = { attempts: [
     started_at: NOW - 30 * HOUR, finished_at: NOW - 29 * HOUR, score: -13.5, max_score: 24 },
 ] };
 const adminSets = { sets: [
-  { id: 2, topic: 'Retrieval-augmented generation', name: 'Embeddings and vector space · Set 1', status: 'published', question_count: 12, attempt_count: 14 },
-  { id: 3, topic: 'Retrieval-augmented generation', name: 'Embeddings and vector space · Set 2', status: 'draft', question_count: 10, attempt_count: 0 },
-  { id: 4, topic: 'Distributed systems', name: 'Consensus and replication · Set 1', status: 'archived', question_count: 8, attempt_count: 3 },
+  { id: 2, topic: 'Retrieval-augmented generation', name: 'Embeddings and vector space · Set 1', status: 'published', visibility: 'private', question_count: 12, attempt_count: 14 },
+  { id: 3, topic: 'Retrieval-augmented generation', name: 'Embeddings and vector space · Set 2', status: 'draft', visibility: 'public', question_count: 10, attempt_count: 0 },
+  { id: 4, topic: 'Distributed systems', name: 'Consensus and replication · Set 1', status: 'archived', visibility: 'public', question_count: 8, attempt_count: 3 },
 ] };
 const adminSet = {
   id: 2, name: setIntro.name, topic: setIntro.topic, subtopic: setIntro.subtopic, status: 'published', seq: 1, question_count: 2,
   difficulty: 'medium', style: 'standard', title: null, description: setIntro.description, time_limit_minutes: 20,
   scoring_policy: 'partial', max_attempts: 3, shuffle_questions: true, shuffle_options: true, reveal_answers: true,
+  visibility: 'public',
   questions: questions.map((q) => ({ prompt: q.prompt, explanation: null, points: 1,
     options: q.options.map((o, j) => ({ body: o.body, correct: j === 0 })) })),
+};
+
+// What a signed-out visitor reads: the cards without anyone's attempts, and one set for View.
+const publicCard = ({ last, open_attempt, ...rest }) => rest;
+const publicTopics = { topics: topics.topics.map((t) => ({ ...t, groups: t.groups.map((g) => ({ ...g, sets: g.sets.map(publicCard) })) })) };
+const publicSet = {
+  set: { id: 2, name: setIntro.name, topic: setIntro.topic, subtopic: setIntro.subtopic, description: setIntro.description,
+    time_limit_minutes: 20, question_count: 2, reveal_answers: true },
+  questions: questions.map((q) => ({ id: q.id, prompt: q.prompt,
+    explanation: 'Normalising both vectors makes the denominator 1, so cosine similarity reduces to the inner product.',
+    options: q.options.map((o, j) => ({ id: o.id, body: o.body, correct: j === 0 })) })),
 };
 
 /** GET /quiz/api<path> → body. */
 const API = {
   '/me': me, '/topics': topics, '/sets/2': setIntro, '/attempts/a2': attemptSession, '/attempts/a1/results': results,
   '/attempts': history, '/admin/sets': adminSets, '/admin/sets/2': adminSet,
+  '/public/topics': publicTopics, '/public/sets/2': publicSet,
 };
 
-/** Each page type, and the element whose presence means its data has rendered. */
+/** Each page type, the element whose presence means its data has rendered, and whether the reader is signed out. */
 const PAGES = {
-  '/quiz': '.shead',
-  '/quiz/set?id=2': 'h1, h2',
-  '/quiz/play?attempt=a2': '.opt',
-  '/quiz/results?attempt=a1': '.ropt',
-  '/quiz/history': '.table td',
-  '/quiz/admin': '.table td',
-  '/quiz/admin/edit?id=2': 'textarea',
+  '/quiz': { ready: '.shead' },
+  '/quiz/set?id=2': { ready: 'h1, h2' },
+  '/quiz/play?attempt=a2': { ready: '.opt' },
+  '/quiz/results?attempt=a1': { ready: '.ropt' },
+  '/quiz/history': { ready: '.table td' },
+  '/quiz/admin': { ready: '.table td' },
+  '/quiz/admin/edit?id=2': { ready: 'textarea' },
+  // Signed out: Access redirects every protected API call to its sign-in.
+  '/quiz?signed-out': { ready: '.shead', signedOut: true },
+  '/quiz/view?id=2': { ready: '.ropt', signedOut: true },
 };
+/** The public reads; every other API path is protected. */
+const isPublic = (path) => path.startsWith('/public/');
 const WIDTHS = [360, 390, 412];
 const THEMES = ['classic-light', 'classic-dark'];
 
@@ -145,12 +163,17 @@ test('every page type lays out at exactly the phone width (360, 390, 412 px; bot
     for (const width of WIDTHS) {
       const context = await browser.newContext({ viewport: { width, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true });
       await context.addInitScript((id) => { try { localStorage.setItem('site-theme', id); } catch {} }, theme);
+      let signedOut = false;
       await context.route((url) => url.pathname.startsWith('/quiz/api/'), (route) => {
         const path = new URL(route.request().url()).pathname.slice('/quiz/api'.length);
+        if (signedOut && !isPublic(path)) {
+          return route.fulfill({ status: 302, headers: { location: 'https://team.cloudflareaccess.com/cdn-cgi/access/login' } });
+        }
         const body = API[path];
         return body ? route.fulfill({ json: body }) : route.fulfill({ status: 404, json: { error: 'not found' } });
       });
-      for (const [path, ready] of Object.entries(PAGES)) {
+      for (const [path, { ready, signedOut: out = false }] of Object.entries(PAGES)) {
+        signedOut = out;
         const page = await context.newPage();
         await page.goto(`${s.base}${path}`, { waitUntil: 'load' }).catch((err) => {
           throw new Error(`${err.message}\nwrangler dev:\n${s.log().slice(-3000)}`);

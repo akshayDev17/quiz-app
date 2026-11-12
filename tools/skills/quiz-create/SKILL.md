@@ -178,6 +178,8 @@ validation on upload.
 - `time_limit_minutes`, `max_attempts`: positive whole number, or omit (untimed / unlimited).
 - `title`, `description`: optional text.
 - `shuffle_questions`, `shuffle_options`, `reveal_answers`: booleans (defaults false, false, true).
+- `visibility`: `public` (default: signed-out visitors can View it, signed-in solvers can take it)
+  | `private` (only admins see and take it). Changeable later in the admin editor.
 - `questions`: at least 1. Each: non-empty `prompt`, `points > 0` (default 1; stored but no
   longer weights marking), at least
   2 `options`, at least 1 option with `correct: true`. `explanation` optional.

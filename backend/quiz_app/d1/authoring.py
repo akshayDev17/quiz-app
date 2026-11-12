@@ -1,4 +1,4 @@
-"""D1-backed authoring: create (import), status changes, clone, admin listing."""
+"""D1-backed authoring: create (import), status and visibility changes, clone, admin listing."""
 
 from __future__ import annotations
 
@@ -43,13 +43,13 @@ class D1QuizAuthoring(QuizAuthoring):
         set_id = (await self._db.prepare(
             "INSERT INTO quiz_sets (topic_id, subtopic_id, difficulty, style, seq, title, description, "
             "time_limit_minutes, scoring_policy, shuffle_questions, shuffle_options, reveal_answers, "
-            "max_attempts, status, created_by, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?) RETURNING id"
+            "max_attempts, visibility, status, created_by, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?) RETURNING id"
         ).bind(
             topic_id, subtopic_id, imp.difficulty, imp.style, seq, imp.title, imp.description,
             imp.time_limit_minutes, imp.scoring_policy, int(imp.shuffle_questions),
             int(imp.shuffle_options), int(imp.reveal_answers), imp.max_attempts,
-            created_by, now_ms, now_ms,
+            imp.visibility or "public", created_by, now_ms, now_ms,
         ).first())["id"]
 
         try:
@@ -79,6 +79,11 @@ class D1QuizAuthoring(QuizAuthoring):
             "UPDATE quiz_sets SET status = ?, updated_at = ? WHERE id = ?"
         ).bind(status, self._clock.now_ms(), set_id).run()
 
+    async def set_visibility(self, set_id: int, visibility: str) -> None:
+        await self._db.prepare(
+            "UPDATE quiz_sets SET visibility = ?, updated_at = ? WHERE id = ?"
+        ).bind(visibility, self._clock.now_ms(), set_id).run()
+
     async def clone(self, set_id: int, created_by: str, now_ms: int) -> int:
         source = await self._db.prepare("SELECT * FROM quiz_sets WHERE id = ?").bind(set_id).first()
         if source is None:
@@ -89,13 +94,14 @@ class D1QuizAuthoring(QuizAuthoring):
         new_id = (await self._db.prepare(
             "INSERT INTO quiz_sets (topic_id, subtopic_id, difficulty, style, seq, title, description, "
             "time_limit_minutes, scoring_policy, shuffle_questions, shuffle_options, reveal_answers, "
-            "max_attempts, status, created_by, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?) RETURNING id"
+            "max_attempts, visibility, status, created_by, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?) RETURNING id"
         ).bind(
             source["topic_id"], source["subtopic_id"], source["difficulty"], source["style"], seq,
             source["title"], source["description"], source["time_limit_minutes"],
             source["scoring_policy"], source["shuffle_questions"], source["shuffle_options"],
-            source["reveal_answers"], source["max_attempts"], created_by, now_ms, now_ms,
+            source["reveal_answers"], source["max_attempts"], source["visibility"],
+            created_by, now_ms, now_ms,
         ).first())["id"]
 
         try:
@@ -143,11 +149,12 @@ class D1QuizAuthoring(QuizAuthoring):
         await self._db.prepare(
             "UPDATE quiz_sets SET difficulty = ?, style = ?, title = ?, description = ?, "
             "time_limit_minutes = ?, scoring_policy = ?, shuffle_questions = ?, shuffle_options = ?, "
-            "reveal_answers = ?, max_attempts = ?, updated_at = ? WHERE id = ?"
+            "reveal_answers = ?, max_attempts = ?, visibility = COALESCE(?, visibility), "
+            "updated_at = ? WHERE id = ?"
         ).bind(
             imp.difficulty, imp.style, imp.title, imp.description, imp.time_limit_minutes,
             imp.scoring_policy, int(imp.shuffle_questions), int(imp.shuffle_options),
-            int(imp.reveal_answers), imp.max_attempts, now_ms, set_id,
+            int(imp.reveal_answers), imp.max_attempts, imp.visibility, now_ms, set_id,
         ).run()
         # Replace the questions; options cascade. Only future attempts see this.
         await self._db.prepare("DELETE FROM questions WHERE set_id = ?").bind(set_id).run()
