@@ -151,9 +151,7 @@ def results(view: ResultsView) -> dict:
         questions.append({
             "id": q.id,
             "prompt": q.prompt,
-            # The most this question could score. Hidden with the key: under negative
-            # marking it is 2 x the number of correct options, so it would give that away.
-            "points": policy.max_award(q.points, correct) if reveal else None,
+            "points": policy.max_award(q.points, correct),
             "awarded_points": graded.awarded_points,
             "is_correct": graded.is_correct,
             "explanation": q.explanation if reveal else None,

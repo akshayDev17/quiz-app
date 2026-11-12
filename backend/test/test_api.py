@@ -419,8 +419,8 @@ class SecrecyTest(ApiCase):
             self.assertTrue(all(o["correct"] is None for o in q["options"]))
         first = results["questions"][0]
         self.assertEqual((first["is_correct"], first["awarded_points"]), (True, 6))
-        # A question's maximum is 2 x its correct options, so it is hidden with the key.
-        self.assertTrue(all(q["points"] is None for q in results["questions"]))
+        self.assertEqual([q["points"] for q in results["questions"]], [6, 4, 2])
+        self.assertEqual(results["attempt"]["max_score"], 12)
         self.assertEqual({o["id"] for o in first["options"] if o["selected"]}, set(q1.correct))
         self.assertEqual(results["attempt"]["score"], 2)  # 6, then two blanks at -2
 

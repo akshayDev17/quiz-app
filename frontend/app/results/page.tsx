@@ -48,8 +48,7 @@ function QuestionCard({ q, index, reveal }: { q: Question; index: number; reveal
           <Markdown text={q.prompt} />
         </h3>
         <span className={`mark ${markCls}`}>
-          {markText} · {formatScore(q.awarded_points)}
-          {q.points !== null && `/${formatScore(q.points)}`}
+          {markText} · {formatScore(q.awarded_points)}/{formatScore(q.points)}
         </span>
       </div>
       {q.options.map((o, i) => {
