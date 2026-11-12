@@ -271,7 +271,7 @@ This is enforced by types, not just by convention:
   `is_correct` field**, so solver code can't leak it by accident.
 - The answer key is reachable only through `AnswerKeyReader`, which only the
   `Grader` holds, and through the public View (`GET /public/sets/{id}`). By
-  owner decision, View shows the key of every published set with
+  owner decision, View shows the key of every published, public set with
   `reveal_answers` true to anyone, so a solver can read it while their own
   attempt on that set is open. Sets with `reveal_answers` false keep the key
   hidden on View too.
@@ -395,9 +395,9 @@ The quiz must look like part of the same site as `my-github-io/index.html` and
   Quiz Room marked, and below the quiz home the page's trail on its own line
   (`Quiz Room › History`). On portrait phones the row is one line that scrolls
   sideways. Each page passes its crumbs after "Quiz Room" (`History`, `Quiz`,
-  `Attempt`, `Results`, `Admin`, `Admin / Edit set`). A client-side move keeps
-  the row as composed and redraws only the trail. Without site-shell the slot
-  stays empty.
+  `Attempt`, `Results`, `Admin`, `Admin / Edit set`, `View`, `Sign in`). A
+  client-side move keeps the row as composed and redraws only the trail.
+  Without site-shell the slot stays empty.
 - The masthead name "The Quiz Room" is a placeholder. **(my call)**
 - **Sketch-only, must not ship:** the "Spark, not the product…" note, the
   sample data, the 60-second demo timer and its scaled amber/red thresholds,
