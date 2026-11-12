@@ -111,7 +111,7 @@ export default function Home() {
               <span className="num">{String(i + 1).padStart(2, '0')}</span>
               <span className="shead-name">{topic.name}</span>
               <span className="counts">
-                {pluralize(subtopicCount, 'subtopic').replace(' ', '\u00a0')}{'\u00a0· '}{pluralize(quizCount, 'quiz').replace(' ', '\u00a0')}
+                {pluralize(subtopicCount, 'subtopic').replace(' ', '\u00a0')}{'\u00a0· '}{pluralize(quizCount, 'quiz', 'quizzes').replace(' ', '\u00a0')}
               </span>
               <span className="fill" />
               <span className="chev">{topicOpen ? '−' : '+'}</span>
@@ -126,7 +126,7 @@ export default function Home() {
                     <Fragment key={key}>
                       <button className="subhead" aria-expanded={open} onClick={() => toggleGroup(key)}>
                         <span className="label">{subtopicGroupLabel(g.subtopic)}</span>
-                        <span className="cnt">{pluralize(g.sets.length, 'quiz')}</span>
+                        <span className="cnt">{pluralize(g.sets.length, 'quiz', 'quizzes')}</span>
                         <span className="fill" />
                         <span className="chev">{open ? '−' : '+'}</span>
                       </button>
@@ -151,7 +151,7 @@ export default function Home() {
                       onClick={() => toggleGroup(`merged:${topic.id}`)}
                     >
                       <span className="label">Other modules</span>
-                      <span className="cnt">{pluralize(singles.length, 'quiz')}</span>
+                      <span className="cnt">{pluralize(singles.length, 'quiz', 'quizzes')}</span>
                       <span className="fill" />
                       <span className="chev">{openGroups.has(`merged:${topic.id}`) ? '−' : '+'}</span>
                     </button>

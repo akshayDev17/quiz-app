@@ -12,4 +12,6 @@ test('pluralize', () => {
   assert.equal(pluralize(1, 'question'), '1 question');
   assert.equal(pluralize(2, 'question'), '2 questions');
   assert.equal(pluralize(0, 'question'), '0 questions');
+  assert.equal(pluralize(1, 'quiz', 'quizzes'), '1 quiz');
+  assert.equal(pluralize(2, 'quiz', 'quizzes'), '2 quizzes');
 });
