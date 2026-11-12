@@ -102,7 +102,7 @@ reworded to *why is this hop/answer load-bearing?* — see `CODE-MATERIAL.md`.
 ## The rules — each rule is also its check (prose)
 
 Prose material. For code, follow `CODE-MATERIAL.md` instead of rules 1–8;
-rules 9–10 (right-size, scoring) apply to both.
+rules 9–12 (right-size, scoring, justification, order) apply to both.
 
 1. **Quiz the idea, not the document.** Test definitions, mechanisms,
    distinctions, tradeoffs. Name concepts by what they mean, never by where the
@@ -150,6 +150,17 @@ rules 9–10 (right-size, scoring) apply to both.
     and the "not source-locked" line is true — a question only the source's
     author could justify fails here.
     Check: every question has both lines; the first line holds.
+12. **Order-free, or say so.** By default every attempt serves the questions in
+    a fresh random order and shuffles the options inside each question. So
+    prefer options that read correctly anywhere — no "All of the above", "None
+    of the above", "Both A and B", "A and C", "the option above" — and
+    explanations that name options by what they say, never "the first option"
+    or "option B". Prefer questions that stand alone, never "the previous
+    question" or "Question 3". If a set truly needs either, set
+    `"shuffle_options": false` (position-dependent options or explanations) or
+    `"shuffle_questions": false` (cross-question references) in its JSON.
+    Check: every option and explanation reads correctly in any option order,
+    and every question in any question order — or the matching switch is false.
 
 ## The shape
 
@@ -180,7 +191,8 @@ validation on upload.
   ignored: every attempt is marked +2 / −1 / −2 blank.
 - `time_limit_minutes`, `max_attempts`: positive whole number, or omit (untimed / unlimited).
 - `title`, `description`: optional text.
-- `shuffle_questions`, `shuffle_options`, `reveal_answers`: booleans (defaults false, false, true).
+- `shuffle_questions`, `shuffle_options`, `reveal_answers`: booleans (defaults true, true, true).
+  Turn a shuffle switch off only for the reason in rule 12.
 - `visibility`: `public` (default: signed-out visitors can View it, signed-in solvers can take it)
   | `private` (only admins see and take it). Changeable later in the admin editor.
 - `questions`: at least 1. Each has a `type`: `choice` (the default, may be omitted) or

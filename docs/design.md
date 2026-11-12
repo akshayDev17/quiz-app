@@ -103,7 +103,8 @@ topics(id, slug UNIQUE, name, description, position, created_at)       RAG, Harn
   │             seq ("Set N"), title NULL (override), description,
   │             time_limit_minutes NULL=untimed,
   │             scoring_policy[all_or_nothing|partial] (stored; no longer decides marking),
-  │             shuffle_questions, shuffle_options, reveal_answers,
+  │             shuffle_questions, shuffle_options (on unless the author turns one off),
+  │             reveal_answers,
   │             max_attempts NULL=unlimited,
   │             status[draft|published|archived], visibility[public|private],
   │             created_by, …)
@@ -142,6 +143,7 @@ Design notes:
 | `attempt_results` is written **once**, at grading | Scores never move afterwards, even if an author later edits the question. |
 | An attempt **owns its paper**: `attempt_questions`/`attempt_options` are copied at start | Editing or deleting a set must never rewrite a solver's record. Everything after "start" reads the paper, never `questions`/`options`, so the live set can change freely. `source_*_id` is provenance only, deliberately without a foreign key. |
 | The paper is written in **served order**; shuffle happens once, at start | Resuming, re-reading and reviewing all get the same order without re-deriving it, so a later edit to `shuffle_*` cannot reorder a running attempt. |
+| `shuffle_questions` and `shuffle_options` are **on by default** | Each new attempt gets a fresh question and option order. Imports default both to true and migration 0006 turned both on for existing sets. An author turns `shuffle_options` off for a set whose options or explanations depend on position ("All of the above", "the first option is right"), and `shuffle_questions` off for one whose questions refer to each other ("the previous question"). The D1 column DEFAULTs are still 0 (changing them needs a `quiz_sets` rebuild that would cascade through questions and attempts), so nothing may rely on them: every write path sets both columns explicitly. |
 | Name ingredients and `scoring_policy`/`reveal_answers` are **copied onto the attempt** | Grading and display use the rules in force when the attempt started. Renaming or re-policying a set cannot rewrite history or change a score mid-attempt. |
 | `attempts.set_id` is **nullable**, `ON DELETE SET NULL` | A set can be hard-deleted while attempts on it survive, unlinked, still showing their score, name and breakdown. |
 | Pause **carries the pending answers** and commits them with `paused_at` in one batch | Once paused, an attempt accepts no writes. Saving first and pausing after left a window where an answer could be lost behind the frozen state. |

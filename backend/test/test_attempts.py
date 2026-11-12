@@ -14,7 +14,7 @@ BACKEND = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND))
 sys.path.insert(0, str(BACKEND / "test"))
 
-from helpers import fresh_db, sample_import  # noqa: E402
+from helpers import authored_key, fresh_db, sample_import  # noqa: E402
 
 from quiz_app.clock import FakeClock  # noqa: E402
 from quiz_app.d1.attempts import D1AttemptRepository  # noqa: E402
@@ -88,7 +88,7 @@ class AttemptCase(unittest.IsolatedAsyncioTestCase):
     async def start(self, email=ALICE, set_id=None) -> str:
         aid = (await self.svc.start_or_resume(email, set_id or self.sid)).attempt.id
         # The paper's ids are new per attempt; answer by those, never by the source's.
-        self.q1, self.q2, self.q3 = (await self.repo.answer_key(aid) + [None, None, None])[:3]
+        self.q1, self.q2, self.q3 = (await authored_key(self.db, aid) + [None, None, None])[:3]
         return aid
 
     async def count_results(self, attempt_id) -> int:
@@ -390,7 +390,9 @@ class ResultsTest(AttemptCase):
         view = await self.svc.results(ALICE, aid)
         self.assertEqual(view.attempt.status, "submitted")
         self.assertEqual(view.attempt.set_id, self.sid)
-        self.assertEqual([q.id for q in view.questions], [self.q1.question_id, self.q2.question_id, self.q3.question_id])
+        # Results come back in the order the paper was served, which is the attempt's own shuffle.
+        self.assertEqual([q.id for q in view.questions], [k.question_id for k in await self.repo.answer_key(aid)])
+        self.assertEqual({q.id for q in view.questions}, {self.q1.question_id, self.q2.question_id, self.q3.question_id})
         self.assertEqual(view.selections[self.q2.question_id], frozenset(wrong))
         self.assertTrue(view.results[self.q1.question_id].is_correct)
         self.assertEqual(view.results[self.q1.question_id].awarded_points, 6)
@@ -435,7 +437,7 @@ class OwnershipAndOrderTest(AttemptCase):
     async def test_display_order_is_materialized_at_start(self):
         # Shuffle is applied once, when the paper is written, so every later read —
         # session, resume, review — gets the same order without re-deriving it.
-        sid = await self.seed(shuffle_questions=True, shuffle_options=True)
+        sid = await self.seed()
         source = await self.papers.paper_source(sid)
         aids = [await self._start_and_finish(sid) for _ in range(4)]
         orders = set()
@@ -456,6 +458,71 @@ class OwnershipAndOrderTest(AttemptCase):
             )
             orders.add(tuple(q.prompt for q in session.questions))
         self.assertGreater(len(orders), 1)  # the shuffle actually varies by attempt
+
+    async def test_a_set_imported_without_shuffle_keys_shuffles_each_new_attempt(self):
+        # Both switches default to on: each new attempt is served in its own seeded
+        # order, and reloading, pausing or re-opening it keeps that order.
+        sid = await self.seed()  # sample_import() carries neither shuffle key
+        source = await self.papers.paper_source(sid)
+
+        def shape(questions):
+            return [(q.prompt, [o.body for o in q.options]) for q in questions]
+
+        orders = set()
+        for _ in range(4):
+            started = await self.svc.start_or_resume(ALICE, sid)
+            aid = started.attempt.id
+            self.assertEqual(shape(started.questions), shape(display_order(aid, source, True, True)))
+            again = await self.svc.start_or_resume(ALICE, sid)
+            self.assertEqual((again.attempt.id, again.created), (aid, False))
+            self.assertEqual(shape(again.questions), shape(started.questions))
+            await self.svc.pause(ALICE, aid)
+            resumed = await self.svc.resume(ALICE, aid)
+            self.assertEqual(shape(resumed.questions), shape(started.questions))
+            self.assertEqual(shape((await self.svc.session(ALICE, aid)).questions), shape(started.questions))
+            orders.add(tuple(map(str, shape(started.questions))))
+            await self.svc.submit(ALICE, aid)
+        self.assertGreater(len(orders), 1)
+
+    async def test_a_set_with_both_switches_off_serves_authored_order(self):
+        sid = await self.seed(shuffle_questions=False, shuffle_options=False)
+        source = await self.papers.paper_source(sid)
+        for _ in range(3):
+            started = await self.svc.start_or_resume(ALICE, sid)
+            self.assertEqual(
+                [(q.prompt, [o.body for o in q.options]) for q in started.questions],
+                [(q.prompt, [o.body for o in q.options]) for q in source],
+            )
+            await self.svc.submit(ALICE, started.attempt.id)
+
+    async def test_a_shuffled_attempt_is_graded_and_reviewed_by_option_identity(self):
+        # Tick the right answers by their text, wherever the shuffle put them: every
+        # attempt scores the same, and results pair each answer with its own question.
+        sid = await self.seed()
+        source = {q.prompt: q for q in await self.papers.paper_source(sid)}
+        wrong_prompt = next(p for p, q in source.items() if sum(o.is_correct for o in q.options) >= 2)
+        scores = set()
+        for _ in range(4):
+            started = await self.svc.start_or_resume(ALICE, sid)
+            aid = started.attempt.id
+            picked = {}
+            for q in started.questions:
+                right = {o.body for o in source[q.prompt].options if o.is_correct}
+                bodies = right if q.prompt != wrong_prompt else {sorted(right)[0]}
+                picked[q.id] = {o.id for o in q.options if o.body in bodies}
+                await self.svc.save(ALICE, aid, q.id, sorted(picked[q.id]))
+            done = await self.svc.submit(ALICE, aid)
+            scores.add((done.score, done.max_score))
+            view = await self.svc.results(ALICE, aid)
+            self.assertEqual([q.prompt for q in view.questions], [q.prompt for q in started.questions])
+            for q in view.questions:
+                self.assertEqual(view.selections.get(q.id, frozenset()), frozenset(picked[q.id]))
+                self.assertEqual(
+                    {o.body for o in q.options if o.is_correct},
+                    {o.body for o in source[q.prompt].options if o.is_correct},
+                )
+                self.assertEqual(view.results[q.id].is_correct, q.prompt != wrong_prompt)
+        self.assertEqual(len(scores), 1, scores)
 
     async def _start_and_finish(self, sid) -> str:
         aid = await self.start(set_id=sid)

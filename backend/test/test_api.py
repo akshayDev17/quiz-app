@@ -15,13 +15,12 @@ BACKEND = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND))
 sys.path.insert(0, str(BACKEND / "test"))
 
-from helpers import fresh_db, sample_import  # noqa: E402
+from helpers import authored_key, fresh_db, sample_import  # noqa: E402
 
 from quiz_app.api import MALFORMED, decode_body  # noqa: E402
 from quiz_app.auth import CloudflareAccessIdentity, Identity, parse_emails  # noqa: E402
 from quiz_app.clock import FakeClock  # noqa: E402
 from quiz_app.composition import build_api  # noqa: E402
-from quiz_app.d1.attempts import D1AttemptRepository  # noqa: E402
 
 ADMIN = Identity("admin@example.com")
 ALICE = Identity("alice@example.com")
@@ -55,8 +54,8 @@ class ApiCase(unittest.IsolatedAsyncioTestCase):
         return await self.ok("POST", f"/sets/{sid}/attempts", None, ident, 201)
 
     async def key(self, aid):
-        """The paper's questions with their correct options, keyed by paper id."""
-        return await D1AttemptRepository(self.db).answer_key(aid)
+        """The paper's questions with their correct options, by paper id, in authored order."""
+        return await authored_key(self.db, aid)
 
     async def answer(self, aid, qid, option_ids, ident=ALICE):
         return await self.call("PUT", f"/attempts/{aid}/answers/{qid}", {"option_ids": sorted(option_ids)}, ident)
@@ -216,14 +215,15 @@ class FlowTest(ApiCase):
             results["set"],
             {"id": sid, "name": card["name"], "topic": "RAG", "scoring_policy": "negative_marking", "reveal_answers": True},
         )
-        first = results["questions"][0]
+        served = {q["id"]: q for q in results["questions"]}
+        first = served[q1.question_id]
         self.assertEqual((first["points"], first["awarded_points"], first["is_correct"]), (6, 6, True))
         self.assertEqual(first["explanation"], "Vectors from different models are not comparable.")
         self.assertEqual(
             {o["id"] for o in first["options"] if o["correct"]}, set(q1.correct)
         )
         self.assertEqual({o["id"] for o in first["options"] if o["selected"]}, set(q1.correct))
-        last_q = results["questions"][2]
+        last_q = served[q3.question_id]
         self.assertEqual((last_q["awarded_points"], last_q["is_correct"]), (-2, False))
         self.assertTrue(all(not o["selected"] for o in last_q["options"]))
 
@@ -409,7 +409,7 @@ class SecrecyTest(ApiCase):
     async def test_reveal_answers_false_hides_correct_and_explanation(self):
         sid = await self.publish(reveal_answers=False)
         aid = (await self.start(sid))["attempt"]["id"]
-        q1, _, _ = await self.key(aid)
+        q1, q2, q3 = await self.key(aid)
         await self.answer(aid, q1.question_id, q1.correct)
         await self.ok("POST", f"/attempts/{aid}/submit")
         results = await self.ok("GET", f"/attempts/{aid}/results")
@@ -417,9 +417,10 @@ class SecrecyTest(ApiCase):
         for q in results["questions"]:
             self.assertIsNone(q["explanation"])
             self.assertTrue(all(o["correct"] is None for o in q["options"]))
-        first = results["questions"][0]
+        served = {q["id"]: q for q in results["questions"]}
+        first = served[q1.question_id]
         self.assertEqual((first["is_correct"], first["awarded_points"]), (True, 6))
-        self.assertEqual([q["points"] for q in results["questions"]], [6, 4, 2])
+        self.assertEqual([served[k.question_id]["points"] for k in (q1, q2, q3)], [6, 4, 2])
         self.assertEqual(results["attempt"]["max_score"], 12)
         self.assertEqual({o["id"] for o in first["options"] if o["selected"]}, set(q1.correct))
         self.assertEqual(results["attempt"]["score"], 2)  # 6, then two blanks at -2

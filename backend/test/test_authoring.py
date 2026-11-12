@@ -122,7 +122,7 @@ class ImportTest(AuthoringCase):
 
     async def test_rules_and_flags_are_stored(self):
         info = await self.service.import_set(ADMIN, sample_import(
-            scoring_policy="partial", shuffle_questions=True, reveal_answers=False,
+            scoring_policy="partial", shuffle_options=False, reveal_answers=False,
             max_attempts=3, time_limit_minutes=None, title="Custom", description="About",
         ))
         self.assertEqual(
@@ -175,7 +175,7 @@ class ValidatorTest(unittest.TestCase):
             "questions": [{"prompt": "p", "options": [{"body": "a", "correct": True}, {"body": "b", "correct": False}]}],
         })
         self.assertEqual((imp.style, imp.scoring_policy), ("standard", "all_or_nothing"))
-        self.assertEqual((imp.shuffle_questions, imp.shuffle_options, imp.reveal_answers), (False, False, True))
+        self.assertEqual((imp.shuffle_questions, imp.shuffle_options, imp.reveal_answers), (True, True, True))
         self.assertEqual((imp.subtopic, imp.difficulty, imp.time_limit_minutes, imp.max_attempts), (None, None, None, None))
         self.assertEqual(imp.questions[0].points, 1)
         self.assertEqual(imp.questions[0].options, (("a", True), ("b", False)))
