@@ -140,9 +140,10 @@ rules 9–10 (right-size, scoring) apply to both.
    Check: the explanation covers the right answer and every wrong option.
 9. **Right-size.** The asked count (default 10; 8–12 if no count was asked).
    Check: the count matches.
-10. **Score fair.** Any multi-correct question ⇒ `scoring_policy: "partial"`
-    (`all_or_nothing` zeroes a partially-correct multi-select).
-    Check: multi-correct questions and `partial` agree.
+10. **Score fair.** Every quiz is marked +2 per correct option ticked, −1 per
+    wrong one, −2 for a blank question, so a question's worth is 2 × its
+    correct options. Keep wrong options plausible, not traps that only punish.
+    Check: no question has a wrong option that is wrong only on a technicality.
 11. **Justify every question.** Each question has its two-line sidecar entry,
     and the "not source-locked" line is true — a question only the source's
     author could justify fails here.
@@ -172,9 +173,11 @@ validation on upload.
 - `topic` required — `slug` is lowercase letters/digits/hyphens, `name` non-empty.
 - `subtopic` optional; omitted means a whole-topic set.
 - `difficulty`: `easy` | `medium` | `hard`; `style`: `standard` (default) | `scenario`.
-- `scoring_policy`: `all_or_nothing` (default) | `partial`.
+- `scoring_policy`: `all_or_nothing` (default) | `partial`. Accepted for older files but
+  ignored: every attempt is marked +2 / −1 / −2 blank.
 - `time_limit_minutes`, `max_attempts`: positive whole number, or omit (untimed / unlimited).
 - `title`, `description`: optional text.
 - `shuffle_questions`, `shuffle_options`, `reveal_answers`: booleans (defaults false, false, true).
-- `questions`: at least 1. Each: non-empty `prompt`, `points > 0` (default 1), at least
+- `questions`: at least 1. Each: non-empty `prompt`, `points > 0` (default 1; stored but no
+  longer weights marking), at least
   2 `options`, at least 1 option with `correct: true`. `explanation` optional.

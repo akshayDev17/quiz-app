@@ -102,7 +102,7 @@ topics(id, slug UNIQUE, name, description, position, created_at)       RAG, Harn
   │             difficulty NULL[easy|medium|hard], style[standard|scenario],
   │             seq ("Set N"), title NULL (override), description,
   │             time_limit_minutes NULL=untimed,
-  │             scoring_policy[all_or_nothing|partial],
+  │             scoring_policy[all_or_nothing|partial] (stored; no longer decides marking),
   │             shuffle_questions, shuffle_options, reveal_answers,
   │             max_attempts NULL=unlimited,
   │             status[draft|published|archived], created_by, …)
@@ -283,18 +283,32 @@ This is enforced by types, not just by convention:
 
 Per question, `C` = correct option set and `S` = selected set.
 
-- **`all_or_nothing`** (default): full points iff `S == C`, else 0.
-- **`partial`**: `points × max(0, (|S∩C| − |S∖C|) / |C|)`. Each wrong tick
-  cancels a right one, so ticking everything scores 0.
+Every attempt started now is marked by **`negative_marking`**:
 
-A blank answer always scores 0. `attempt_results.is_correct` always records
-exact match, so the review page can mark ✓/✗ under either policy.
+- `S` empty (not attempted): −2.
+- Otherwise `2 × |S∩C| − |S∖C|`: +2 per correct option ticked, −1 per wrong
+  one. A correct option left unticked costs nothing.
+- A question's maximum is `2 × |C|`, and the attempt's `max_score` is the sum.
+  Questions and totals may be negative. The question's `points` weight plays no part.
+
+`negative_marking` is frozen onto the attempt at start (`scoring.MARKING`),
+whatever the set's own `scoring_policy` column says; that column is still stored
+and accepted on upload but no longer decides marking. The older policies stay
+registered only for attempts that started under them, which are graded and shown
+by their own rule:
+
+- **`all_or_nothing`**: full points iff `S == C`, else 0.
+- **`partial`**: `points × max(0, (|S∩C| − |S∖C|) / |C|)`.
+
+Under those two a blank scores 0. `attempt_results.is_correct` always records
+exact match, so the review page can mark ✓/✗ under any policy. Scores are written
+once, at submit or expiry, so a finished attempt never moves.
 
 ### Applying SOLID, OOP and patterns, where they're worth it
 
 | Principle / pattern | Where | What it buys |
 |---|---|---|
-| **Strategy + Factory** | `ScoringPolicy` ABC → `AllOrNothing`, `PartialCredit`. `ScoringPolicyFactory.for_set(set)` maps `quiz_sets.scoring_policy` → instance via a registry dict. | This is the factory that pulls its weight: the policy is data in a row, and code needs an object. A new policy (e.g. negative marking) is one class plus one registry line. The `Grader` never changes (Open/Closed). |
+| **Strategy + Factory** | `ScoringPolicy` → `NegativeMarking`, `AllOrNothing`, `PartialCredit`. `ScoringPolicyFactory.for_name(attempt.scoring_policy)` maps the policy frozen on the attempt → instance via a registry dict. | This is the factory that pulls its weight: the policy is data in a row, and code needs an object. Negative marking was one class plus one registry line, and attempts that started under an older policy keep it. The `Grader` never changes (Open/Closed). |
 | **Null Object** | `TimeLimit` ABC → `FixedTimeLimit(minutes)`, `NoTimeLimit`. Methods: `deadline(started_at)`, `is_expired(attempt, now)`. Built by `TimeLimit.of(set)`. | Untimed quizzes stop being `if deadline is not None` scattered through services and serializers. `NoTimeLimit.is_expired` just returns `False`. Both can stand in for each other (Liskov). |
 | **Interface Segregation** | `QuizCatalog` (solver reads, no answers) vs `AnswerKeyReader` (grader only) vs `QuizAuthoring` (admin writes). One D1 class may implement all three. | Each consumer sees only what it needs, and the leak-proofing above falls out of this. |
 | **Dependency Inversion** | Services take ports and a `Clock` in their constructor. `entry.py` wires D1 + `SystemClock` + `CloudflareAccessIdentity`, tests wire memory + `FakeClock` + `DevIdentity`. | Timeout tests advance a fake clock instead of sleeping, and the same services run in the Worker, locally and in tests. |

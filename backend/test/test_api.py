@@ -210,24 +210,25 @@ class FlowTest(ApiCase):
 
         results = await self.ok("GET", f"/attempts/{aid}/results")
         self.assertEqual(results["attempt"]["status"], "submitted")
-        self.assertEqual((results["attempt"]["score"], results["attempt"]["max_score"]), (3, 4))
+        # +2 per correct tick: q1 3 x 2 + q2 2 x 2, and q3 left blank costs 2. Max = 2 x 6 correct options.
+        self.assertEqual((results["attempt"]["score"], results["attempt"]["max_score"]), (8, 12))
         self.assertEqual(
             results["set"],
-            {"id": sid, "name": card["name"], "topic": "RAG", "scoring_policy": "all_or_nothing", "reveal_answers": True},
+            {"id": sid, "name": card["name"], "topic": "RAG", "scoring_policy": "negative_marking", "reveal_answers": True},
         )
         first = results["questions"][0]
-        self.assertEqual((first["points"], first["awarded_points"], first["is_correct"]), (1, 1, True))
+        self.assertEqual((first["points"], first["awarded_points"], first["is_correct"]), (6, 6, True))
         self.assertEqual(first["explanation"], "Vectors from different models are not comparable.")
         self.assertEqual(
             {o["id"] for o in first["options"] if o["correct"]}, set(q1.correct)
         )
         self.assertEqual({o["id"] for o in first["options"] if o["selected"]}, set(q1.correct))
         last_q = results["questions"][2]
-        self.assertEqual((last_q["awarded_points"], last_q["is_correct"]), (0, False))
+        self.assertEqual((last_q["awarded_points"], last_q["is_correct"]), (-2, False))
         self.assertTrue(all(not o["selected"] for o in last_q["options"]))
 
         [card] = (await self.ok("GET", "/topics"))["topics"][0]["groups"][0]["sets"]
-        self.assertEqual(card["last"], {"attempt_id": aid, "status": "submitted", "score": 3, "max_score": 4})
+        self.assertEqual(card["last"], {"attempt_id": aid, "status": "submitted", "score": 8, "max_score": 12})
         self.assertIsNone(card["open_attempt"])
 
         intro = await self.ok("GET", f"/sets/{sid}")
@@ -245,7 +246,7 @@ class FlowTest(ApiCase):
             row,
             {
                 "id": aid, "set_id": sid, "name": card["name"], "topic": "RAG", "status": "submitted",
-                "started_at": START, "finished_at": START, "score": 3, "max_score": 4,
+                "started_at": START, "finished_at": START, "score": 8, "max_score": 12,
             },
         )
         status, body = await self.answer(aid, q3.question_id, q3.correct)
@@ -309,7 +310,7 @@ class FlowTest(ApiCase):
         self.assertEqual(fetched["attempt"]["status"], "expired")
         results = await self.ok("GET", f"/attempts/{aid}/results")
         self.assertEqual(results["attempt"]["status"], "expired")
-        self.assertEqual((results["attempt"]["score"], results["attempt"]["finished_at"]), (1, START + LIMIT_MS))
+        self.assertEqual((results["attempt"]["score"], results["attempt"]["finished_at"]), (2, START + LIMIT_MS))  # 6 - 2 - 2
         [row] = (await self.ok("GET", "/attempts"))["attempts"]
         self.assertEqual(row["status"], "expired")
 
@@ -417,9 +418,11 @@ class SecrecyTest(ApiCase):
             self.assertIsNone(q["explanation"])
             self.assertTrue(all(o["correct"] is None for o in q["options"]))
         first = results["questions"][0]
-        self.assertEqual((first["is_correct"], first["awarded_points"]), (True, 1))
+        self.assertEqual((first["is_correct"], first["awarded_points"]), (True, 6))
+        # A question's maximum is 2 x its correct options, so it is hidden with the key.
+        self.assertTrue(all(q["points"] is None for q in results["questions"]))
         self.assertEqual({o["id"] for o in first["options"] if o["selected"]}, set(q1.correct))
-        self.assertEqual(results["attempt"]["score"], 1)
+        self.assertEqual(results["attempt"]["score"], 2)  # 6, then two blanks at -2
 
 
 class TopicsOrderTest(ApiCase):

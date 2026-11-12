@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
 import { getMe, getSet, isSessionExpired, signOut, startAttempt } from '../../lib/api';
 import { pluralize } from '../../lib/names';
+import { MARKING_RULE } from '../../lib/score';
 import type { Me, SetIntro } from '../../lib/types';
 import { clearReauthFlag, handleSessionExpired } from '../../lib/session';
 import Masthead, { type Crumb } from '../components/Masthead';
@@ -81,6 +82,7 @@ function Intro() {
                 ? `${minutes}-minute time limit. When it runs out, your saved answers are submitted automatically.`
                 : 'No time limit.'}
             </li>
+            <li>{MARKING_RULE}</li>
             <li>You won’t see whether an answer is right until you submit.</li>
             {attemptsLeft !== null && attemptsLeft > 0 && (
               <li>{`${attemptsLeft} of ${intro.max_attempts} attempts left.`}</li>

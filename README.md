@@ -23,7 +23,9 @@ count — until the solver submits or the clock runs out.
 - **Sets under topics.** "RAG › Embeddings and vector space · Set 1" is derived from
   the set's topic, subtopic, difficulty and sequence — never typed by hand.
 - **Multi-correct by design.** Tick any combination; the answer key is the set of
-  options marked correct, and scoring is per set (`all_or_nothing` or `partial`).
+  options marked correct. Every quiz is marked the same way: +2 for each correct
+  option ticked, −1 for each wrong one, −2 for a question left blank, so a score
+  can go below zero.
 - **The server owns the clock.** The deadline is fixed at start, the browser's
   countdown only displays it, and closing the tab cannot buy time.
 - **Pausing freezes the clock.** A paused attempt keeps its time, its answers, and

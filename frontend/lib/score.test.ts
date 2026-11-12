@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { formatScore, percent } from './score.ts';
+import { formatScore, maxMarks, percent } from './score.ts';
 
 test('formatScore trims trailing zeros and caps at 2 decimals', () => {
   assert.equal(formatScore(4), '4');
@@ -10,9 +10,22 @@ test('formatScore trims trailing zeros and caps at 2 decimals', () => {
   assert.equal(formatScore(0), '0');
 });
 
+test('formatScore writes a negative score with a true minus sign', () => {
+  assert.equal(formatScore(-3), '−3');
+  assert.equal(formatScore(-0.5), '−0.5');
+  assert.equal(formatScore(-0.001), '0'); // rounds to zero: no "−0"
+});
+
+test('maxMarks is +2 per correct option', () => {
+  assert.equal(maxMarks(1), 2);
+  assert.equal(maxMarks(3), 6);
+});
+
 test('percent rounds and guards a zero maximum', () => {
   assert.equal(percent(2.5, 4), 63);
   assert.equal(percent(4, 4), 100);
   assert.equal(percent(0, 4), 0);
   assert.equal(percent(0, 0), 0);
+  assert.equal(percent(-3, 12), -25);
+  assert.equal(percent(-12, 12), -100);
 });

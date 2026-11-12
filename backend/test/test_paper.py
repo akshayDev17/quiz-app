@@ -101,7 +101,7 @@ class EditTest(PaperCase):
         self.assertEqual(resumed.selections[self.q1.question_id], frozenset(self.q1.correct))
 
         await self.svc.submit(ALICE, aid)
-        self.assertEqual((await self.repo.get(aid)).score, 1)
+        self.assertEqual((await self.repo.get(aid)).score, 2)  # 6, then two blanks at -2
 
     async def test_a_new_attempt_after_the_edit_gets_the_new_content(self):
         await self.answered_and_submitted()
@@ -111,10 +111,9 @@ class EditTest(PaperCase):
         session = await self.svc.session(ALICE, fresh)
         self.assertEqual([q.prompt for q in session.questions], ["Replaced entirely"])
 
-    async def test_scoring_policy_is_pinned_at_start(self):
-        # Graded by the rules in force when the attempt started, not when it ends.
-        # Half of q2's two correct options scores 1.0 under `partial` and 0 under
-        # `all_or_nothing`, so the score itself says which rule was applied.
+    async def test_a_new_attempt_is_marked_negatively_whatever_the_set_says(self):
+        # The set's own scoring_policy no longer decides marking: every new attempt is
+        # frozen with negative marking, and an edit mid-attempt cannot change that.
         info = await self.authoring.import_set(ADMIN, sample_import(scoring_policy="partial"))
         await self.authoring.publish(ADMIN, info.id)
         aid = (await self.svc.start_or_resume(ALICE, info.id)).attempt.id
@@ -127,8 +126,23 @@ class EditTest(PaperCase):
         await self.svc.resume(ALICE, aid)
         await self.svc.submit(ALICE, aid)
         attempt = await self.repo.get(aid)
-        self.assertEqual(attempt.scoring_policy, "partial")
-        self.assertEqual(attempt.score, 1.0)
+        self.assertEqual(attempt.scoring_policy, "negative_marking")
+        self.assertEqual((attempt.score, attempt.max_score), (-2, 12))  # +2 on q2, two blanks at -2
+
+    async def test_an_attempt_started_under_an_older_policy_is_graded_by_it(self):
+        # An attempt still open from before negative marking keeps the rule it started
+        # under, for its score and for each question's maximum on the results page.
+        aid = await self.start()
+        await self.db.prepare("UPDATE attempts SET scoring_policy = 'partial' WHERE id = ?").bind(aid).run()
+        half = (await self.repo.answer_key(aid))[1]
+        await self.svc.save(ALICE, aid, half.question_id, list(half.correct)[:1])
+        await self.svc.submit(ALICE, aid)
+
+        attempt = await self.repo.get(aid)
+        self.assertEqual((attempt.score, attempt.max_score), (1.0, 4))  # half of q2's 2 points
+        body = serializers.results(await self.svc.results(ALICE, aid))
+        self.assertEqual([q["points"] for q in body["questions"]], [1, 2, 1])
+        self.assertEqual([q["awarded_points"] for q in body["questions"]], [0, 1.0, 0])
 
 
 class ArchiveTest(PaperCase):
@@ -139,7 +153,7 @@ class ArchiveTest(PaperCase):
         await self.svc.save(ALICE, aid, self.q1.question_id, list(self.q1.correct))
         attempt = await self.svc.submit(ALICE, aid)
 
-        self.assertEqual((attempt.status, attempt.score), ("submitted", 1))
+        self.assertEqual((attempt.status, attempt.score), ("submitted", 2))
         self.assertEqual(len((await self.svc.results(ALICE, aid)).questions), 3)
 
     async def test_an_open_attempt_resumes_after_archiving(self):

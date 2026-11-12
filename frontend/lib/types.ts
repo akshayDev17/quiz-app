@@ -33,8 +33,12 @@ export type AttemptSession = {
 export type Results = {
   attempt: { id: string; status: 'submitted' | 'expired'; started_at: number; finished_at: number;
              score: number; max_score: number };
-  set: { id: number | null; name: string; topic: string; scoring_policy: 'all_or_nothing' | 'partial'; reveal_answers: boolean };
-  questions: { id: number; prompt: string; points: number; awarded_points: number; is_correct: boolean;
+  // negative_marking for every attempt started now; the other two only on older attempts.
+  set: { id: number | null; name: string; topic: string;
+         scoring_policy: 'negative_marking' | 'all_or_nothing' | 'partial'; reveal_answers: boolean };
+  questions: { id: number; prompt: string;
+               points: number | null;                               // most it could score; null when !reveal_answers
+               awarded_points: number; is_correct: boolean;
                explanation: string | null;                          // null when !reveal_answers
                options: { id: number; body: string; selected: boolean; correct: boolean | null }[] }[];  // correct null when !reveal_answers
 };

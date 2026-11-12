@@ -11,8 +11,11 @@ import re
 from dataclasses import dataclass
 
 from .errors import Invalid
-from .scoring import ScoringPolicyFactory
 
+# A set's own ``scoring_policy`` no longer decides how an attempt is marked (every new
+# attempt uses ``scoring.MARKING``). It is still accepted, with the values its D1 column
+# allows, so existing quiz files keep uploading unchanged.
+SET_SCORING_POLICIES = ("all_or_nothing", "partial")
 DIFFICULTIES = ("easy", "medium", "hard")
 STYLES = ("standard", "scenario")
 _SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -60,8 +63,8 @@ def _parse_fields(payload: dict, errors: list[str]) -> dict:
     if style not in STYLES:
         errors.append(f"style must be one of {', '.join(STYLES)}")
     policy = payload.get("scoring_policy", "all_or_nothing")
-    if not (isinstance(policy, str) and policy in ScoringPolicyFactory.names()):
-        errors.append(f"scoring_policy must be one of {', '.join(sorted(ScoringPolicyFactory.names()))}")
+    if not (isinstance(policy, str) and policy in SET_SCORING_POLICIES):
+        errors.append(f"scoring_policy must be one of {', '.join(SET_SCORING_POLICIES)}")
 
     time_limit = payload.get("time_limit_minutes")
     if time_limit is not None and not (_is_int(time_limit) and time_limit > 0):

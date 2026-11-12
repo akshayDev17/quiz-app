@@ -13,6 +13,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from .models import Attempt, QuestionResult, QuizSetInfo, ReviewQuestion, User
+from .scoring import ScoringPolicyFactory
 from .services.attempts import AttemptSession, ResultsView
 from .validation import QuestionImport
 
@@ -140,15 +141,19 @@ def results(view: ResultsView) -> dict:
     attempt = view.attempt
     # Pinned at start: flipping reveal_answers later cannot expose an old attempt's key.
     reveal = attempt.reveal_answers
+    policy = ScoringPolicyFactory.for_name(attempt.scoring_policy)
     questions = []
     for q in view.questions:
         # Defensive: a missing result row reads as unanswered rather than failing the page.
         graded = view.results.get(q.id) or QuestionResult(q.id, 0, False)
         picked = view.selections.get(q.id, frozenset())
+        correct = frozenset(o.id for o in q.options if o.is_correct)
         questions.append({
             "id": q.id,
             "prompt": q.prompt,
-            "points": q.points,
+            # The most this question could score. Hidden with the key: under negative
+            # marking it is 2 x the number of correct options, so it would give that away.
+            "points": policy.max_award(q.points, correct) if reveal else None,
             "awarded_points": graded.awarded_points,
             "is_correct": graded.is_correct,
             "explanation": q.explanation if reveal else None,

@@ -18,7 +18,11 @@ const TAIL: Crumb[] = [{ label: 'Results' }];
 type Question = Results['questions'][number];
 type Option = Question['options'][number];
 
-const POLICY_LABEL = { all_or_nothing: 'All-or-nothing', partial: 'Partial credit' } as const;
+const POLICY_LABEL = {
+  negative_marking: 'Negative marking',
+  all_or_nothing: 'All-or-nothing',
+  partial: 'Partial credit',
+} as const;
 
 /** How one option is marked. Without the answer key only the reader's own picks show. */
 function optionMark(o: Option, reveal: boolean): { cls: string; tag: string } {
@@ -44,7 +48,8 @@ function QuestionCard({ q, index, reveal }: { q: Question; index: number; reveal
           <Markdown text={q.prompt} />
         </h3>
         <span className={`mark ${markCls}`}>
-          {markText} · {formatScore(q.awarded_points)}/{formatScore(q.points)}
+          {markText} · {formatScore(q.awarded_points)}
+          {q.points !== null && `/${formatScore(q.points)}`}
         </span>
       </div>
       {q.options.map((o, i) => {
@@ -117,13 +122,15 @@ function ResultsView() {
           )}
           <div className="stats">
             <div>
+              {/* Two unbreakable halves: a narrow column wraps "−4 / 22" before the slash, never inside it. */}
               <span className="v">
-                {formatScore(results.attempt.score)} / {formatScore(results.attempt.max_score)}
+                <span className="nw">{formatScore(results.attempt.score)}</span>{' '}
+                <span className="nw">/ {formatScore(results.attempt.max_score)}</span>
               </span>
               <span className="k">Score</span>
             </div>
             <div>
-              <span className="v">{percent(results.attempt.score, results.attempt.max_score)}%</span>
+              <span className="v">{formatScore(percent(results.attempt.score, results.attempt.max_score))}%</span>
               <span className="k">{POLICY_LABEL[results.set.scoring_policy]}</span>
             </div>
             <div>
