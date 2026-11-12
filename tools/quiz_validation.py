@@ -24,9 +24,10 @@ class Invalid(Exception):
         self.message = message
         super().__init__(message)
 
-
-SCORING_POLICIES = ("all_or_nothing", "partial")
-
+# A set's own ``scoring_policy`` no longer decides how an attempt is marked (every new
+# attempt uses ``scoring.MARKING``). It is still accepted, with the values its D1 column
+# allows, so existing quiz files keep uploading unchanged.
+SET_SCORING_POLICIES = ("all_or_nothing", "partial")
 DIFFICULTIES = ("easy", "medium", "hard")
 STYLES = ("standard", "scenario")
 VISIBILITIES = ("public", "private")
@@ -38,7 +39,9 @@ class QuestionImport:
     prompt: str
     explanation: str | None = None
     points: float = 1
-    options: tuple[tuple[str, bool], ...] = ()  # (body, correct)
+    options: tuple[tuple[str, bool], ...] = ()  # (body, correct); empty for subjective
+    kind: str = "choice"                        # "choice" | "subjective"
+    model_answer: str | None = None             # subjective only
 
 
 @dataclass(frozen=True)
@@ -84,8 +87,8 @@ def _parse_fields(payload: dict, errors: list[str]) -> dict:
     if style not in STYLES:
         errors.append(f"style must be one of {', '.join(STYLES)}")
     policy = payload.get("scoring_policy", "all_or_nothing")
-    if not (isinstance(policy, str) and policy in SCORING_POLICIES):
-        errors.append(f"scoring_policy must be one of {', '.join(sorted(SCORING_POLICIES))}")
+    if not (isinstance(policy, str) and policy in SET_SCORING_POLICIES):
+        errors.append(f"scoring_policy must be one of {', '.join(SET_SCORING_POLICIES)}")
 
     time_limit = payload.get("time_limit_minutes")
     if time_limit is not None and not (_is_int(time_limit) and time_limit > 0):
@@ -191,6 +194,16 @@ def _parse_question(raw, number: int, errors: list[str]) -> QuestionImport | Non
         errors.append(f"{where} must be an object")
         return None
     before = len(errors)
+
+    kind = raw.get("type", "choice")
+    if kind == "subjective":
+        # Storage, attempts and results already handle a subjective question; the take
+        # page and the editor do not yet, so none may be uploaded until they do.
+        errors.append(f"{where}: subjective questions are not supported yet")
+        return None
+    if kind != "choice":
+        errors.append(f"{where}: type must be choice")
+        return None
 
     prompt = raw.get("prompt")
     if not isinstance(prompt, str) or not prompt.strip():
