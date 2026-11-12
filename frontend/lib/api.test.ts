@@ -28,16 +28,23 @@ function captureFetch(): RequestInit[] {
 
 test('saveAnswer passes keepalive through to fetch', async () => {
   const inits = captureFetch();
-  await saveAnswer('a1', 3, [7], undefined, true);
+  await saveAnswer('a1', 3, { option_ids: [7] }, undefined, true);
   assert.equal(inits[0].keepalive, true);
   assert.equal(inits[0].method, 'PUT');
   assert.equal(inits[0].body, JSON.stringify({ option_ids: [7] }));
 });
 
+test('a typed answer is sent as text, verbatim', async () => {
+  const inits = captureFetch();
+  await saveAnswer('a1', 4, { text: '  Each model learns\nits own space. ' });
+  assert.equal(inits[0].method, 'PUT');
+  assert.equal(inits[0].body, JSON.stringify({ text: '  Each model learns\nits own space. ' }));
+});
+
 test('an ordinary save is not keepalive and carries its abort signal', async () => {
   const inits = captureFetch();
   const controller = new AbortController();
-  await saveAnswer('a1', 3, [7], controller.signal);
+  await saveAnswer('a1', 3, { option_ids: [7] }, controller.signal);
   assert.ok(!inits[0].keepalive);
   assert.equal(inits[0].signal, controller.signal);
 });
@@ -73,7 +80,7 @@ test('two 401s in a row are a session expiry, with exactly one retry', async () 
 
 test('the retry resends the same method and body', async () => {
   const inits = scriptFetch(status(401), status(204));
-  await saveAnswer('a1', 3, [7]);
+  await saveAnswer('a1', 3, { option_ids: [7] });
   assert.equal(inits.length, 2);
   assert.equal(inits[1].method, 'PUT');
   assert.equal(inits[1].body, JSON.stringify({ option_ids: [7] }));

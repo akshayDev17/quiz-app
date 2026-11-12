@@ -7,16 +7,16 @@ import { ApiError, getMe, getResults, isSessionExpired, signOut } from '../../li
 import { letter } from '../../lib/letters';
 import { formatScore, percent } from '../../lib/score';
 import { clearReauthFlag, handleSessionExpired } from '../../lib/session';
-import type { Me, Results } from '../../lib/types';
+import type { ChoiceResult, Me, Results, SubjectiveResult } from '../../lib/types';
 import Markdown from '../components/Markdown';
+import ModelAnswer from '../components/ModelAnswer';
 import Masthead, { type Crumb } from '../components/Masthead';
 import SignInAgain from '../components/SignInAgain';
 
 /** This page in the site path, after "Quiz Room". */
 const TAIL: Crumb[] = [{ label: 'Results' }];
 
-type Question = Results['questions'][number];
-type Option = Question['options'][number];
+type Option = ChoiceResult['options'][number];
 
 const POLICY_LABEL = {
   negative_marking: 'Negative marking',
@@ -33,7 +33,36 @@ function optionMark(o: Option, reveal: boolean): { cls: string; tag: string } {
   return { cls: '', tag: '' };
 }
 
-function QuestionCard({ q, index, reveal }: { q: Question; index: number; reveal: boolean }) {
+/**
+ * A subjective question: never marked, so "Not marked" in place of Correct/Incorrect and no
+ * points. The solver's text shows exactly as typed (plain, not Markdown); the model answer and
+ * explanation follow the set's reveal_answers.
+ */
+function WrittenCard({ q, index, reveal }: { q: SubjectiveResult; index: number; reveal: boolean }) {
+  return (
+    <div className="card rq">
+      <div className="rq-head">
+        <span className="n">{String(index + 1).padStart(2, '0')}</span>
+        <h3>
+          <Markdown text={q.prompt} />
+        </h3>
+        <span className="mark blank">Not marked</span>
+      </div>
+      <div className="answer-block">
+        <span className="mc lab">Your answer</span>
+        {q.text_answer ? <div className="typed">{q.text_answer}</div> : <div className="none">Left blank</div>}
+      </div>
+      {reveal && q.model_answer && <ModelAnswer text={q.model_answer} />}
+      {reveal && q.explanation && (
+        <div className="expl">
+          <Markdown text={q.explanation} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function QuestionCard({ q, index, reveal }: { q: ChoiceResult; index: number; reveal: boolean }) {
   const blank = !q.options.some((o) => o.selected);
   const [markCls, markText] = q.is_correct
     ? ['ok', 'Correct']
@@ -104,7 +133,10 @@ function ResultsView() {
     );
   }, [attemptId, router]);
 
-  const unanswered = results ? results.questions.filter((q) => !q.options.some((o) => o.selected)).length : 0;
+  // Only marked questions: a blank one costs −2. A blank subjective question costs nothing.
+  const unanswered = results
+    ? results.questions.filter((q) => q.kind !== 'subjective' && !q.options.some((o) => o.selected)).length
+    : 0;
 
   return (
     <div className="frame">
@@ -137,9 +169,13 @@ function ResultsView() {
               <span className="k">Unanswered</span>
             </div>
           </div>
-          {results.questions.map((q, i) => (
-            <QuestionCard key={q.id} q={q} index={i} reveal={results.set.reveal_answers} />
-          ))}
+          {results.questions.map((q, i) =>
+            q.kind === 'subjective' ? (
+              <WrittenCard key={q.id} q={q} index={i} reveal={results.set.reveal_answers} />
+            ) : (
+              <QuestionCard key={q.id} q={q} index={i} reveal={results.set.reveal_answers} />
+            ),
+          )}
           <p>
             <Link className="btn ghost" href="/" style={{ display: 'inline-block', textDecoration: 'none' }}>
               Back to quizzes

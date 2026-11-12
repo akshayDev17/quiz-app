@@ -138,7 +138,7 @@ Design notes:
 | Time left is **computed by the server** wherever it is displayed | A paused attempt's `deadline_at` may already be in the past (the clock only extends on resume), so anything deriving a remainder from the deadline alone reads zero. The topics card carries `remaining_ms`, not `deadline_at`, for exactly this reason. |
 | Partial unique index: one `in_progress` attempt per (set, user) | Pressing "Start" twice, or in two tabs, resumes the same attempt instead of creating a second one. |
 | `attempt_selections` is one row per ticked option | Multi-select needs no JSON column. Saving an answer is a delete-then-insert of that question's rows in one D1 `batch()`. |
-| A **subjective** question (`kind = 'subjective'`) has no options and an authored `model_answer`; the solver's typed answer is one `attempt_text_answers` row | Typed answers get their own table because `attempt_selections` is keyed and foreign-keyed by option. Saving replaces the row; blank text deletes it. The importer still refuses `"type": "subjective"` until the take page and the editor can show one. |
+| A **subjective** question (`kind = 'subjective'`) has no options and an authored `model_answer`; the solver's typed answer is one `attempt_text_answers` row | Typed answers get their own table because `attempt_selections` is keyed and foreign-keyed by option. Saving replaces the row; blank text deletes it. The importer accepts `"type": "subjective"` with a required `model_answer` and no `options` or `points`; the take page answers it in a text box, and the admin editor switches a question between choice and subjective. |
 | `attempt_results` is written **once**, at grading | Scores never move afterwards, even if an author later edits the question. |
 | An attempt **owns its paper**: `attempt_questions`/`attempt_options` are copied at start | Editing or deleting a set must never rewrite a solver's record. Everything after "start" reads the paper, never `questions`/`options`, so the live set can change freely. `source_*_id` is provenance only, deliberately without a foreign key. |
 | The paper is written in **served order**; shuffle happens once, at start | Resuming, re-reading and reviewing all get the same order without re-deriving it, so a later edit to `shuffle_*` cannot reorder a running attempt. |
@@ -348,15 +348,21 @@ phase 2. JSON shape:
        {"body": "Every stored vector must be re-embedded", "correct": true},
        {"body": "The vector dimension may change", "correct": true},
        {"body": "The chunking boundaries", "correct": false},
-       {"body": "Similarity thresholds need re-tuning", "correct": true}]}
+       {"body": "Similarity thresholds need re-tuning", "correct": true}]},
+    {"type": "subjective",
+     "prompt": "In two or three sentences: why does a new embedding model force a full re-index?",
+     "model_answer": "Each model learns its own vector space, so …",
+     "explanation": "…"}
   ]
 }
 ```
 
 `topic` and `subtopic` are found by slug or created, `subtopic` may be
 omitted (a whole-topic set), and `seq` is assigned by the server.
-`QuizValidator` rejects any question with fewer than 2 options or 0 correct
-options, any empty prompt, and any `type` other than `choice` (the default).
+`QuizValidator` rejects any empty prompt and any `type` other than `choice`
+(the default) or `subjective`. A choice question needs at least 2 options and
+at least 1 correct one, and takes no `model_answer`. A subjective question
+needs a non-empty `model_answer` and takes no `options` and no `points`.
 
 ---
 
@@ -450,15 +456,20 @@ resumes and submits, and finished results and history stay.
 - **Options are rendered from the array, whatever its length.** Letters come
   from position: A…Z, then AA, AB… (spreadsheet-style), so N > 26 still works.
   Number keys `1–9` toggle options.
-- **Every question uses checkboxes and says "Select all that apply" (my
+- **Every choice question uses checkboxes and says "Select all that apply" (my
   call).** Using radio buttons for single-answer questions would give away
   how many answers are correct. If you'd rather tell solvers "pick 1", it's a
   per-set flag later.
+- **A subjective question is a text box** ("Write your answer · not marked"),
+  up to 10,000 characters, with a counter in the last 1,000. It is answered
+  once its text is more than whitespace. The number and arrow shortcuts stand
+  down while the reader types in it.
 - **Autosave** each answer (debounced ~400 ms) with a quiet "Saved" tick. No
   correctness signal of any kind.
 - **Submit** opens a confirm dialog: *"You've answered 18 of 20. 2 unanswered
   (Q4, Q11). Once submitted you can't change answers."* → **Submit** /
-  **Keep going**.
+  **Keep going**. A blank subjective question is not counted as unanswered:
+  the dialog names it separately as not marked, costing nothing.
 - **At 00:00**: inputs lock, a "Time's up" overlay shows for ~1.5 s, then it
   redirects to results. Refreshing the page mid-quiz resumes with the same
   deadline.

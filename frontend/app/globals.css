@@ -175,13 +175,34 @@ select { -webkit-appearance: none; -moz-appearance: none; appearance: none; --ch
 .opt input { margin-top: .45em; accent-color: var(--accent); }
 .letter { font-family: var(--mono); font-size: .8125rem; width: 1.75rem; flex: none; color: var(--muted); padding-top: .2em; }
 .opt.sel .letter { color: var(--accent); }
+/* A subjective question's text box: the option card's frame, at reading size. 16px and up
+   on every screen, so a phone never zooms in when it takes focus. */
+.hint[for] { display: block; }
+textarea.written { display: block; width: 100%; min-height: 10rem; resize: vertical; font-family: var(--serif);
+       font-size: 1.0625rem; line-height: 1.6; color: var(--ink); background: var(--card); border: 1px solid var(--rule-2);
+       border-radius: 6px; padding: var(--s3) var(--s4); transition: border-color .15s var(--ease); }
+textarea.written:hover { border-color: var(--card-line-hover); }
+textarea.written:focus { border-color: var(--accent); outline: none;
+       box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 18%, transparent); }
+textarea.written:disabled { opacity: .55; cursor: not-allowed; }
+.count { text-align: right; margin-top: var(--s1); font-variant-numeric: tabular-nums; }
+/* A typed answer and a model answer on review: the solver's text exactly as typed (plain,
+   wrapped), the model answer as Markdown in the "correct" green that marks the key. */
+.answer-block { margin-top: var(--s2); padding: var(--s2) var(--s3); border-left: 2px solid var(--rule-2); }
+.answer-block .lab { display: block; margin-bottom: 2px; }
+.answer-block .typed { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 1rem; color: var(--body); }
+.answer-block .none { font-size: 1rem; color: var(--muted); font-style: italic; }
+.answer-block.model { border-left-color: var(--ok); background: color-mix(in oklab, var(--ok) 7%, var(--card)); }
+.answer-block.model .lab { color: var(--ok); }
+.answer-block.model > div:last-child { font-size: 1rem; }
 /* On a phone, quiz Markdown (prompts, options, explanations) never widens its card
    or the page: the flex items may shrink below their longest line, so a fenced block
    scrolls inside them, and a long unbroken word or URL breaks instead of running past
    the edge. */
 @media (max-width: 680px) {
   .opt > div, .ropt > div, .rq-head h3 { min-width: 0; }
-  .qprompt, .opt > div, .rq-head h3, .ropt > div, .expl { overflow-wrap: anywhere; }
+  .qprompt, .opt > div, .rq-head h3, .ropt > div, .expl, .answer-block { overflow-wrap: anywhere; }
+  .answer-block { min-width: 0; }
 }
 .row { display: flex; justify-content: space-between; align-items: center; margin-top: var(--s5); gap: var(--s2); }
 .saved { min-width: 5rem; text-align: center; }
@@ -221,7 +242,7 @@ pre code, pre code.hljs { display: block; overflow: visible; background: none; p
 .hljs-bullet { color: light-dark(#735c0f, #f2cc60); }
 .hljs-addition { color: light-dark(#22863a, #aff5b4); background-color: light-dark(#f0fff4, #033a16); }
 .hljs-deletion { color: light-dark(#b31d28, #ffdcd7); background-color: light-dark(#ffeef0, #67060c); }
-.locked .opt { pointer-events: none; opacity: .55; }
+.locked .opt, .locked textarea.written { pointer-events: none; opacity: .55; }
 
 /* dialogs — the scrim dims the page: a veil of the dark end of the theme's
    text/surface pair (--ink on a light theme, --paper on a dark one, picked by
@@ -433,6 +454,8 @@ pre code, pre code.hljs { display: block; overflow: visible; background: none; p
 @media (max-width: 40rem) {
   .ed-grid3 { grid-template-columns: 1fr 1fr; }
   .ed-vis { grid-template-columns: minmax(0, 1fr); }
+  /* a question's type: two short choices, still side by side on a phone */
+  .ed-vis.ed-kind { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .ed-bar-title span { display: block; margin-left: 0; }
   .ed-pager .range { display: none; }
   .ed-ph .meta { white-space: normal; min-width: 0; text-align: right; overflow-wrap: anywhere; }

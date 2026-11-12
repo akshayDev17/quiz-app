@@ -13,11 +13,12 @@ import {
   signOut,
   submitAttempt,
 } from '../../lib/api';
+import { blanks, isAnswered, isTypingTarget, textCounter } from '../../lib/answers';
 import { clockOffset, TIMES_UP_OVERLAY_MS } from '../../lib/countdown';
 import { letter } from '../../lib/letters';
 import { isTerminal, SaveQueue, submitAfterTimeout, type SaveState } from '../../lib/saveQueue';
 import { clearReauthFlag } from '../../lib/session';
-import type { AttemptSession, Me } from '../../lib/types';
+import { MAX_TEXT_ANSWER, type AttemptSession, type Me } from '../../lib/types';
 import ConfirmDialog from '../components/ConfirmDialog';
 import Markdown from '../components/Markdown';
 import Masthead, { type Crumb } from '../components/Masthead';
@@ -62,6 +63,8 @@ function Play() {
   const [loadError, setLoadError] = useState<string | null>(null);
   /** Selected option ids per question id, kept in the question's option order. */
   const [sel, setSel] = useState<Record<number, number[]>>({});
+  /** Typed text per subjective question id, exactly as typed. */
+  const [texts, setTexts] = useState<Record<number, string>>({});
   const [cur, setCur] = useState(0);
   const [saveState, setSaveState] = useState<SaveState>('idle');
   /** "Saved" is dropped on moving to another question (as in the sketch); saving and errors stay. */
@@ -89,8 +92,8 @@ function Play() {
   const timedOut = useRef(false);
 
   useEffect(() => {
-    const queue = new SaveQueue((qid, ids, signal, keepalive) =>
-      saveAnswer(attemptId, qid, ids, signal, keepalive),
+    const queue = new SaveQueue((qid, answer, signal, keepalive) =>
+      saveAnswer(attemptId, qid, answer, signal, keepalive),
     );
     queueRef.current = queue;
     // Leaving or hiding the tab: send pending answers now, as requests that outlive the page.
@@ -156,6 +159,9 @@ function Play() {
         const restored: Record<number, number[]> = {};
         for (const [qid, ids] of Object.entries(s.selections)) restored[Number(qid)] = ids;
         setSel(restored);
+        const typed: Record<number, string> = {};
+        for (const [qid, body] of Object.entries(s.texts ?? {})) typed[Number(qid)] = body;
+        setTexts(typed);
         setSession(s);
       },
       (err) => {
@@ -167,7 +173,7 @@ function Play() {
 
   const questions = session?.questions ?? [];
   const question = questions[cur];
-  const answered = questions.map((q) => (sel[q.id]?.length ?? 0) > 0);
+  const answered = questions.map((q) => isAnswered(q, sel, texts));
   const answeredCount = answered.filter(Boolean).length;
   /** A paused attempt freezes the clock and locks the answers until resumed. */
   const paused = session?.attempt.paused_at != null;
@@ -278,7 +284,15 @@ function Play() {
     const next = now.includes(optionId) ? now.filter((x) => x !== optionId) : [...now, optionId];
     const ordered = question.options.map((o) => o.id).filter((oid) => next.includes(oid));
     setSel({ ...sel, [question.id]: ordered });
-    queueRef.current?.set(question.id, ordered);
+    queueRef.current?.set(question.id, { option_ids: ordered });
+  }
+
+  /** A keystroke in a subjective question's text box: kept as typed, saved once typing pauses. */
+  function write(text: string) {
+    if (inputsOff || !question) return;
+    const qid = question.id;
+    setTexts((prev) => ({ ...prev, [qid]: text }));
+    queueRef.current?.set(qid, { text });
   }
 
   function jump(i: number) {
@@ -286,10 +300,12 @@ function Play() {
     setSavedHidden(true);
   }
 
-  // Keys 1–9 toggle options, arrows move. Off while a dialog is open or once finishing.
+  // Keys 1–9 toggle options, arrows move. Off while a dialog is open or once finishing, and
+  // while typing in a text box, where a digit or an arrow belongs to the answer being written.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (inputsOff || !question || e.altKey || e.ctrlKey || e.metaKey) return;
+      if (isTypingTarget(e.target)) return;
       const n = Number(e.key);
       if (Number.isInteger(n) && n >= 1 && n <= 9 && n <= question.options.length) {
         e.preventDefault();
@@ -304,7 +320,9 @@ function Play() {
     return () => document.removeEventListener('keydown', onKey);
   });
 
-  const unanswered = questions.flatMap((_, i) => (answered[i] ? [] : [`Q${i + 1}`]));
+  const { unanswered, blankWritten } = blanks(questions, sel, texts);
+  const typed = question?.kind === 'subjective' ? (texts[question.id] ?? '') : '';
+  const counter = textCounter(typed.length);
   const saveLabel =
     saveState === 'saved' && savedHidden ? '' : saveRejected ? 'Not saved' : SAVE_LABEL[saveState];
 
@@ -354,7 +372,29 @@ function Play() {
               <div className="qprompt">
                 <Markdown text={question.prompt} />
               </div>
-              <div className="mc hint">Select all that apply</div>
+              {question.kind === 'subjective' ? (
+                <>
+                  <label className="mc hint" htmlFor={`answer-${question.id}`}>
+                    Write your answer · not marked
+                  </label>
+                  <textarea
+                    key={question.id}
+                    id={`answer-${question.id}`}
+                    className="written"
+                    rows={8}
+                    maxLength={MAX_TEXT_ANSWER}
+                    value={typed}
+                    disabled={inputsOff}
+                    spellCheck
+                    onChange={(e) => write(e.target.value)}
+                  />
+                  {counter && (
+                    <div className="mc count" aria-live="polite">{counter}</div>
+                  )}
+                </>
+              ) : (
+                <div className="mc hint">Select all that apply</div>
+              )}
               {question.options.map((o, i) => {
                 const on = (sel[question.id] ?? []).includes(o.id);
                 return (
@@ -394,6 +434,7 @@ function Play() {
         <ConfirmDialog
           total={questions.length}
           unanswered={unanswered}
+          blankWritten={blankWritten}
           onConfirm={submit}
           onCancel={() => setConfirmOpen(false)}
         />

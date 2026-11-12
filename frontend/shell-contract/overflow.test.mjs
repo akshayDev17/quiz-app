@@ -41,25 +41,37 @@ const setIntro = { id: 2, topic: 'Retrieval-augmented generation', subtopic: 'Em
   description: 'Cosine similarity, normalisation, approximate nearest-neighbour indexes and their recall trade-offs.',
   time_limit_minutes: 20, question_count: 12, max_attempts: 3, attempts_used: 1, open_attempt_id: null };
 const questions = [
-  { id: 11, prompt: 'Which of these make **cosine similarity** equal to the dot product?\n\n```python\nimport numpy as np\nq = np.asarray(query_embedding, dtype=np.float32) / np.linalg.norm(query_embedding)\n```',
+  { id: 11, kind: 'choice', prompt: 'Which of these make **cosine similarity** equal to the dot product?\n\n```python\nimport numpy as np\nq = np.asarray(query_embedding, dtype=np.float32) / np.linalg.norm(query_embedding)\n```',
     options: [{ id: 111, body: 'Both vectors are L2-normalised' }, { id: 112, body: 'The vectors have the same dimension' },
       { id: 113, body: 'The index is built as\n\n```python\nindex = faiss.IndexFlatIP(dim); index.add(np.stack([v / np.linalg.norm(v) for v in vectors]))\n```' },
       { id: 114, body: 'Neither vector has a negative component (see https://github.com/facebookresearch/faiss/wiki/MetricType-and-distances#metric_inner_product)' }] },
-  { id: 12, prompt: 'An HNSW index returns fewer true neighbours after you lower `efSearch`. Why?',
+  { id: 12, kind: 'choice', prompt: 'An HNSW index returns fewer true neighbours after you lower `efSearch`. Why?',
     options: [{ id: 121, body: 'The search keeps a shorter candidate list per layer' }, { id: 122, body: 'The graph is rebuilt with fewer links' }] },
 ];
-const attemptSession = {
-  attempt: { id: 'a2', set_id: 2, status: 'in_progress', started_at: NOW - 13 * 60_000, deadline_at: NOW + 7 * 60_000, paused_at: null },
+// A subjective question: typed into a text box, never marked, with an authored model answer.
+// The typed answer and the model answer carry a long unbroken URL and a fenced block.
+const LONG_TYPED = 'Each model learns its own space, see https://github.com/facebookresearch/faiss/wiki/MetricType-and-distances#metric_inner_product_and_cosine_similarity_explained\n\nSo re-embed.';
+const written = { id: 13, kind: 'subjective', prompt: 'In two or three sentences: why does swapping the embedding model force a full re-index, even at the same dimension?', options: [] };
+const MODEL_ANSWER = 'Each model learns its own vector space, so old and new vectors are not comparable:\n\n```python\nindex.reset(); index.add(np.stack([new_model.encode(chunk) for chunk in all_chunks_in_the_corpus_without_exception]))\n```';
+const sessionOf = (id, qs, extra = {}) => ({
+  attempt: { id, set_id: 2, status: 'in_progress', started_at: NOW - 13 * 60_000, deadline_at: NOW + 7 * 60_000, paused_at: null },
   server_now: NOW, set: { name: setIntro.name, topic: setIntro.topic, subtopic: setIntro.subtopic },
-  questions, selections: { 11: [111] },
-};
+  questions: qs, selections: {}, texts: {}, ...extra,
+});
+const attemptSession = sessionOf('a2', [...questions, written], { selections: { 11: [111] } });
+/** The same paper opened on its subjective question, with a long typed answer in the box. */
+const writtenSession = sessionOf('a3', [written, ...questions], { texts: { 13: LONG_TYPED } });
 // Negative marking, below zero: the first question is +2 −1, the second left blank at −2.
 const results = {
   attempt: { id: 'a1', status: 'submitted', started_at: NOW - 2 * HOUR, finished_at: NOW - HOUR, score: -1, max_score: 4 },
   set: { id: 2, name: setIntro.name, topic: setIntro.topic, scoring_policy: 'negative_marking', reveal_answers: true },
-  questions: questions.map((q, i) => ({ id: q.id, prompt: q.prompt, points: 2, awarded_points: i ? -2 : 1, is_correct: false,
+  questions: questions.map((q, i) => ({ id: q.id, kind: 'choice', prompt: q.prompt, points: 2, awarded_points: i ? -2 : 1, is_correct: false,
     explanation: 'Normalising both vectors makes the denominator 1, so cosine similarity reduces to the inner product.',
-    options: q.options.map((o, j) => ({ id: o.id, body: o.body, selected: !i && (j === 0 || j === 2), correct: j === 0 })) })),
+    options: q.options.map((o, j) => ({ id: o.id, body: o.body, selected: !i && (j === 0 || j === 2), correct: j === 0 })) })).concat([
+    { id: written.id, kind: 'subjective', prompt: written.prompt, points: null, awarded_points: null, is_correct: null,
+      explanation: 'Same dimension is a storage coincidence, not compatibility.', options: [],
+      text_answer: LONG_TYPED, model_answer: MODEL_ANSWER },
+  ]),
 };
 const history = { attempts: [
   { id: 'a2', set_id: 2, name: 'Embeddings and vector space · Set 1', topic: 'Retrieval-augmented generation', status: 'in_progress',
@@ -79,8 +91,10 @@ const adminSet = {
   difficulty: 'medium', style: 'standard', title: null, description: setIntro.description, time_limit_minutes: 20,
   scoring_policy: 'partial', max_attempts: 3, shuffle_questions: true, shuffle_options: true, reveal_answers: true,
   visibility: 'public',
-  questions: questions.map((q) => ({ prompt: q.prompt, explanation: null, points: 1,
-    options: q.options.map((o, j) => ({ body: o.body, correct: j === 0 })) })),
+  questions: questions.map((q) => ({ type: 'choice', prompt: q.prompt, explanation: null, points: 1,
+    options: q.options.map((o, j) => ({ body: o.body, correct: j === 0 })) })).concat([
+    { type: 'subjective', prompt: written.prompt, explanation: null, model_answer: MODEL_ANSWER },
+  ]),
 };
 
 // What a signed-out visitor reads: the cards without anyone's attempts, and one set for View.
@@ -89,14 +103,17 @@ const publicTopics = { topics: topics.topics.map((t) => ({ ...t, groups: t.group
 const publicSet = {
   set: { id: 2, name: setIntro.name, topic: setIntro.topic, subtopic: setIntro.subtopic, description: setIntro.description,
     time_limit_minutes: 20, question_count: 2, reveal_answers: true },
-  questions: questions.map((q) => ({ id: q.id, prompt: q.prompt,
+  questions: questions.map((q) => ({ id: q.id, kind: 'choice', prompt: q.prompt,
     explanation: 'Normalising both vectors makes the denominator 1, so cosine similarity reduces to the inner product.',
-    options: q.options.map((o, j) => ({ id: o.id, body: o.body, correct: j === 0 })) })),
+    model_answer: null,
+    options: q.options.map((o, j) => ({ id: o.id, body: o.body, correct: j === 0 })) })).concat([
+    { id: written.id, kind: 'subjective', prompt: written.prompt, explanation: null, model_answer: MODEL_ANSWER, options: [] },
+  ]),
 };
 
 /** GET /quiz/api<path> → body. */
 const API = {
-  '/me': me, '/topics': topics, '/sets/2': setIntro, '/attempts/a2': attemptSession, '/attempts/a1/results': results,
+  '/me': me, '/topics': topics, '/sets/2': setIntro, '/attempts/a2': attemptSession, '/attempts/a3': writtenSession, '/attempts/a1/results': results,
   '/attempts': history, '/admin/sets': adminSets, '/admin/sets/2': adminSet,
   '/public/topics': publicTopics, '/public/sets/2': publicSet,
 };
@@ -106,13 +123,14 @@ const PAGES = {
   '/quiz': { ready: '.shead' },
   '/quiz/set?id=2': { ready: 'h1, h2' },
   '/quiz/play?attempt=a2': { ready: '.opt' },
-  '/quiz/results?attempt=a1': { ready: '.ropt' },
+  '/quiz/play?attempt=a3': { ready: 'textarea.written' },
+  '/quiz/results?attempt=a1': { ready: '.answer-block.model' },
   '/quiz/history': { ready: '.table td' },
   '/quiz/admin': { ready: '.table td' },
   '/quiz/admin/edit?id=2': { ready: 'textarea' },
   // Signed out: Access redirects every protected API call to its sign-in.
   '/quiz?signed-out': { ready: '.shead', signedOut: true },
-  '/quiz/view?id=2': { ready: '.ropt', signedOut: true },
+  '/quiz/view?id=2': { ready: '.answer-block.model', signedOut: true },
 };
 /** The public reads; every other API path is protected. */
 const isPublic = (path) => path.startsWith('/public/');

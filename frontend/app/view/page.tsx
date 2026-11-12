@@ -7,6 +7,7 @@ import { getMe, getPublicSet, isSignedOut, signOut } from '../../lib/api';
 import { letter } from '../../lib/letters';
 import type { Me, PublicSet } from '../../lib/types';
 import Markdown from '../components/Markdown';
+import ModelAnswer from '../components/ModelAnswer';
 import Masthead, { type Crumb, type Session } from '../components/Masthead';
 import { SignUpSoon } from '../components/PublicSetCard';
 
@@ -18,7 +19,9 @@ type Question = PublicSet['questions'][number];
 /**
  * One question in the results layout with every score taken out: no Correct/Incorrect mark, no
  * points, no picks. Each correct option is marked "correct" in the treatment results gives a
- * correct pick. A set that hides its answers shows the options unmarked and no explanation.
+ * correct pick. A subjective question has no options: it is tagged "Written" and shows its model
+ * answer. A set that hides its answers shows the options unmarked, no model answer and no
+ * explanation.
  */
 function QuestionCard({ q, index }: { q: Question; index: number }) {
   return (
@@ -28,6 +31,7 @@ function QuestionCard({ q, index }: { q: Question; index: number }) {
         <h3>
           <Markdown text={q.prompt} />
         </h3>
+        {q.kind === 'subjective' && <span className="mark blank">Written</span>}
       </div>
       {q.options.map((o, i) => (
         <div key={o.id} className={o.correct ? 'ropt hit' : 'ropt'}>
@@ -38,6 +42,7 @@ function QuestionCard({ q, index }: { q: Question; index: number }) {
           <span className="mc tag">{o.correct ? 'correct' : ''}</span>
         </div>
       ))}
+      {q.kind === 'subjective' && q.model_answer && <ModelAnswer text={q.model_answer} />}
       {q.explanation && (
         <div className="expl">
           <Markdown text={q.explanation} />

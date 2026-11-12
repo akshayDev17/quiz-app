@@ -134,27 +134,33 @@ export const startAttempt = (setId: number) =>
   send<AttemptSession>('POST', `/sets/${id(setId)}/attempts`);
 export const getAttempt = (attemptId: string) => request<AttemptSession>(`/attempts/${id(attemptId)}`);
 /**
+ * One question's answer as the API takes it: the ticked options of a choice question, or the
+ * text typed for a subjective one (blank text clears it).
+ */
+export type Answer = { option_ids: number[] } | { text: string };
+
+/**
  * `signal` lets the autosave queue abort a save that has stalled. `keepalive` lets the request
  * outlive the page, for the saves sent as it is hidden or unloaded.
  */
 export const saveAnswer = (
   attemptId: string,
   questionId: number,
-  optionIds: number[],
+  answer: Answer,
   signal?: AbortSignal,
   keepalive?: boolean,
 ) =>
   send<void>(
     'PUT',
     `/attempts/${id(attemptId)}/answers/${id(questionId)}`,
-    { option_ids: optionIds },
+    answer,
     signal,
     keepalive,
   );
 export const submitAttempt = (attemptId: string) =>
   send<SubmitResult>('POST', `/attempts/${id(attemptId)}/submit`);
 /** An answer the browser still holds, sent along with a pause. */
-export type PendingAnswer = { question_id: number; option_ids: number[] };
+export type PendingAnswer = { question_id: number } & Answer;
 
 /**
  * Freeze the clock (timed attempts only), storing `answers` in the same request.
