@@ -546,7 +546,8 @@ class PublicTest(ApiCase):
         )
         self.assertEqual([q["prompt"] for q in view["questions"]], [q["prompt"] for q in authored])
         for got, want in zip(view["questions"], authored):
-            self.assertEqual(set(got), {"id", "prompt", "explanation", "options"})
+            self.assertEqual(set(got), {"id", "kind", "prompt", "explanation", "model_answer", "options"})
+            self.assertEqual((got["kind"], got["model_answer"]), ("choice", None))
             self.assertEqual(got["explanation"], want["explanation"])
             self.assertEqual([(o["body"], o["correct"]) for o in got["options"]],
                              [(o["body"], o["correct"]) for o in want["options"]])

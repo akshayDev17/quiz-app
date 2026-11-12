@@ -288,7 +288,7 @@ def _admin_question(q: QuestionImport) -> dict:
 def public_set(info: QuizSetInfo, questions: list[ReviewQuestion]) -> dict:
     """A published set for the signed-out View: questions with the answer key, never a score.
 
-    The key and explanations follow the set's ``reveal_answers``: View shows what a solver
+    The key, explanations and model answers follow the set's ``reveal_answers``: View shows what a solver
     sees after finishing, to anyone at any time, open attempt or not. No points: View has
     nothing to mark."""
     reveal = info.reveal_answers
@@ -306,8 +306,10 @@ def public_set(info: QuizSetInfo, questions: list[ReviewQuestion]) -> dict:
         "questions": [
             {
                 "id": q.id,
+                "kind": q.kind,
                 "prompt": q.prompt,
                 "explanation": q.explanation if reveal else None,
+                "model_answer": q.model_answer if reveal else None,
                 "options": [
                     {"id": o.id, "body": o.body, "correct": o.is_correct if reveal else None}
                     for o in q.options

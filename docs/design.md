@@ -245,7 +245,7 @@ public.
 | Method & path | Does |
 |---|---|
 | `GET  /public/topics` | the `/topics` cards, without `last` and `open_attempt` |
-| `GET  /public/sets/{id}` | a published, public set (drafts, archived and private sets are 404) with its questions in authored order, each with its options, their `correct` flags and the explanation. No points. When `reveal_answers` is false, `correct` and `explanation` are `null`. |
+| `GET  /public/sets/{id}` | a published, public set (drafts, archived and private sets are 404) with its questions in authored order, each with its `kind`, its options (none for a subjective question), their `correct` flags, the explanation and, for a subjective question, the `model_answer`. No points. When `reveal_answers` is false, `correct`, `explanation` and `model_answer` are `null`. |
 
 ### How time is enforced
 

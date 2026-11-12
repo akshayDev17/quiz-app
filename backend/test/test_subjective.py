@@ -313,6 +313,30 @@ class NotMarkedTest(SubjectiveCase):
                          ("Mine.", None, None))
 
 
+class PublicViewTest(SubjectiveCase):
+    async def written(self, sid) -> dict:
+        view = await self.ok("GET", f"/public/sets/{sid}", ident=None)
+        self.assertEqual([q["kind"] for q in view["questions"]], ["choice", "subjective", "choice", "choice"])
+        return view["questions"][1]
+
+    async def test_view_shows_the_subjective_question_with_its_model_answer(self):
+        written = await self.written(self.sid)
+        self.assertEqual(written, {
+            "id": written["id"],
+            "kind": "subjective",
+            "prompt": WRITTEN.prompt,
+            "explanation": WRITTEN.explanation,
+            "model_answer": WRITTEN.model_answer,
+            "options": [],
+        })
+
+    async def test_hidden_answers_hide_the_model_answer_on_view(self):
+        sid = await self.publish(with_written(reveal_answers=False, difficulty="hard"))
+        written = await self.written(sid)
+        self.assertEqual((written["kind"], written["options"], written["model_answer"], written["explanation"]),
+                         ("subjective", [], None, None))
+
+
 class AuthoringTest(SubjectiveCase):
     async def test_the_editor_gets_every_question_in_its_import_shape(self):
         detail = await self.ok("GET", f"/admin/sets/{self.sid}", ident=ADMIN)
