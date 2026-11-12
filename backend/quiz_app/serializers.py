@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from .models import Attempt, QuestionResult, QuizSetInfo, ReviewQuestion, User
+from .models import SUBJECTIVE, Attempt, QuestionResult, QuizSetInfo, ReviewQuestion, User
 from .scoring import ScoringPolicyFactory
 from .services.attempts import AttemptSession, ResultsView
 from .validation import QuestionImport
@@ -128,12 +128,15 @@ def attempt_session(session: AttemptSession) -> dict:
         "questions": [
             {
                 "id": q.id,
+                "kind": q.kind,
                 "prompt": q.prompt,
-                "options": [{"id": o.id, "body": o.body} for o in q.options],
+                "options": [{"id": o.id, "body": o.body} for o in q.options],  # [] for subjective
             }
             for q in session.questions
         ],
         "selections": {str(qid): sorted(ids) for qid, ids in session.selections.items()},
+        # What the solver typed, per subjective question; a blank one has no entry.
+        "texts": {str(qid): body for qid, body in session.texts.items()},
     }
 
 
@@ -144,12 +147,16 @@ def results(view: ResultsView) -> dict:
     policy = ScoringPolicyFactory.for_name(attempt.scoring_policy)
     questions = []
     for q in view.questions:
+        if q.kind == SUBJECTIVE:
+            questions.append(_subjective_result(q, view.texts.get(q.id), reveal))
+            continue
         # Defensive: a missing result row reads as unanswered rather than failing the page.
         graded = view.results.get(q.id) or QuestionResult(q.id, 0, False)
         picked = view.selections.get(q.id, frozenset())
         correct = frozenset(o.id for o in q.options if o.is_correct)
         questions.append({
             "id": q.id,
+            "kind": q.kind,
             "prompt": q.prompt,
             "points": policy.max_award(q.points, correct),
             "awarded_points": graded.awarded_points,
@@ -177,6 +184,25 @@ def results(view: ResultsView) -> dict:
             "reveal_answers": reveal,
         },
         "questions": questions,
+    }
+
+
+def _subjective_result(q: ReviewQuestion, text: str | None, reveal: bool) -> dict:
+    """A subjective question on the results page: never marked, so no points of any kind.
+
+    The solver always sees what they typed (``None`` when they left it blank); the model
+    answer follows ``reveal_answers``, like the explanation."""
+    return {
+        "id": q.id,
+        "kind": q.kind,
+        "prompt": q.prompt,
+        "points": None,
+        "awarded_points": None,
+        "is_correct": None,
+        "explanation": q.explanation if reveal else None,
+        "options": [],
+        "text_answer": text,
+        "model_answer": q.model_answer if reveal else None,
     }
 
 
@@ -237,22 +263,32 @@ def admin_set_detail(info: QuizSetInfo, questions: list[QuestionImport]) -> dict
         "shuffle_options": info.shuffle_options,
         "reveal_answers": info.reveal_answers,
         "visibility": info.visibility,
-        "questions": [
-            {
-                "prompt": q.prompt,
-                "explanation": q.explanation,
-                "points": q.points,
-                "options": [{"body": body, "correct": correct} for body, correct in q.options],
-            }
-            for q in questions
-        ],
+        "questions": [_admin_question(q) for q in questions],
+    }
+
+
+def _admin_question(q: QuestionImport) -> dict:
+    """A question in its import shape, so the editor can send it straight back."""
+    if q.kind == SUBJECTIVE:
+        return {
+            "type": q.kind,
+            "prompt": q.prompt,
+            "explanation": q.explanation,
+            "model_answer": q.model_answer,
+        }
+    return {
+        "type": q.kind,
+        "prompt": q.prompt,
+        "explanation": q.explanation,
+        "points": q.points,
+        "options": [{"body": body, "correct": correct} for body, correct in q.options],
     }
 
 
 def public_set(info: QuizSetInfo, questions: list[ReviewQuestion]) -> dict:
     """A published set for the signed-out View: questions with the answer key, never a score.
 
-    The key and explanations follow the set's ``reveal_answers``: View shows what a solver
+    The key, explanations and model answers follow the set's ``reveal_answers``: View shows what a solver
     sees after finishing, to anyone at any time, open attempt or not. No points: View has
     nothing to mark."""
     reveal = info.reveal_answers
@@ -270,8 +306,10 @@ def public_set(info: QuizSetInfo, questions: list[ReviewQuestion]) -> dict:
         "questions": [
             {
                 "id": q.id,
+                "kind": q.kind,
                 "prompt": q.prompt,
                 "explanation": q.explanation if reveal else None,
+                "model_answer": q.model_answer if reveal else None,
                 "options": [
                     {"id": o.id, "body": o.body, "correct": o.is_correct if reveal else None}
                     for o in q.options

@@ -86,34 +86,47 @@ def _object(body: object) -> dict:
     return body
 
 
-def _answers(body: object) -> dict[int, frozenset[int]]:
-    """``{"answers": [{"question_id": 1, "option_ids": [2, 3]}]}``; an absent body is no answers."""
+def _is_id_list(value: object) -> bool:
+    return isinstance(value, list) and all(isinstance(i, int) and not isinstance(i, bool) for i in value)
+
+
+def _answer_of(item: dict) -> frozenset[int] | str:
+    """One answer: ``{"option_ids": [...]}`` for a choice question, ``{"text": "..."}`` for
+    a subjective one. Whether it suits its question is the service's call."""
+    if "text" in item:
+        if "option_ids" in item:
+            raise Invalid("an answer has option_ids or text, not both")
+        if not isinstance(item["text"], str):
+            raise Invalid("text must be a string")
+        return item["text"]
+    option_ids = item.get("option_ids")
+    if not _is_id_list(option_ids):
+        raise Invalid("option_ids must be a list of integers")
+    return frozenset(option_ids)
+
+
+def _answers(body: object) -> tuple[dict[int, frozenset[int]], dict[int, str]]:
+    """``{"answers": [{"question_id": 1, "option_ids": [2, 3]}, {"question_id": 4, "text": "…"}]}``
+    as (ticked, typed); an absent body is no answers."""
     if body is None:
-        return {}
+        return {}, {}
     raw = _object(body).get("answers", [])
     if not isinstance(raw, list):
         raise Invalid("answers must be a list")
-    out: dict[int, frozenset[int]] = {}
+    ticked: dict[int, frozenset[int]] = {}
+    typed: dict[int, str] = {}
     for item in raw:
         if not isinstance(item, dict):
             raise Invalid("each answer must be an object")
         question_id = item.get("question_id")
         if not isinstance(question_id, int) or isinstance(question_id, bool):
             raise Invalid("question_id must be an integer")
-        option_ids = item.get("option_ids")
-        if not isinstance(option_ids, list) or not all(
-            isinstance(i, int) and not isinstance(i, bool) for i in option_ids
-        ):
-            raise Invalid("option_ids must be a list of integers")
-        out[question_id] = frozenset(option_ids)
-    return out
-
-
-def _option_ids(body: object) -> list[int]:
-    ids = _object(body).get("option_ids")
-    if not isinstance(ids, list) or not all(isinstance(i, int) and not isinstance(i, bool) for i in ids):
-        raise Invalid("option_ids must be a list of integers")
-    return ids
+        answer = _answer_of(item)
+        if isinstance(answer, str):
+            typed[question_id] = answer
+        else:
+            ticked[question_id] = answer
+    return ticked, typed
 
 
 class Api:
@@ -239,7 +252,11 @@ class Api:
         return 200, serializers.attempt_session(await self._attempts.session(user.email, attempt_id))
 
     async def _answer(self, user: User, body: object, attempt_id: str, question_id: str) -> Response:
-        await self._attempts.save(user.email, attempt_id, int(question_id), _option_ids(body))
+        answer = _answer_of(_object(body))
+        if isinstance(answer, str):
+            await self._attempts.save_text(user.email, attempt_id, int(question_id), answer)
+        else:
+            await self._attempts.save(user.email, attempt_id, int(question_id), sorted(answer))
         return 204, None
 
     async def _submit(self, user: User, body: object, attempt_id: str) -> Response:
@@ -252,8 +269,9 @@ class Api:
     async def _pause(self, user: User, body: object, attempt_id: str) -> Response:
         # The body carries whatever the solver had not yet saved, so the freeze and
         # those answers commit together instead of the freeze racing an autosave.
+        ticked, typed = _answers(body)
         return 200, serializers.attempt_session(
-            await self._attempts.pause(user.email, attempt_id, _answers(body))
+            await self._attempts.pause(user.email, attempt_id, ticked, typed)
         )
 
     async def _resume(self, user: User, body: object, attempt_id: str) -> Response:

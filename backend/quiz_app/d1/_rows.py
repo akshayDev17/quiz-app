@@ -1,12 +1,15 @@
-"""The one SELECT that turns a ``quiz_sets`` row into a ``QuizSetInfo``.
+"""Row mappings shared across the D1 adapters.
 
-Shared by authoring (any status) and the catalog (published): append a WHERE
-and ORDER BY to ``QUIZ_SET_SELECT``, then map rows with ``quiz_set_from_row``.
+``QUIZ_SET_SELECT`` is the one SELECT that turns a ``quiz_sets`` row into a
+``QuizSetInfo``, shared by authoring (any status) and the catalog (published):
+append a WHERE and ORDER BY, then map rows with ``quiz_set_from_row``.
+``review_questions`` folds question-and-option rows, from the live set or from an
+attempt's paper, into ``ReviewQuestion``s.
 """
 
 from __future__ import annotations
 
-from ..models import QuizSetInfo
+from ..models import QuizSetInfo, ReviewOption, ReviewQuestion
 
 QUIZ_SET_COLUMNS = """
   s.id, s.topic_id, t.name AS topic_name, t.position AS topic_position,
@@ -48,3 +51,26 @@ def quiz_set_from_row(row: dict) -> QuizSetInfo:
         question_count=row["question_count"],
         visibility=row["visibility"],
     )
+
+
+def review_questions(rows: list[dict]) -> list[ReviewQuestion]:
+    """Rows of a question LEFT JOIN its options, in order, folded into questions.
+
+    Each row carries ``question_id, prompt, explanation, points, kind, model_answer``
+    and the option's ``option_id, body, is_correct``, all ``NULL`` for a question that
+    has no options."""
+    heads: dict[int, dict] = {}
+    options: dict[int, list[ReviewOption]] = {}
+    for row in rows:
+        qid = row["question_id"]
+        heads.setdefault(qid, row)
+        options.setdefault(qid, [])
+        if row["option_id"] is not None:
+            options[qid].append(ReviewOption(row["option_id"], row["body"], bool(row["is_correct"])))
+    return [
+        ReviewQuestion(
+            qid, head["prompt"], head["explanation"], head["points"], tuple(options[qid]),
+            kind=head["kind"], model_answer=head["model_answer"],
+        )
+        for qid, head in heads.items()
+    ]

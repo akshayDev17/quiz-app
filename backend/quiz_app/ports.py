@@ -99,14 +99,15 @@ class AttemptRepository(ABC):
     @abstractmethod
     async def paper(self, attempt_id: str) -> list[QuestionForSolver]:
         """The questions this attempt was served, in the order it was served, without
-        the answer key."""
+        the answer key or any model answer. Every question, with or without options."""
 
     @abstractmethod
-    async def answer_key(self, attempt_id: str) -> list[QuestionKey]: ...
+    async def answer_key(self, attempt_id: str) -> list[QuestionKey]:
+        """The key of each marked (choice) question; a subjective question has none."""
 
     @abstractmethod
     async def review(self, attempt_id: str) -> list[ReviewQuestion]:
-        """The paper with explanations and correctness, for the results page."""
+        """The paper with explanations, correctness and model answers, for the results page."""
 
     @abstractmethod
     async def selections(self, attempt_id: str) -> dict[int, frozenset[int]]: ...
@@ -116,14 +117,28 @@ class AttemptRepository(ABC):
         """One batch: delete the question's rows, then insert the new ones."""
 
     @abstractmethod
+    async def texts(self, attempt_id: str) -> dict[int, str]:
+        """What the solver typed, by paper question id; a blank answer has no entry."""
+
+    @abstractmethod
+    async def replace_text(
+        self, attempt_id: str, question_id: int, body: str | None, saved_at: int
+    ) -> None:
+        """Store the question's typed answer, replacing any earlier one; ``None`` clears it."""
+
+    @abstractmethod
     async def finish(self, attempt_id: str, status: str, finished_at: int, grade: GradeResult) -> bool:
         """Close an open attempt and write its results once. False if it was already closed."""
 
     @abstractmethod
     async def pause(
-        self, attempt_id: str, paused_at: int, answers: dict[int, frozenset[int]]
+        self,
+        attempt_id: str,
+        paused_at: int,
+        answers: dict[int, frozenset[int]],
+        texts: dict[int, str | None],
     ) -> None:
-        """Freeze the clock and store the given answers in one transaction."""
+        """Freeze the clock and store the given ticked and typed answers in one transaction."""
 
     @abstractmethod
     async def resume(self, attempt_id: str, now_ms: int) -> None:

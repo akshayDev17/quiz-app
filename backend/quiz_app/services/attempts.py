@@ -1,5 +1,9 @@
 """Attempts: start or resume, autosave, submit, lazy expiry, pause and grading.
 
+A choice question is answered by ticking options and is marked. A subjective one is
+answered by typing and is never marked: it has no key, so grading skips it, and it
+adds nothing to the score or the maximum, blank or not.
+
 The server clock decides time. Reads expire a due attempt (at ``deadline_at``);
 ``save`` alone applies the grace window, via ``Attempt.accepts_writes``.
 
@@ -21,7 +25,16 @@ from uuid import uuid4
 from ..clock import Clock
 from ..errors import Conflict, Invalid, NotFound
 from ..grading import grade
-from ..models import Attempt, QuestionForSolver, QuestionResult, QuizSetInfo, ReviewQuestion
+from ..models import (
+    CHOICE,
+    MAX_TEXT_ANSWER,
+    SUBJECTIVE,
+    Attempt,
+    QuestionForSolver,
+    QuestionResult,
+    QuizSetInfo,
+    ReviewQuestion,
+)
 from ..ports import AttemptRepository, PaperSource, QuizCatalog
 from ..scoring import MARKING, ScoringPolicyFactory
 from ..shuffle import display_order
@@ -33,6 +46,7 @@ class AttemptSession:
     attempt: Attempt
     questions: list[QuestionForSolver]
     selections: dict[int, frozenset[int]]
+    texts: dict[int, str]
     server_now: int
     created: bool
 
@@ -42,6 +56,7 @@ class ResultsView:
     attempt: Attempt
     questions: list[ReviewQuestion]
     selections: dict[int, frozenset[int]]
+    texts: dict[int, str]
     results: dict[int, QuestionResult]
 
 
@@ -119,8 +134,17 @@ class AttemptService:
         attempt = await self._owned(email, attempt_id)
         if not attempt.accepts_writes(self._clock.now_ms(), self._grace_ms):
             raise Conflict("attempt paused" if attempt.is_paused else "attempt finished")
-        await self._check_answers(attempt_id, {question_id: frozenset(option_ids)})
+        await self._check_answers(attempt_id, {question_id: frozenset(option_ids)}, {})
         await self._attempts.replace_selection(attempt_id, question_id, frozenset(option_ids))
+
+    async def save_text(self, email: str, attempt_id: str, question_id: int, text: str) -> None:
+        """Autosave a subjective question's typed answer. Blank text clears it."""
+        attempt = await self._owned(email, attempt_id)
+        now = self._clock.now_ms()
+        if not attempt.accepts_writes(now, self._grace_ms):
+            raise Conflict("attempt paused" if attempt.is_paused else "attempt finished")
+        await self._check_answers(attempt_id, {}, {question_id: text})
+        await self._attempts.replace_text(attempt_id, question_id, _stored_text(text), now)
 
     async def submit(self, email: str, attempt_id: str) -> Attempt:
         attempt = await self._owned(email, attempt_id)
@@ -141,6 +165,7 @@ class AttemptService:
             attempt=attempt,
             questions=await self._attempts.review(attempt.id),
             selections=await self._attempts.selections(attempt.id),
+            texts=await self._attempts.texts(attempt.id),
             results=await self._attempts.results(attempt.id),
         )
 
@@ -149,23 +174,29 @@ class AttemptService:
         email: str,
         attempt_id: str,
         answers: dict[int, frozenset[int]] | None = None,
+        texts: dict[int, str] | None = None,
     ) -> AttemptSession:
         """Freeze the clock, storing any answers the browser still held, in one transaction.
 
+        ``answers`` are ticked options and ``texts`` typed answers, each by question id.
         Idempotent; only for an open, timed attempt. The answers and ``paused_at``
         commit together, so a paused attempt can never be missing an answer the
         solver had given.
         """
         attempt = await self._owned(email, attempt_id)
         answers = answers or {}
+        texts = texts or {}
         if not attempt.is_open:
             raise Conflict("attempt finished")
         if attempt.deadline_at is None:
             raise Conflict("untimed quiz has no timer to pause")
-        if answers:
-            await self._check_answers(attempt_id, answers)
-        if answers or not attempt.is_paused:
-            await self._attempts.pause(attempt_id, self._clock.now_ms(), answers)
+        if answers or texts:
+            await self._check_answers(attempt_id, answers, texts)
+        if answers or texts or not attempt.is_paused:
+            await self._attempts.pause(
+                attempt_id, self._clock.now_ms(), answers,
+                {qid: _stored_text(text) for qid, text in texts.items()},
+            )
         return await self._session(await self._owned(email, attempt_id), created=False)
 
     async def resume(self, email: str, attempt_id: str) -> AttemptSession:
@@ -243,21 +274,36 @@ class AttemptService:
             attempt = await self._attempts.get(attempt_id)
         return attempt
 
-    async def _check_answers(self, attempt_id: str, answers: dict[int, frozenset[int]]) -> None:
-        """Every question and option must be one this attempt was actually served."""
+    async def _check_answers(
+        self, attempt_id: str, answers: dict[int, frozenset[int]], texts: dict[int, str]
+    ) -> None:
+        """Every question and option must be one this attempt was actually served, and
+        each answer must suit its question: options for a choice question, text for a
+        subjective one."""
         questions = {q.id: q for q in await self._attempts.paper(attempt_id)}
         for question_id, option_ids in answers.items():
             question = questions.get(question_id)
             if question is None:
                 raise Invalid("question is not in this quiz")
+            if question.kind != CHOICE:
+                raise Invalid("a subjective question takes a text answer, not options")
             if not option_ids <= {o.id for o in question.options}:
                 raise Invalid("option is not in this question")
+        for question_id, text in texts.items():
+            question = questions.get(question_id)
+            if question is None:
+                raise Invalid("question is not in this quiz")
+            if question.kind != SUBJECTIVE:
+                raise Invalid("only a subjective question takes a text answer")
+            if len(text) > MAX_TEXT_ANSWER:
+                raise Invalid(f"a text answer is at most {MAX_TEXT_ANSWER:,} characters")
 
     async def _session(self, attempt: Attempt, created: bool) -> AttemptSession:
         return AttemptSession(
             attempt=attempt,
             questions=await self._attempts.paper(attempt.id),
             selections=await self._attempts.selections(attempt.id),
+            texts=await self._attempts.texts(attempt.id),
             server_now=self._clock.now_ms(),
             created=created,
         )
@@ -266,9 +312,17 @@ class AttemptService:
         await self._finish(attempt, "expired", attempt.deadline_at)
 
     async def _finish(self, attempt: Attempt, status: str, finished_at: int) -> None:
+        # The key holds choice questions only, so a subjective question gets no result
+        # row and adds nothing to the score or the maximum, blank or not.
         graded = grade(
             await self._attempts.answer_key(attempt.id),
             await self._attempts.selections(attempt.id),
             ScoringPolicyFactory.for_name(attempt.scoring_policy),
         )
         await self._attempts.finish(attempt.id, status, finished_at, graded)
+
+
+def _stored_text(text: str) -> str | None:
+    """What to store for a typed answer: the text exactly as typed, or ``None`` (blank)
+    when it holds nothing but whitespace."""
+    return text if text.strip() else None
