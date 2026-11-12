@@ -31,7 +31,9 @@ class QuestionImport:
     prompt: str
     explanation: str | None = None
     points: float = 1
-    options: tuple[tuple[str, bool], ...] = ()  # (body, correct)
+    options: tuple[tuple[str, bool], ...] = ()  # (body, correct); empty for subjective
+    kind: str = "choice"                        # "choice" | "subjective"
+    model_answer: str | None = None             # subjective only
 
 
 @dataclass(frozen=True)
@@ -184,6 +186,16 @@ def _parse_question(raw, number: int, errors: list[str]) -> QuestionImport | Non
         errors.append(f"{where} must be an object")
         return None
     before = len(errors)
+
+    kind = raw.get("type", "choice")
+    if kind == "subjective":
+        # Storage, attempts and results already handle a subjective question; the take
+        # page and the editor do not yet, so none may be uploaded until they do.
+        errors.append(f"{where}: subjective questions are not supported yet")
+        return None
+    if kind != "choice":
+        errors.append(f"{where}: type must be choice")
+        return None
 
     prompt = raw.get("prompt")
     if not isinstance(prompt, str) or not prompt.strip():

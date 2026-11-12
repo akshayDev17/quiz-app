@@ -64,9 +64,14 @@ class D1QuizAuthoring(QuizAuthoring):
     async def _insert_questions(self, set_id: int, questions) -> None:
         for position, question in enumerate(questions):
             question_id = (await self._db.prepare(
-                "INSERT INTO questions (set_id, position, prompt, explanation, points) "
-                "VALUES (?, ?, ?, ?, ?) RETURNING id"
-            ).bind(set_id, position, question.prompt, question.explanation, question.points).first())["id"]
+                "INSERT INTO questions (set_id, position, prompt, explanation, points, kind, model_answer) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id"
+            ).bind(
+                set_id, position, question.prompt, question.explanation, question.points,
+                question.kind, question.model_answer,
+            ).first())["id"]
+            if not question.options:
+                continue  # a subjective question has none, and D1 refuses an empty batch
             await self._db.batch([
                 self._db.prepare(
                     "INSERT INTO options (question_id, position, body, is_correct) VALUES (?, ?, ?, ?)"
@@ -106,14 +111,15 @@ class D1QuizAuthoring(QuizAuthoring):
 
         try:
             questions = (await self._db.prepare(
-                "SELECT id, position, prompt, explanation, points FROM questions WHERE set_id = ? ORDER BY position"
+                "SELECT id, position, prompt, explanation, points, kind, model_answer "
+                "FROM questions WHERE set_id = ? ORDER BY position"
             ).bind(set_id).all()).results
             for question in questions:
                 new_question_id = (await self._db.prepare(
-                    "INSERT INTO questions (set_id, position, prompt, explanation, points) "
-                    "VALUES (?, ?, ?, ?, ?) RETURNING id"
+                    "INSERT INTO questions (set_id, position, prompt, explanation, points, kind, model_answer) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id"
                 ).bind(new_id, question["position"], question["prompt"], question["explanation"],
-                       question["points"]).first())["id"]
+                       question["points"], question["kind"], question["model_answer"]).first())["id"]
                 await self._db.prepare(
                     "INSERT INTO options (question_id, position, body, is_correct) "
                     "SELECT ?, position, body, is_correct FROM options WHERE question_id = ?"
@@ -161,22 +167,24 @@ class D1QuizAuthoring(QuizAuthoring):
         await self._insert_questions(set_id, imp.questions)
 
     async def questions(self, set_id: int) -> list[QuestionImport]:
+        # LEFT JOIN: a subjective question has no options and must still be listed.
         rows = (await self._db.prepare(
-            "SELECT q.id AS question_id, q.prompt, q.explanation, q.points, "
-            "o.body, o.is_correct "
-            "FROM questions q JOIN options o ON o.question_id = q.id "
+            "SELECT q.id AS question_id, q.prompt, q.explanation, q.points, q.kind, q.model_answer, "
+            "o.id AS option_id, o.body, o.is_correct "
+            "FROM questions q LEFT JOIN options o ON o.question_id = q.id "
             "WHERE q.set_id = ? ORDER BY q.position, o.position"
         ).bind(set_id).all()).results
         heads: dict[int, dict] = {}
         options: dict[int, list[tuple[str, bool]]] = {}
         for row in rows:
             qid = row["question_id"]
-            heads.setdefault(qid, {
-                "prompt": row["prompt"], "explanation": row["explanation"], "points": row["points"],
-            })
-            options.setdefault(qid, []).append((row["body"], bool(row["is_correct"])))
+            heads.setdefault(qid, row)
+            options.setdefault(qid, [])
+            if row["option_id"] is not None:
+                options[qid].append((row["body"], bool(row["is_correct"])))
         return [
             QuestionImport(prompt=head["prompt"], explanation=head["explanation"],
-                           points=head["points"], options=tuple(options[qid]))
+                           points=head["points"], options=tuple(options[qid]),
+                           kind=head["kind"], model_answer=head["model_answer"])
             for qid, head in heads.items()
         ]

@@ -85,11 +85,22 @@ class OptionForSolver:
     body: str
 
 
+CHOICE = "choice"
+SUBJECTIVE = "subjective"
+"""The two question kinds. A choice question has options and an answer key and is
+marked; a subjective one is answered in a text box, has no options, carries an
+authored model answer, and is never marked."""
+
+MAX_TEXT_ANSWER = 10_000
+"""The most characters a typed answer may hold (the D1 column checks it too)."""
+
+
 @dataclass(frozen=True)
 class QuestionForSolver:
     id: int
     prompt: str
-    options: tuple[OptionForSolver, ...]
+    options: tuple[OptionForSolver, ...]  # empty for a subjective question
+    kind: str = CHOICE
 
 
 @dataclass(frozen=True)
@@ -112,7 +123,9 @@ class ReviewQuestion:
     prompt: str
     explanation: str | None
     points: float
-    options: tuple[ReviewOption, ...]
+    options: tuple[ReviewOption, ...]  # empty for a subjective question
+    kind: str = CHOICE
+    model_answer: str | None = None    # subjective only
 
 
 @dataclass(frozen=True)

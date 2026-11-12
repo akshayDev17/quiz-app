@@ -107,8 +107,9 @@ topics(id, slug UNIQUE, name, description, position, created_at)       RAG, Harn
   │             max_attempts NULL=unlimited,
   │             status[draft|published|archived], visibility[public|private],
   │             created_by, …)
-  │     └─< questions(id, set_id, position, prompt(md), explanation(md), points)
-  │           └─< options(id, question_id, position, body(md), is_correct)
+  │     └─< questions(id, set_id, position, prompt(md), explanation(md), points,
+  │                       kind[choice|subjective], model_answer(md) NULL)
+  │           └─< options(id, question_id, position, body(md), is_correct)   -- none for subjective
   │
   └─ quiz_sets ─< attempts(id uuid, set_id NULL=set deleted, user_email,
                            topic_name, subtopic_name, difficulty, style, seq, title,
@@ -117,10 +118,12 @@ topics(id, slug UNIQUE, name, description, position, created_at)       RAG, Harn
                            status[in_progress|submitted|expired],
                            score, max_score, paused_at)
                     ├─< attempt_questions(attempt_id, source_question_id, position,
-                                          prompt, explanation, points)      -- the paper
+                                          prompt, explanation, points,
+                                          kind, model_answer)                -- the paper
                     │        └─< attempt_options(attempt_question_id, source_option_id,
                     │                            position, body, is_correct)
                     ├─< attempt_selections(attempt_id, attempt_question_id, attempt_option_id)
+                    ├─< attempt_text_answers(attempt_id, attempt_question_id, body ≤ 10,000 chars, saved_at)
                     └─< attempt_results(attempt_id, attempt_question_id, awarded_points, is_correct)
 ```
 
@@ -135,6 +138,7 @@ Design notes:
 | Time left is **computed by the server** wherever it is displayed | A paused attempt's `deadline_at` may already be in the past (the clock only extends on resume), so anything deriving a remainder from the deadline alone reads zero. The topics card carries `remaining_ms`, not `deadline_at`, for exactly this reason. |
 | Partial unique index: one `in_progress` attempt per (set, user) | Pressing "Start" twice, or in two tabs, resumes the same attempt instead of creating a second one. |
 | `attempt_selections` is one row per ticked option | Multi-select needs no JSON column. Saving an answer is a delete-then-insert of that question's rows in one D1 `batch()`. |
+| A **subjective** question (`kind = 'subjective'`) has no options and an authored `model_answer`; the solver's typed answer is one `attempt_text_answers` row | Typed answers get their own table because `attempt_selections` is keyed and foreign-keyed by option. Saving replaces the row; blank text deletes it. The importer still refuses `"type": "subjective"` until the take page and the editor can show one. |
 | `attempt_results` is written **once**, at grading | Scores never move afterwards, even if an author later edits the question. |
 | An attempt **owns its paper**: `attempt_questions`/`attempt_options` are copied at start | Editing or deleting a set must never rewrite a solver's record. Everything after "start" reads the paper, never `questions`/`options`, so the live set can change freely. `source_*_id` is provenance only, deliberately without a foreign key. |
 | The paper is written in **served order**; shuffle happens once, at start | Resuming, re-reading and reviewing all get the same order without re-deriving it, so a later edit to `shuffle_*` cannot reorder a running attempt. |
@@ -220,9 +224,9 @@ attempt's existence isn't revealed.
 | `GET  /me` · `PATCH /me` | email, display name, role · set your display name (the first-visit prompt) |
 | `GET  /topics` | topics → subtopic groups → published sets you may take (private ones for admins, or for a solver with an attempt open on it): derived name, chips (difficulty, scenario, time limit, question count), your last score |
 | `GET  /sets/{id}` | set intro: rules, time limit, attempts used / allowed. No questions. A private set is 404 unless you are an admin or have an attempt open on it. |
-| `POST /sets/{id}/attempts` | **start or resume**: returns attempt, `deadline_at`, `server_now`, questions in solver view, saved selections. A new attempt on a private set is 404 unless you are an admin; an open one always resumes. |
+| `POST /sets/{id}/attempts` | **start or resume**: returns attempt, `deadline_at`, `server_now`, questions in solver view (each with its `kind`; a subjective one has no options), saved `selections` and typed `texts`. A new attempt on a private set is 404 unless you are an admin; an open one always resumes. |
 | `GET  /attempts/{id}` | resume (same payload). **Lazily expires** if past deadline (see below). |
-| `PUT  /attempts/{id}/answers/{questionId}` | body `{"option_ids":[…]}`, autosave. 409 if finished, 422 if an option isn't in that question. |
+| `PUT  /attempts/{id}/answers/{questionId}` | body `{"option_ids":[…]}` for a choice question or `{"text":"…"}` for a subjective one, autosave. Blank text clears the answer. 409 if finished, 422 if an option isn't in that question, the answer doesn't suit the question's kind, or the text is over 10,000 characters. `POST /attempts/{id}/pause` takes the same answers, each with its `question_id`. |
 | `POST /attempts/{id}/submit` | grade now (idempotent: a second call returns the same result) |
 | `GET  /attempts/{id}/results` | 409 while in progress. Review view after. |
 | `GET  /attempts` | your history |
@@ -305,6 +309,12 @@ by their own rule:
 Under those two a blank scores 0. `attempt_results.is_correct` always records
 exact match, so the review page can mark ✓/✗ under any policy. Scores are written
 once, at submit or expiry, so a finished attempt never moves.
+
+A **subjective** question is never marked, under any policy: it has no answer key,
+gets no `attempt_results` row, adds nothing to the score or `max_score`, and is
+not charged the −2 when left blank. Results show it with `points`,
+`awarded_points` and `is_correct` all `null`, the solver's `text_answer`, and the
+`model_answer` when `reveal_answers` is on.
 
 ### Applying SOLID, OOP and patterns, where they're worth it
 

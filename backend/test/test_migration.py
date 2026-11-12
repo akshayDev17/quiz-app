@@ -1,11 +1,12 @@
-"""Migrations that touch a live database's existing rows: 0003 backfills papers, 0004 adds visibility.
+"""Migrations over a live database's data: 0003 backfills papers, 0004 adds visibility,
+0005 adds subjective.
 
-0003 backfills papers for attempts that already exist in a live database.
-
-The migration is the only part of this change that touches data it did not create,
-so it gets its own test: build a pre-0003 database by hand, seed it the way the old
-schema would have, apply 0003, and check both that nothing was lost and that the
-result is usable through the repositories.
+0003 is the one migration that touches data it did not create, so it gets its own
+test: build a pre-0003 database by hand, seed it the way the old schema would have,
+apply 0003 (and everything after it), and check both that nothing was lost and that
+the result is usable through the repositories. 0004 and 0005 only add; their tests
+check that the same seeded rows come through untouched (every set public, every
+question a choice question with its score intact) and that their new constraints hold.
 """
 
 from __future__ import annotations
@@ -54,13 +55,22 @@ INSERT INTO attempt_selections (attempt_id, question_id, option_id) VALUES ('pau
 """
 
 
-def _pre_migration_db() -> SqliteD1:
+def _migrated_from(seed_before: str, seed: str) -> SqliteD1:
+    """Every migration before ``seed_before`` (a file name), then ``seed``, then the rest.
+
+    The repositories read the schema as it is at head, so a test of one migration's
+    backfill applies every later migration too before using them."""
     db = SqliteD1(":memory:")
-    for name in ("0001_init.sql", "0002_pause.sql"):
-        db.executescript((MIGRATIONS / name).read_text())
-    db.executescript(SEED)
-    db.executescript((MIGRATIONS / "0003_attempt_papers.sql").read_text())
+    paths = sorted(MIGRATIONS.glob("*.sql"))
+    for path in paths:
+        if path.name == seed_before:
+            db.executescript(seed)
+        db.executescript(path.read_text())
     return db
+
+
+def _pre_migration_db() -> SqliteD1:
+    return _migrated_from("0003_attempt_papers.sql", SEED)
 
 
 class MigrationFileTest(unittest.TestCase):
@@ -190,8 +200,7 @@ class VisibilityMigrationTest(unittest.IsolatedAsyncioTestCase):
     nobody signed in sees anything different the day it deploys."""
 
     async def asyncSetUp(self):
-        self.db = _pre_migration_db()  # through 0003, with a published set and two attempts
-        self.db.executescript((MIGRATIONS / "0004_visibility.sql").read_text())
+        self.db = _pre_migration_db()  # seeded before 0003, then every migration
 
     async def rows(self, sql, *params):
         return [dict(r) for r in (await self.db.prepare(sql).bind(*params).all()).results]
@@ -221,6 +230,55 @@ class VisibilityMigrationTest(unittest.IsolatedAsyncioTestCase):
              {"id": "paused", "status": "in_progress", "score": None}],
         )
         self.assertEqual(await self.rows("PRAGMA foreign_key_check"), [])
+
+
+class SubjectiveMigrationTest(unittest.IsolatedAsyncioTestCase):
+    """0005 adds the subjective kind, the model answer and the typed-answer table."""
+
+    async def asyncSetUp(self):
+        self.db = _pre_migration_db()
+
+    async def rows(self, sql, *params):
+        return [dict(r) for r in (await self.db.prepare(sql).bind(*params).all()).results]
+
+    async def insert_fails(self, sql, *params):
+        with self.assertRaises(Exception) as caught:
+            await self.db.prepare(sql).bind(*params).run()
+        self.assertIn("constraint failed", str(caught.exception))
+
+    async def test_existing_questions_and_papers_become_choice_questions(self):
+        for table in ("questions", "attempt_questions"):
+            self.assertEqual(
+                {(r["kind"], r["model_answer"]) for r in await self.rows(f"SELECT kind, model_answer FROM {table}")},
+                {("choice", None)},
+                table,
+            )
+
+    async def test_scores_and_grades_are_untouched(self):
+        finished = await self.rows("SELECT score, max_score FROM attempts WHERE id = 'finished'")
+        self.assertEqual(finished, [{"score": 2.0, "max_score": 3.0}])
+        self.assertEqual(len(await self.rows("SELECT * FROM attempt_results")), 2)
+        self.assertEqual(await self.rows("SELECT * FROM attempt_text_answers"), [])
+        self.assertEqual(await self.rows("PRAGMA foreign_key_check"), [])
+
+    async def test_kind_is_choice_or_subjective(self):
+        await self.insert_fails(
+            "INSERT INTO questions (set_id, position, prompt, points, kind) VALUES (3, 9, 'Q', 1, 'essay')"
+        )
+        await self.insert_fails("UPDATE attempt_questions SET kind = 'essay'")
+
+    async def test_a_typed_answer_is_at_most_10000_characters(self):
+        [paper_question] = await self.rows(
+            "SELECT id FROM attempt_questions WHERE attempt_id = 'paused' AND position = 0"
+        )
+        insert = (
+            "INSERT INTO attempt_text_answers (attempt_id, attempt_question_id, body, saved_at) "
+            "VALUES ('paused', ?, ?, 1)"
+        )
+        await self.insert_fails(insert, paper_question["id"], "x" * 10_001)
+        await self.db.prepare(insert).bind(paper_question["id"], "é" * 10_000).run()
+        await self.insert_fails(insert, paper_question["id"], "again")  # one row per question
+        await self.insert_fails(insert.replace("'paused'", "'no-such-attempt'"), paper_question["id"], "x")
 
 
 if __name__ == "__main__":

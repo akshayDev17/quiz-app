@@ -1,4 +1,4 @@
-"""D1-backed attempts: the attempt row, its paper, what the solver ticked, the grade.
+"""D1-backed attempts: the attempt row, its paper, what the solver ticked or typed, the grade.
 
 The paper (``attempt_questions``/``attempt_options``) is written once, at start, and
 is the only thing the solver, the grader and the review ever read. Nothing here
@@ -9,16 +9,17 @@ without touching an attempt.
 from __future__ import annotations
 
 from ..models import (
+    CHOICE,
     Attempt,
     GradeResult,
     OptionForSolver,
     QuestionForSolver,
     QuestionKey,
     QuestionResult,
-    ReviewOption,
     ReviewQuestion,
 )
 from ..ports import AttemptRepository
+from ._rows import review_questions
 
 _COLUMNS = (
     "id, set_id, user_email, topic_name, subtopic_name, difficulty, style, seq, title, "
@@ -51,11 +52,13 @@ def _attempt(row: dict) -> Attempt:
     )
 
 
-# The paper, joined once: question columns first, then the option's.
+# The paper, joined once: question columns first, then the option's. LEFT JOIN, so a
+# subjective question (no options) is still a row, with NULL option columns.
 _PAPER = (
     "SELECT aq.id AS question_id, aq.position AS question_position, aq.prompt, "
-    "aq.explanation, aq.points, ao.id AS option_id, ao.body, ao.is_correct "
-    "FROM attempt_questions aq JOIN attempt_options ao ON ao.attempt_question_id = aq.id "
+    "aq.explanation, aq.points, aq.kind, aq.model_answer, "
+    "ao.id AS option_id, ao.body, ao.is_correct "
+    "FROM attempt_questions aq LEFT JOIN attempt_options ao ON ao.attempt_question_id = aq.id "
     "WHERE aq.attempt_id = ? ORDER BY aq.position, ao.position"
 )
 
@@ -79,11 +82,11 @@ class D1AttemptRepository(AttemptRepository):
         for position, question in enumerate(paper):
             statements.append(self._db.prepare(
                 "INSERT INTO attempt_questions "
-                "(attempt_id, source_question_id, position, prompt, explanation, points) "
-                "VALUES (?, ?, ?, ?, ?, ?)"
+                "(attempt_id, source_question_id, position, prompt, explanation, points, "
+                "kind, model_answer) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
             ).bind(
                 attempt.id, question.id, position, question.prompt,
-                question.explanation, question.points,
+                question.explanation, question.points, question.kind, question.model_answer,
             ))
             for option_position, option in enumerate(question.options):
                 statements.append(self._db.prepare(
@@ -128,48 +131,38 @@ class D1AttemptRepository(AttemptRepository):
     # -- the paper -----------------------------------------------------------
 
     async def paper(self, attempt_id: str) -> list[QuestionForSolver]:
-        # Deliberately selects neither is_correct nor explanation: the solver-facing
-        # read cannot leak what it never fetched.
+        # Deliberately selects neither is_correct, explanation nor model_answer: the
+        # solver-facing read cannot leak what it never fetched.
         rows = (await self._db.prepare(
-            "SELECT aq.id AS question_id, aq.prompt, ao.id AS option_id, ao.body "
-            "FROM attempt_questions aq JOIN attempt_options ao ON ao.attempt_question_id = aq.id "
+            "SELECT aq.id AS question_id, aq.prompt, aq.kind, ao.id AS option_id, ao.body "
+            "FROM attempt_questions aq LEFT JOIN attempt_options ao ON ao.attempt_question_id = aq.id "
             "WHERE aq.attempt_id = ? ORDER BY aq.position, ao.position"
         ).bind(attempt_id).all()).results
-        prompts: dict[int, str] = {}
+        heads: dict[int, dict] = {}
         options: dict[int, list[OptionForSolver]] = {}
         for row in rows:
-            prompts[row["question_id"]] = row["prompt"]
-            options.setdefault(row["question_id"], []).append(
-                OptionForSolver(row["option_id"], row["body"])
-            )
-        return [QuestionForSolver(qid, prompts[qid], tuple(opts)) for qid, opts in options.items()]
-
-    async def answer_key(self, attempt_id: str) -> list[QuestionKey]:
-        rows = (await self._db.prepare(_PAPER).bind(attempt_id).all()).results
-        points: dict[int, float] = {}
-        correct: dict[int, set[int]] = {}
-        for row in rows:
-            points[row["question_id"]] = row["points"]
-            correct.setdefault(row["question_id"], set())
-            if row["is_correct"]:
-                correct[row["question_id"]].add(row["option_id"])
-        return [QuestionKey(qid, points[qid], frozenset(ids)) for qid, ids in correct.items()]
-
-    async def review(self, attempt_id: str) -> list[ReviewQuestion]:
-        rows = (await self._db.prepare(_PAPER).bind(attempt_id).all()).results
-        heads: dict[int, dict] = {}
-        options: dict[int, list[ReviewOption]] = {}
-        for row in rows:
-            heads.setdefault(row["question_id"], row)
-            options.setdefault(row["question_id"], []).append(
-                ReviewOption(row["option_id"], row["body"], bool(row["is_correct"]))
-            )
+            qid = row["question_id"]
+            heads.setdefault(qid, row)
+            options.setdefault(qid, [])
+            if row["option_id"] is not None:
+                options[qid].append(OptionForSolver(row["option_id"], row["body"]))
         return [
-            ReviewQuestion(qid, head["prompt"], head["explanation"], head["points"], tuple(options[qid]))
+            QuestionForSolver(qid, head["prompt"], tuple(options[qid]), kind=head["kind"])
             for qid, head in heads.items()
         ]
 
-    # -- what the solver ticked ----------------------------------------------
+    async def answer_key(self, attempt_id: str) -> list[QuestionKey]:
+        """The key of every marked question. A subjective question has none: it is never marked."""
+        return [
+            QuestionKey(q.id, q.points, frozenset(o.id for o in q.options if o.is_correct))
+            for q in await self.review(attempt_id)
+            if q.kind == CHOICE
+        ]
+
+    async def review(self, attempt_id: str) -> list[ReviewQuestion]:
+        return review_questions((await self._db.prepare(_PAPER).bind(attempt_id).all()).results)
+
+    # -- what the solver ticked or typed --------------------------------------
 
     async def selections(self, attempt_id: str) -> dict[int, frozenset[int]]:
         rows = (await self._db.prepare(
@@ -205,21 +198,58 @@ class D1AttemptRepository(AttemptRepository):
     ) -> None:
         await self._db.batch(self._selection_writes(attempt_id, {question_id: option_ids}))
 
-    async def pause(
-        self, attempt_id: str, paused_at: int, answers: dict[int, frozenset[int]]
+    async def texts(self, attempt_id: str) -> dict[int, str]:
+        rows = (await self._db.prepare(
+            "SELECT attempt_question_id, body FROM attempt_text_answers WHERE attempt_id = ?"
+        ).bind(attempt_id).all()).results
+        return {row["attempt_question_id"]: row["body"] for row in rows}
+
+    def _text_writes(self, attempt_id: str, texts: dict[int, str | None], saved_at: int) -> list:
+        """Replace each question's typed answer: one delete, then the insert unless it is ``None``."""
+        statements = [
+            self._db.prepare(
+                "DELETE FROM attempt_text_answers WHERE attempt_id = ? AND attempt_question_id = ?"
+            ).bind(attempt_id, question_id)
+            for question_id in texts
+        ]
+        insert = self._db.prepare(
+            "INSERT INTO attempt_text_answers (attempt_id, attempt_question_id, body, saved_at) "
+            "VALUES (?, ?, ?, ?)"
+        )
+        statements += [
+            insert.bind(attempt_id, question_id, body, saved_at)
+            for question_id, body in texts.items()
+            if body is not None
+        ]
+        return statements
+
+    async def replace_text(
+        self, attempt_id: str, question_id: int, body: str | None, saved_at: int
     ) -> None:
-        """Freeze the clock and store the answers in the same transaction.
+        await self._db.batch(self._text_writes(attempt_id, {question_id: body}, saved_at))
+
+    async def pause(
+        self,
+        attempt_id: str,
+        paused_at: int,
+        answers: dict[int, frozenset[int]],
+        texts: dict[int, str | None],
+    ) -> None:
+        """Freeze the clock and store the answers, ticked and typed, in the same transaction.
 
         Both land or neither does: a solver can never end up paused with an answer
         that was never written, which the separate save-then-pause sequence allowed.
         A no-op when already paused (the answers are still written).
         """
-        await self._db.batch(self._selection_writes(attempt_id, answers) + [
-            self._db.prepare(
-                "UPDATE attempts SET paused_at = ? "
-                "WHERE id = ? AND status = 'in_progress' AND paused_at IS NULL"
-            ).bind(paused_at, attempt_id),
-        ])
+        freeze = self._db.prepare(
+            "UPDATE attempts SET paused_at = ? "
+            "WHERE id = ? AND status = 'in_progress' AND paused_at IS NULL"
+        ).bind(paused_at, attempt_id)
+        await self._db.batch(
+            self._selection_writes(attempt_id, answers)
+            + self._text_writes(attempt_id, texts, paused_at)
+            + [freeze]
+        )
 
     async def resume(self, attempt_id: str, now_ms: int) -> None:
         # Extend the deadline by the paused duration; an untimed attempt just unpauses.

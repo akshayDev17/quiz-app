@@ -8,9 +8,9 @@ Nothing here is read once an attempt exists — the attempt's own paper is
 
 from __future__ import annotations
 
-from ..models import QuizSetInfo, ReviewOption, ReviewQuestion
+from ..models import QuizSetInfo, ReviewQuestion
 from ..ports import PaperSource, QuizCatalog
-from ._rows import QUIZ_SET_SELECT, quiz_set_from_row
+from ._rows import QUIZ_SET_SELECT, quiz_set_from_row, review_questions
 
 def _published(include_private: bool) -> str:
     """Published sets; private ones only when asked for (their editors see them)."""
@@ -40,20 +40,12 @@ class D1PaperSource(PaperSource):
         self._db = db
 
     async def paper_source(self, set_id: int) -> list[ReviewQuestion]:
+        # LEFT JOIN: a subjective question has no options and must still be copied.
         rows = (await self._db.prepare(
-            "SELECT q.id AS question_id, q.prompt, q.explanation, q.points, "
+            "SELECT q.id AS question_id, q.prompt, q.explanation, q.points, q.kind, q.model_answer, "
             "o.id AS option_id, o.body, o.is_correct "
-            "FROM questions q JOIN options o ON o.question_id = q.id "
+            "FROM questions q LEFT JOIN options o ON o.question_id = q.id "
             "WHERE q.set_id = ? ORDER BY q.position, o.position"
         ).bind(set_id).all()).results
-        heads: dict[int, dict] = {}
-        options: dict[int, list[ReviewOption]] = {}
-        for row in rows:
-            heads.setdefault(row["question_id"], row)
-            options.setdefault(row["question_id"], []).append(
-                ReviewOption(row["option_id"], row["body"], bool(row["is_correct"]))
-            )
-        return [
-            ReviewQuestion(qid, head["prompt"], head["explanation"], head["points"], tuple(options[qid]))
-            for qid, head in heads.items()
-        ]
+        return review_questions(rows)
+
