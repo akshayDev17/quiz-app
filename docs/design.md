@@ -218,7 +218,7 @@ attempt's existence isn't revealed.
 | Method & path | Does |
 |---|---|
 | `GET  /me` · `PATCH /me` | email, display name, role · set your display name (the first-visit prompt) |
-| `GET  /topics` | topics → subtopic groups → published sets you may take (private ones for admins only): derived name, chips (difficulty, scenario, time limit, question count), your last score |
+| `GET  /topics` | topics → subtopic groups → published sets you may take (private ones for admins, or for a solver with an attempt open on it): derived name, chips (difficulty, scenario, time limit, question count), your last score |
 | `GET  /sets/{id}` | set intro: rules, time limit, attempts used / allowed. No questions. A private set is 404 unless you are an admin or have an attempt open on it. |
 | `POST /sets/{id}/attempts` | **start or resume**: returns attempt, `deadline_at`, `server_now`, questions in solver view, saved selections. A new attempt on a private set is 404 unless you are an admin; an open one always resumes. |
 | `GET  /attempts/{id}` | resume (same payload). **Lazily expires** if past deadline (see below). |
@@ -426,8 +426,8 @@ expired session, as on every other page.
 visitors can View it and signed-in solvers take it. Private: absent from the public
 routes and from solvers' `/topics`, and only admins can start it. It applies to
 published sets; a draft stays hidden either way. Turning a set private refuses new
-attempts only: an open attempt still resumes and submits, and finished results and
-history stay.
+attempts only: an open attempt keeps its card in that solver's `/topics`, still
+resumes and submits, and finished results and history stay.
 
 ### The play screen
 

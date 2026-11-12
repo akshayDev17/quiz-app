@@ -3,8 +3,8 @@
 Public: signed-out visitors can View it and signed-in solvers can take it (today's
 behaviour, and the default). Private: absent from the public routes and from solvers'
 /topics, and only its editors (admins) can start an attempt. Work already started on a
-set that turns private is kept: an open attempt resumes and submits, results and
-history stay.
+set that turns private is kept: an open attempt keeps its home card, resumes and
+submits, results and history stay.
 
 Run:  python3 test/test_visibility.py
 """
@@ -18,11 +18,15 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from helpers import sample_import  # noqa: E402
-from test_api import ADMIN, ALICE, BOB, ApiCase  # noqa: E402
+from test_api import ADMIN, ALICE, BOB, LIMIT_MS, ApiCase  # noqa: E402
+
+
+def _cards(topics: dict) -> dict[int, dict]:
+    return {c["id"]: c for t in topics["topics"] for g in t["groups"] for c in g["sets"]}
 
 
 def _set_ids(topics: dict) -> set[int]:
-    return {c["id"] for t in topics["topics"] for g in t["groups"] for c in g["sets"]}
+    return set(_cards(topics))
 
 
 class VisibilityCase(ApiCase):
@@ -186,6 +190,29 @@ class StartedWorkTest(VisibilityCase):
         # Once that attempt is finished, the set is closed to them like any private set.
         self.assertEqual((await self.call("GET", f"/sets/{self.sid}"))[0], 404)
         self.assertEqual((await self.call("POST", f"/sets/{self.sid}/attempts"))[0], 404)
+
+    async def test_the_home_card_stays_while_the_attempt_is_open(self):
+        aid = (await self.start(self.sid))["attempt"]["id"]
+        await self.make_private(self.sid)
+        self.clock.advance(60_000)
+
+        cards = _cards(await self.ok("GET", "/topics"))
+        self.assertEqual(set(cards), {self.sid})
+        self.assertEqual(
+            cards[self.sid]["open_attempt"], {"attempt_id": aid, "remaining_ms": LIMIT_MS - 60_000}
+        )
+        self.assertEqual(_set_ids(await self.ok("GET", "/topics", ident=BOB)), set())
+        self.assertEqual(_set_ids(await self.ok("GET", "/public/topics", ident=None)), set())
+
+        await self.ok("POST", f"/attempts/{aid}/submit")
+        self.assertEqual(_set_ids(await self.ok("GET", "/topics")), set())
+
+    async def test_the_home_card_goes_once_the_attempt_expires(self):
+        await self.start(self.sid)
+        await self.make_private(self.sid)
+        self.clock.advance(LIMIT_MS)
+
+        self.assertEqual(_set_ids(await self.ok("GET", "/topics")), set())
 
     async def test_finished_results_and_history_stay(self):
         aid = (await self.start(self.sid))["attempt"]["id"]

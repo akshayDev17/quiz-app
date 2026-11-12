@@ -187,12 +187,21 @@ class AttemptService:
         self, email: str, include_private: bool = False
     ) -> tuple[list[QuizSetInfo], dict[int, Attempt], dict[int, Attempt], int]:
         """The published sets the caller may take, their last finished and open attempt per
-        set id, and the server time the cards were computed against."""
+        set id, and the server time the cards were computed against.
+
+        As in ``intro``, a private set stays for a caller without ``include_private`` while
+        they still have an attempt open on it."""
         await self.expire_due_for(email)
+        open_ = {a.set_id: a for a in await self._attempts.open_for_user(email)}
+        sets = [
+            info
+            for info in await self._catalog.list_published(include_private=True)
+            if include_private or info.visibility == "public" or info.id in open_
+        ]
         return (
-            await self._catalog.list_published(include_private=include_private),
+            sets,
             await self._attempts.last_finished_by_set(email),
-            {a.set_id: a for a in await self._attempts.open_for_user(email)},
+            open_,
             self._clock.now_ms(),
         )
 
