@@ -268,7 +268,11 @@ This is enforced by types, not just by convention:
   `QuestionForSolver` / `OptionForSolver`. **These dataclasses have no
   `is_correct` field**, so solver code can't leak it by accident.
 - The answer key is reachable only through `AnswerKeyReader`, which only the
-  `Grader` holds.
+  `Grader` holds, and through the public View (`GET /public/sets/{id}`). By
+  owner decision, View shows the key of every published set with
+  `reveal_answers` true to anyone, so a solver can read it while their own
+  attempt on that set is open. Sets with `reveal_answers` false keep the key
+  hidden on View too.
 - `test_no_answer_leak.py` walks every solver endpoint's JSON and fails if
   `is_correct`, `explanation` or `score` appears before the attempt is
   finished.

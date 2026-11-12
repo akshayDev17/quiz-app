@@ -1,9 +1,11 @@
 """Wire shapes: one function per type in the wire contract (snake_case keys, epoch-ms times).
 
-Solver-facing serializers read only from solver-facing models, so nothing here can leak
-an answer while an attempt is open. Answers are exposed in two places only: ``results``,
-reachable only for a finished attempt, and ``public_set``, the signed-out View of a
-published set. Both follow the set's ``reveal_answers``.
+Solver-facing serializers read only from solver-facing models, so no attempt payload
+carries an answer while that attempt is open. Answers are exposed in two places only:
+``results``, reachable only for a finished attempt, and ``public_set``, the View of a
+published set. Both follow the set's ``reveal_answers``. ``public_set`` takes no caller,
+so by owner decision a published set with ``reveal_answers`` true exposes its key to
+anyone, including a solver whose attempt on that set is still open.
 """
 
 from __future__ import annotations
@@ -245,8 +247,9 @@ def admin_set_detail(info: QuizSetInfo, questions: list[QuestionImport]) -> dict
 def public_set(info: QuizSetInfo, questions: list[ReviewQuestion]) -> dict:
     """A published set for the signed-out View: questions with the answer key, never a score.
 
-    The key and explanations follow the set's ``reveal_answers``, so View never shows more
-    than a signed-in solver sees after finishing. No points: View has nothing to mark."""
+    The key and explanations follow the set's ``reveal_answers``: View shows what a solver
+    sees after finishing, to anyone at any time, open attempt or not. No points: View has
+    nothing to mark."""
     reveal = info.reveal_answers
     return {
         "set": {
