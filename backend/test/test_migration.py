@@ -281,10 +281,6 @@ class SubjectiveMigrationTest(unittest.IsolatedAsyncioTestCase):
         await self.insert_fails(insert.replace("'paused'", "'no-such-attempt'"), paper_question["id"], "x")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 SHUFFLE_SEED = """
 INSERT INTO quiz_sets (id, topic_id, subtopic_id, difficulty, style, seq, title, description,
   time_limit_minutes, scoring_policy, shuffle_questions, shuffle_options, reveal_answers,
@@ -332,3 +328,7 @@ class ShuffleOnMigrationTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([(r["id"], r["status"], r["score"]) for r in rows],
                          [("finished", "submitted", 2.0), ("paused", "in_progress", None)])
         self.assertEqual((await self.db.prepare("PRAGMA foreign_key_check").all()).results, [])
+
+
+if __name__ == "__main__":
+    unittest.main()
