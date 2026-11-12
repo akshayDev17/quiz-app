@@ -30,8 +30,8 @@ Bypass before Allow, and the more specific destination wins.
   | `akshayprabhakant.com/quiz/_next/*` | JS, CSS and fonts (code, no data) |
   | `akshayprabhakant.com/quiz/api/public/*` | the read-only public API (published sets, no solver data) |
 
-  The bare `/quiz` moves off the Invited Solvers app onto this one, and
-  `/quiz/*` stays on Invited Solvers. Every other path stays signed-in only,
+  The bare `/quiz` moves off the `Quiz Room` application (policy
+  `Invited solvers`) onto this one, and `/quiz/*` stays on `Quiz Room`. Every other path stays signed-in only,
   including `/quiz/set`, `/quiz/play`, `/quiz/results`, `/quiz/history`,
   `/quiz/admin`, `/quiz/signin` and every other `/quiz/api/*` route. Each
   public destination is more specific than `/quiz/*`, so it takes precedence.

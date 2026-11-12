@@ -1,10 +1,13 @@
 """The deploy jobs' Cloudflare Access check, run against a fake Cloudflare API.
 
-Each deploy job in .github/workflows/ci.yml embeds the check as a `python3 - <<'PY'`
-heredoc. These tests execute every such script with `urllib.request.urlopen`
-answered by fixtures, and assert whether it lets the deploy through.
+Both deploy jobs in .github/workflows/ci.yml run .github/scripts/access_check.py
+before they deploy. These tests run its `main()` with `urllib.request.urlopen`
+answered by fixtures, and assert whether it lets the deploy through. The rules
+themselves are tested on flat records in .github/scripts/test_access_check.py;
+this file covers what `main()` does with the API: auth, pagination, policy
+lookup, destination fields, errors and the exit code.
 
-Run:  python3 test/test_ci_access_check.py
+Run:  uv run python test/test_ci_access_check.py
 """
 
 from __future__ import annotations
@@ -14,45 +17,45 @@ import http.client
 import io
 import json
 import os
-import textwrap
+import sys
 import unittest
+import urllib.error
 from pathlib import Path
 from unittest import mock
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
-WORKFLOW = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "ci.yml"
-HOST = "akshayprabhakant.com"
+import yaml
 
+ROOT = Path(__file__).resolve().parents[2]
+WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+SCRIPTS = ROOT / ".github" / "scripts"
+CHECK_RUN = "python3 .github/scripts/access_check.py"
 
-def embedded_checks() -> list[str]:
-    scripts, lines, inside = [], [], False
-    for line in WORKFLOW.read_text().splitlines():
-        if line.strip() == "python3 - <<'PY'":
-            inside, lines = True, []
-        elif inside and line.strip() == "PY":
-            inside = False
-            scripts.append(textwrap.dedent("\n".join(lines)))
-        elif inside:
-            lines.append(line)
-    return scripts
+sys.path.insert(0, str(SCRIPTS))
+import access_check  # noqa: E402
+from test_access_check import PLANNED, STEP_ONE, TODAY  # noqa: E402
+
+HOST = access_check.HOST
+QUIZ_URIS = [f"{HOST}/quiz", f"{HOST}/quiz/*"]
 
 
-def app(name, uris, policies):
+def api_app(name, uris, policies, type="self_hosted"):
     return {
         "name": name,
-        "type": "self_hosted",
+        "type": type,
         "destinations": [{"type": "public", "uri": u} for u in uris],
         "policies": policies,
     }
 
 
-ALLOW = {"id": "p-allow", "decision": "allow"}
-DENY = {"id": "p-deny", "decision": "deny"}
-BYPASS_EVERYONE = {"id": "p-bypass", "decision": "bypass"}
-QUIZ_URIS = [f"{HOST}/quiz", f"{HOST}/quiz/*"]
+def api_form(flat_apps):
+    return [
+        api_app(a["name"], a["uris"], [{"id": f"p-{d}", "decision": d} for d in a["decisions"]], a["type"])
+        for a in flat_apps
+    ]
 
 
-def fake_cloudflare(apps, policies=None, seen=None):
+def fake_cloudflare(pages, policies=None, seen=None, total_pages=True, error=None):
     def urlopen(req, timeout=None):
         # http.client refuses these before sending; the real deploy failed this way.
         for value in req.headers.values():
@@ -60,93 +63,162 @@ def fake_cloudflare(apps, policies=None, seen=None):
                 raise ValueError(f"Invalid header value {value.encode()!r}")
         if seen is not None:
             seen.append(req)
-        path = urlparse(req.full_url).path
-        if path.endswith("/access/apps"):
-            body = {"success": True, "result": apps, "result_info": {"total_pages": 1}}
+        if error is not None:
+            status, body = error
+            raise urllib.error.HTTPError(req.full_url, status, "error", {}, io.BytesIO(json.dumps(body).encode()))
+        url = urlparse(req.full_url)
+        if url.path.endswith("/access/apps"):
+            page = int(parse_qs(url.query)["page"][0])
+            body = {"success": True, "result": pages[page - 1] if page <= len(pages) else []}
+            if total_pages:
+                body["result_info"] = {"page": page, "total_pages": len(pages)}
         else:
-            policy_id = path.rsplit("/", 1)[-1]
-            body = {"success": True, "result": (policies or {})[policy_id]}
+            body = {"success": True, "result": (policies or {})[url.path.rsplit("/", 1)[-1]]}
         return io.BytesIO(json.dumps(body).encode())
 
     return urlopen
 
 
-def run_check(script, apps, policies=None, path="/quiz", token="t", account="a", seen=None):
-    env = {"CHECK_PATH": path, "CLOUDFLARE_API_TOKEN": token, "CLOUDFLARE_ACCOUNT_ID": account}
+def run_check(apps=None, *, pages=None, policies=None, token="t", account="a", seen=None,
+              total_pages=True, error=None):
+    env = {"CLOUDFLARE_API_TOKEN": token, "CLOUDFLARE_ACCOUNT_ID": account}
+    urlopen = fake_cloudflare(pages if pages is not None else [apps], policies, seen, total_pages, error)
     out = io.StringIO()
     code = 0
     with mock.patch.dict(os.environ, env), \
-            mock.patch("urllib.request.urlopen", fake_cloudflare(apps, policies, seen)), \
+            mock.patch("urllib.request.urlopen", urlopen), \
             contextlib.redirect_stdout(out):
         try:
-            exec(compile(script, "access-check", "exec"), {"__name__": "__main__"})
+            access_check.main()
         except SystemExit as exit_:
             code = exit_.code or 0
     return code, out.getvalue()
 
 
-class AccessCheckCase(unittest.TestCase):
-    def setUp(self):
-        self.scripts = embedded_checks()
+def app_requests(seen):
+    return [r for r in seen if urlparse(r.full_url).path.endswith("/access/apps")]
 
-    def assertVerdict(self, expected_code, apps, policies=None, path="/quiz"):
-        for i, script in enumerate(self.scripts):
-            with self.subTest(job=i):
-                code, out = run_check(script, apps, policies, path)
-                self.assertEqual(code, expected_code, out)
 
-    def test_both_deploy_jobs_carry_the_check(self):
-        self.assertEqual(len(self.scripts), 2)
+def policy_requests(seen):
+    return [urlparse(r.full_url).path.rsplit("/", 1)[-1] for r in seen if "/access/policies/" in r.full_url]
 
-    def test_token_and_account_with_trailing_newline_are_stripped(self):
-        for i, script in enumerate(self.scripts):
-            with self.subTest(job=i):
-                seen = []
-                code, out = run_check(
-                    script, [app("Quiz Room", QUIZ_URIS, [ALLOW])],
-                    token="t\n", account="a\n", seen=seen,
-                )
+
+class DeployJobs(unittest.TestCase):
+    def test_every_production_job_checks_access_before_running_wrangler(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+        production = {name: job for name, job in jobs.items() if job.get("environment") == "production"}
+        self.assertEqual(set(production), {"deploy-api", "deploy-frontend"})
+        for name, job in production.items():
+            with self.subTest(job=name):
+                runs = [step.get("run", "") for step in job["steps"]]
+                self.assertIn(CHECK_RUN, runs)
+                check = runs.index(CHECK_RUN)
+                deploys = [i for i, run in enumerate(runs) if "wrangler" in run]
+                self.assertTrue(deploys, f"{name} runs no wrangler step")
+                self.assertLess(check, min(deploys))
+                env = job["steps"][check].get("env", {})
+                self.assertEqual(env.get("CLOUDFLARE_API_TOKEN"), "${{ secrets.CLOUDFLARE_API_TOKEN }}")
+                self.assertEqual(env.get("CLOUDFLARE_ACCOUNT_ID"), "${{ secrets.CLOUDFLARE_ACCOUNT_ID }}")
+
+
+class Verdict(unittest.TestCase):
+    def test_live_and_planned_configs_deploy(self):
+        for label, flat in [("today", TODAY), ("step one", STEP_ONE), ("planned", PLANNED)]:
+            with self.subTest(config=label):
+                code, out = run_check(api_form(flat))
                 self.assertEqual(code, 0, out)
-                self.assertTrue(seen, out)
-                for req in seen:
-                    self.assertEqual(req.get_header("Authorization"), "Bearer t")
-                    self.assertIn("/accounts/a/", req.full_url)
+                self.assertNotIn("::error::", out)
+                self.assertIn(f"{HOST}/quiz/set: signed in only", out)
 
-    def test_quiz_app_with_allow_passes(self):
-        self.assertVerdict(0, [app("Quiz Room", QUIZ_URIS, [ALLOW])])
+    def test_planned_config_reports_the_public_paths(self):
+        code, out = run_check(api_form(PLANNED))
+        self.assertEqual(code, 0, out)
+        self.assertIn(f"{HOST}/quiz/view: public, by the Bypass on 'Quiz Room (public)'.", out)
 
-    def test_reusable_policy_is_looked_up_by_id(self):
-        self.assertVerdict(0, [app("Quiz Room", QUIZ_URIS, ["p-allow"])], {"p-allow": ALLOW})
+    def test_refusal_exits_1_with_an_error_annotation(self):
+        code, out = run_check([api_app("Archive", [f"{HOST}/chat-archives"], [{"decision": "allow"}])])
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"::error::No Cloudflare Access self-hosted application covers {HOST}/quiz/set.", out)
 
-    def test_no_covering_app_refuses(self):
-        self.assertVerdict(1, [app("Archive", [f"{HOST}/chat-archives"], [ALLOW])])
+    def test_broad_bypass_refuses_even_under_a_specific_allow_app(self):
+        for uri in [HOST, f"{HOST}/*"]:
+            with self.subTest(broad=uri):
+                broad = api_app("Whole site", [uri], [{"decision": "bypass"}])
+                code, out = run_check([broad, api_app("Quiz Room", QUIZ_URIS, [{"decision": "allow"}])])
+                self.assertEqual(code, 1, out)
+                self.assertIn("'Whole site' has a Bypass policy", out)
 
-    def test_wildcard_does_not_cover_its_parent_path(self):
-        self.assertVerdict(1, [app("Quiz Room", [f"{HOST}/quiz/*"], [ALLOW])])
 
-    def test_bypass_everyone_plus_allow_refuses(self):
-        self.assertVerdict(1, [app("Quiz Room", QUIZ_URIS, [BYPASS_EVERYONE, ALLOW])])
+class Requests(unittest.TestCase):
+    def test_token_and_account_with_trailing_newline_are_stripped(self):
+        seen = []
+        code, out = run_check(api_form(TODAY), token="t\n", account="a\n", seen=seen)
+        self.assertEqual(code, 0, out)
+        self.assertTrue(seen, out)
+        for req in seen:
+            self.assertEqual(req.get_header("Authorization"), "Bearer t")
+            self.assertTrue(req.full_url.startswith("https://api.cloudflare.com/client/v4/accounts/a/"), req.full_url)
+
+    def test_missing_secrets_refuse_without_calling_the_api(self):
+        for token, account in [("", "a"), ("t", ""), ("\n", "a")]:
+            with self.subTest(token=token, account=account):
+                seen = []
+                code, out = run_check(api_form(TODAY), token=token, account=account, seen=seen)
+                self.assertEqual(code, 1, out)
+                self.assertIn("CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID must both be set", out)
+                self.assertEqual(seen, [])
+
+    def test_unreadable_access_names_the_missing_permission(self):
+        for status in (401, 403):
+            with self.subTest(status=status):
+                code, out = run_check([], error=(status, {"success": False, "errors": [{"code": 10000, "message": "Authentication error"}]}))
+                self.assertEqual(code, 1, out)
+                self.assertIn(f"cannot read Cloudflare Access (HTTP {status})", out)
+                self.assertIn(access_check.PERMISSION, out)
+
+    def test_other_api_errors_refuse_with_cloudflares_message(self):
+        code, out = run_check([], error=(500, {"success": False, "errors": [{"code": 1, "message": "upstream down"}]}))
+        self.assertEqual(code, 1, out)
+        self.assertIn("returned HTTP 500", out)
+        self.assertIn("upstream down", out)
+
+    def test_apps_are_read_from_every_page(self):
+        filler = [api_app(f"other {i}", [f"other{i}.example.org/*"], []) for i in range(100)]
+        quiz = api_form(TODAY)
+        for total_pages in (True, False):
+            with self.subTest(total_pages=total_pages):
+                seen = []
+                code, out = run_check(pages=[filler, quiz], seen=seen, total_pages=total_pages)
+                self.assertEqual(code, 0, out)
+                self.assertEqual(len(app_requests(seen)), 2)
+
+    def test_reusable_policies_are_looked_up_by_id_once(self):
+        apps = [api_app("Quiz Room", [f"{HOST}/quiz/*"], ["p-allow"]),
+                api_app("Quiz Room (public)", [f"{HOST}/quiz"], [{"id": "p-allow"}])]
+        seen = []
+        code, out = run_check(apps, policies={"p-allow": {"id": "p-allow", "decision": "allow"}}, seen=seen)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(policy_requests(seen), ["p-allow"])
 
     def test_reusable_bypass_policy_refuses(self):
-        self.assertVerdict(
-            1, [app("Quiz Room", QUIZ_URIS, ["p-bypass", "p-allow"])],
-            {"p-bypass": BYPASS_EVERYONE, "p-allow": ALLOW},
-        )
+        apps = [api_app("Quiz Room", QUIZ_URIS, ["p-bypass", "p-allow"])]
+        policies = {"p-bypass": {"decision": "bypass"}, "p-allow": {"decision": "allow"}}
+        code, out = run_check(apps, policies=policies)
+        self.assertEqual(code, 1, out)
+        self.assertIn("'Quiz Room', the most specific one covering", out)
 
-    def test_specific_app_without_allow_overrides_broad_allow(self):
-        broad = app("Whole site", [f"{HOST}/*"], [ALLOW])
-        for policies in ([BYPASS_EVERYONE], [DENY], []):
-            with self.subTest(specific=policies):
-                self.assertVerdict(1, [broad, app("Quiz Room", [f"{HOST}/quiz"], policies)])
+    def test_policies_of_apps_outside_the_quiz_are_not_looked_up(self):
+        apps = api_form(TODAY) + [api_app("status page", ["status.example.org/*"], ["p-elsewhere"])]
+        seen = []
+        code, out = run_check(apps, seen=seen)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(policy_requests(seen), [])
 
-    def test_specific_app_with_allow_overrides_broad_bypass(self):
-        broad = app("Whole site", [f"{HOST}/*"], [BYPASS_EVERYONE])
-        self.assertVerdict(0, [broad, app("Quiz Room", QUIZ_URIS, [ALLOW])])
-
-    def test_longer_wildcard_prefix_overrides_shorter(self):
-        broad = app("Whole site", [f"{HOST}/*"], [ALLOW])
-        quiz = app("Quiz Room", [f"{HOST}/quiz/*"], [DENY])
-        self.assertVerdict(1, [broad, quiz], path="/quiz/admin")
+    def test_legacy_domain_fields_are_read_without_destinations(self):
+        legacy = {"name": "Quiz Room", "type": "self_hosted", "domain": f"{HOST}/quiz",
+                  "self_hosted_domains": [f"{HOST}/quiz/*"], "policies": [{"decision": "allow"}]}
+        code, out = run_check([legacy])
+        self.assertEqual(code, 0, out)
 
 
 if __name__ == "__main__":

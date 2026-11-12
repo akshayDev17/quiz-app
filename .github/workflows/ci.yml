@@ -39,9 +39,20 @@ jobs:
         run: python3 -B .github/scripts/test_access_check.py
 
       # ── backend ──────────────────────────────────────────────────────────
-      # The suite is stdlib unittest with no dependencies, so it runs on the
-      # interpreter the runner already has. Also exercised through pytest,
-      # which is what `backend/pyproject.toml` declares.
+      - uses: astral-sh/setup-uv@v6
+
+      # `uv sync` then `uv run`, not `uvx --with pytest`: this resolves the
+      # project's own dev dependency group, which is what provides pywrangler.
+      # A missing `workers-py` there shows up only as a deploy failing with
+      # "Failed to spawn: pywrangler", and this is the job that catches it.
+      - name: Backend — sync the dev environment
+        working-directory: backend
+        run: uv sync
+
+      # The suite is unittest, so each file also runs on its own, in the dev
+      # environment (the Access check test parses ci.yml with PyYAML). Also
+      # exercised through pytest, which is what `backend/pyproject.toml`
+      # declares.
       - name: Backend — run each test file
         working-directory: backend
         run: |
@@ -54,20 +65,10 @@ jobs:
           fail=0
           for t in "${files[@]}"; do
             echo "::group::$t"
-            python3 "$t" || fail=1
+            uv run python "$t" || fail=1
             echo "::endgroup::"
           done
           exit $fail
-
-      - uses: astral-sh/setup-uv@v6
-
-      # `uv sync` then `uv run`, not `uvx --with pytest`: this resolves the
-      # project's own dev dependency group, which is what provides pywrangler.
-      # A missing `workers-py` there shows up only as a deploy failing with
-      # "Failed to spawn: pywrangler", and this is the job that catches it.
-      - name: Backend — sync the dev environment
-        working-directory: backend
-        run: uv sync
 
       - name: Backend — run through pytest
         working-directory: backend
