@@ -209,9 +209,10 @@ backend/
 
 ### API
 
-All paths are under `/quiz/api`. All require an identity. `attempt` endpoints
-also require `attempt.user_email == caller` and return **404, not 403**,
-otherwise, so an attempt's existence isn't revealed.
+All paths are under `/quiz/api`. All require an identity except `/public/*`
+(below), and answer `401` without one. `attempt` endpoints also require
+`attempt.user_email == caller` and return **404, not 403**, otherwise, so an
+attempt's existence isn't revealed.
 
 | Method & path | Does |
 |---|---|
@@ -227,6 +228,18 @@ otherwise, so an attempt's existence isn't revealed.
 | `POST /admin/sets` | import a set from JSON (admin) |
 | `POST /admin/sets/{id}/publish` · `/archive` · `/clone` | lifecycle (admin) |
 | `GET  /admin/sets/{id}/attempts` | who took it, scores (admin) |
+
+The `/public/*` routes are for the signed-out View. They are matched before the
+identity check, never read or create a user, accept only `GET` (anything else is
+`405`) and send `Cache-Control: public, max-age=60`. They serve published sets
+only, and nothing of any person: no email, score, last attempt or open attempt.
+They stay behind the quiz's Access app until a separate Access change makes them
+public.
+
+| Method & path | Does |
+|---|---|
+| `GET  /public/topics` | the `/topics` cards, without `last` and `open_attempt` |
+| `GET  /public/sets/{id}` | a published set (drafts and archived sets are 404) with its questions in authored order, each with its options, their `correct` flags and the explanation. No points. When `reveal_answers` is false, `correct` and `explanation` are `null`. |
 
 ### How time is enforced
 
@@ -255,7 +268,11 @@ This is enforced by types, not just by convention:
   `QuestionForSolver` / `OptionForSolver`. **These dataclasses have no
   `is_correct` field**, so solver code can't leak it by accident.
 - The answer key is reachable only through `AnswerKeyReader`, which only the
-  `Grader` holds.
+  `Grader` holds, and through the public View (`GET /public/sets/{id}`). By
+  owner decision, View shows the key of every published set with
+  `reveal_answers` true to anyone, so a solver can read it while their own
+  attempt on that set is open. Sets with `reveal_answers` false keep the key
+  hidden on View too.
 - `test_no_answer_leak.py` walks every solver endpoint's JSON and fails if
   `is_correct`, `explanation` or `score` appears before the attempt is
   finished.

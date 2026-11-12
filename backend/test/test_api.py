@@ -449,5 +449,162 @@ class TopicsOrderTest(ApiCase):
         self.assertEqual((card["difficulty"], card["style"]), ("hard", "scenario"))
 
 
+#: One concrete request per signed-in route. Any route added to ``Api`` without a row here
+#: fails ``test_every_route_has_an_anonymous_probe``.
+SIGNED_IN_PROBES = [
+    ("GET", "/me"),
+    ("PATCH", "/me"),
+    ("GET", "/topics"),
+    ("GET", "/sets/1"),
+    ("POST", "/sets/1/attempts"),
+    ("GET", "/attempts"),
+    ("GET", "/attempts/abc"),
+    ("PUT", "/attempts/abc/answers/1"),
+    ("POST", "/attempts/abc/submit"),
+    ("POST", "/attempts/abc/pause"),
+    ("POST", "/attempts/abc/resume"),
+    ("GET", "/attempts/abc/results"),
+    ("GET", "/admin/sets"),
+    ("POST", "/admin/sets"),
+    ("GET", "/admin/sets/1"),
+    ("PUT", "/admin/sets/1"),
+    ("POST", "/admin/sets/1/publish"),
+    ("POST", "/admin/sets/1/archive"),
+    ("POST", "/admin/sets/1/clone"),
+    ("DELETE", "/admin/sets/1"),
+]
+
+#: Keys that belong to a person or an attempt; none may appear in a public payload.
+PERSONAL_KEYS = ("email", "score", "max_score", "last", "open_attempt", "attempt_id", "attempts_used")
+
+
+def _keys(value) -> set[str]:
+    """Every dict key anywhere in a JSON-shaped value."""
+    if isinstance(value, dict):
+        return set(value) | {k for v in value.values() for k in _keys(v)}
+    if isinstance(value, list):
+        return {k for v in value for k in _keys(v)}
+    return set()
+
+
+class AnonymousTest(ApiCase):
+    async def test_every_route_has_an_anonymous_probe(self):
+        registered = {(m, p.pattern) for m, p, _ in self.api._routes}
+        probed = {
+            (m, p.pattern)
+            for m, p, _ in self.api._routes
+            for method, path in SIGNED_IN_PROBES
+            if m == method and p.match(path)
+        }
+        self.assertEqual(registered - probed, set())
+
+    async def test_every_signed_in_route_is_401_without_an_identity(self):
+        sid = await self.publish()
+        for method, path in SIGNED_IN_PROBES:
+            path = path.replace("/1", f"/{sid}", 1) if path.startswith(("/sets/", "/admin/sets/")) else path
+            got = await self.call(method, path, {}, ident=None)
+            self.assertEqual(got, (401, {"error": "sign-in required"}), f"{method} {path}")
+        self.assertEqual(await self.users(), 1)  # only the admin who published
+
+    async def users(self) -> int:
+        return (await self.db.prepare("SELECT COUNT(*) AS n FROM users").first())["n"]
+
+
+class PublicTest(ApiCase):
+    async def test_topics_are_todays_cards_without_a_solvers_data(self):
+        sid = await self.publish()
+        draft = (await self.ok("POST", "/admin/sets", sample_import(difficulty="hard"), ADMIN, 201))["id"]
+        await self.start(sid)  # alice has an open attempt
+        signed_in = await self.ok("GET", "/topics")
+        self.assertIsNotNone(signed_in["topics"][0]["groups"][0]["sets"][0]["open_attempt"])
+        public = await self.ok("GET", "/public/topics", ident=None)
+
+        for topic in signed_in["topics"]:
+            for group in topic["groups"]:
+                for card in group["sets"]:
+                    del card["last"], card["open_attempt"]
+        self.assertEqual(public, signed_in)
+        ids = [c["id"] for t in public["topics"] for g in t["groups"] for c in g["sets"]]
+        self.assertEqual(ids, [sid])
+        self.assertNotIn(draft, ids)
+
+    async def test_set_is_the_authored_key_in_order_without_points(self):
+        sid = await self.publish(shuffle_questions=True, shuffle_options=True)
+        view = await self.ok("GET", f"/public/sets/{sid}", ident=None)
+        authored = sample_import()["questions"]
+        self.assertEqual(
+            view["set"],
+            {
+                "id": sid, "name": "Embeddings and vector space · Set 1", "topic": "RAG",
+                "subtopic": "Embeddings and vector space", "description": None,
+                "time_limit_minutes": 15, "question_count": 3, "reveal_answers": True,
+            },
+        )
+        self.assertEqual([q["prompt"] for q in view["questions"]], [q["prompt"] for q in authored])
+        for got, want in zip(view["questions"], authored):
+            self.assertEqual(set(got), {"id", "prompt", "explanation", "options"})
+            self.assertEqual(got["explanation"], want["explanation"])
+            self.assertEqual([(o["body"], o["correct"]) for o in got["options"]],
+                             [(o["body"], o["correct"]) for o in want["options"]])
+
+    async def test_reveal_answers_false_hides_the_key_and_explanations(self):
+        sid = await self.publish(reveal_answers=False)
+        view = await self.ok("GET", f"/public/sets/{sid}", ident=None)
+        self.assertFalse(view["set"]["reveal_answers"])
+        for q in view["questions"]:
+            self.assertIsNone(q["explanation"])
+            self.assertTrue(q["options"])
+            self.assertTrue(all(o["correct"] is None for o in q["options"]))
+
+    async def test_drafts_archived_and_missing_sets_are_404(self):
+        draft = (await self.ok("POST", "/admin/sets", sample_import(), ADMIN, 201))["id"]
+        archived = await self.publish(difficulty="hard")
+        await self.ok("POST", f"/admin/sets/{archived}/archive", None, ADMIN)
+        for sid in (draft, archived, 999):
+            self.assertEqual(
+                await self.call("GET", f"/public/sets/{sid}", ident=None),
+                (404, {"error": "quiz set not found"}),
+            )
+        self.assertEqual((await self.call("GET", "/public/sets/abc", ident=None))[0], 404)
+        self.assertEqual((await self.call("GET", "/public", ident=None))[0], 404)
+        self.assertEqual((await self.call("GET", "/public/me", ident=None))[0], 404)
+
+    async def test_only_get_is_allowed(self):
+        sid = await self.publish()
+        for method in ("POST", "PUT", "PATCH", "DELETE", "HEAD"):
+            for path in ("/public/topics", f"/public/sets/{sid}", "/public/nope"):
+                got = await self.call(method, path, {}, ident=None)
+                self.assertEqual(got, (405, {"error": "method not allowed"}), f"{method} {path}")
+
+    async def test_public_routes_never_create_or_read_a_user(self):
+        sid = await self.publish()
+        for ident in (None, BOB):
+            await self.ok("GET", "/public/topics", ident=ident)
+            await self.ok("GET", f"/public/sets/{sid}", ident=ident)
+        self.assertEqual((await self.db.prepare("SELECT COUNT(*) AS n FROM users").first())["n"], 1)
+
+    async def test_public_payloads_carry_nothing_of_a_person(self):
+        sid = await self.publish()
+        aid = (await self.start(sid))["attempt"]["id"]
+        await self.ok("POST", f"/attempts/{aid}/submit")
+        await self.start(await self.publish(difficulty="hard"))  # and one still open
+        for path in ("/public/topics", f"/public/sets/{sid}"):
+            payload = await self.ok("GET", path, ident=None)
+            self.assertEqual(_keys(payload) & set(PERSONAL_KEYS), set(), path)
+            text = json.dumps(payload)
+            self.assertNotIn("@example.com", text, path)
+            self.assertNotIn(aid, text, path)
+
+    def test_response_headers(self):
+        from quiz_app.api import response_headers
+
+        self.assertEqual(response_headers(f"{P}/public/topics", 200), {"cache-control": "public, max-age=60"})
+        self.assertEqual(response_headers(f"{P}/public/sets/1/", 200), {"cache-control": "public, max-age=60"})
+        self.assertEqual(response_headers(f"{P}/public/sets/1", 404), {})
+        self.assertEqual(response_headers(f"{P}/public/topics", 405), {"allow": "GET"})
+        self.assertEqual(response_headers(f"{P}/topics", 200), {})
+        self.assertEqual(response_headers(f"{P}/publicity", 200), {})
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -16,6 +16,7 @@ from .d1.catalog import D1Catalog, D1PaperSource
 from .d1.users import D1UserRepository
 from .services.attempts import AttemptService
 from .services.authoring import AuthoringService
+from .services.catalog import PublicCatalogService
 from .services.users import UserService
 
 
@@ -25,4 +26,5 @@ def build_api(db, admin_emails: Iterable[str], clock: Clock | None = None) -> Ap
         users=UserService(D1UserRepository(db, clock), frozenset(admin_emails)),
         authoring=AuthoringService(D1QuizAuthoring(db, clock), clock),
         attempts=AttemptService(D1Catalog(db), D1PaperSource(db), D1AttemptRepository(db), clock),
+        public=PublicCatalogService(D1Catalog(db), D1PaperSource(db)),
     )
