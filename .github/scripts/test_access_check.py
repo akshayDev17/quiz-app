@@ -82,7 +82,7 @@ class Refuses(unittest.TestCase):
 
     def test_bypass_on_quiz_wildcard(self):
         apps = PLANNED + [app("open everything", [f"{H}/quiz/*"], ["bypass"])]
-        self.assertRefused(apps, f"'open everything' has a Bypass policy", f"{H}/quiz/*")
+        self.assertRefused(apps, "'open everything' has a Bypass policy", f"{H}/quiz/*")
 
     def test_bypass_on_quiz_wildcard_on_the_public_app(self):
         apps = [app("akshayprabhakant.com", [f"{H}/quiz/*"], ["allow"]),
@@ -141,7 +141,7 @@ class Matching(unittest.TestCase):
         self.assertEqual(resolve([app("quiz", [f"{H}/quiz/*"], ["allow"])], "/quiz"), [])
 
     def test_what_reaches_the_quiz(self):
-        for uri in [f"{H}/quiz", f"{H}/quiz/*", f"{H}/quiz/view", f"{H}/*", H, f"{H}/q*", f"*/quiz", f"{H}/quiz/"]:
+        for uri in [f"{H}/quiz", f"{H}/quiz/*", f"{H}/quiz/view", f"{H}/*", H, f"{H}/q*", "*/quiz", f"{H}/quiz/"]:
             self.assertTrue(can_reach_quiz(uri), uri)
         for uri in [f"{H}/quizzes", f"{H}/graph/*", f"{H}/qui", f"www.{H}/quiz", f"*.{H}/quiz/*", "status.example.org/*"]:
             self.assertFalse(can_reach_quiz(uri), uri)
