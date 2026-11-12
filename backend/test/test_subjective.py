@@ -173,7 +173,7 @@ class ImportTest(SubjectiveCase):
         made = await self.ok("POST", "/admin/sets", payload, ADMIN, 201)
         await self.ok("POST", f"/admin/sets/{made['id']}/publish", None, ADMIN)
         session = await self.start(made["id"])
-        self.assertEqual([q["kind"] for q in session["questions"]], ["choice", "subjective", "choice", "choice"])
+        self.assertEqual(sorted(q["kind"] for q in session["questions"]), ["choice"] * 3 + ["subjective"])
         aid = session["attempt"]["id"]
         got, body = await self.type(aid, self.written_id(session), "Typed.")
         self.assertEqual(got, 204, body)
@@ -229,10 +229,7 @@ class ServedTest(SubjectiveCase):
         self.assertEqual(info["subjective_count"], 1)
         session = await self.start()
         self.assertEqual(len(session["questions"]), CHOICE_COUNT + 1)
-        self.assertEqual(
-            [q["kind"] for q in session["questions"]],
-            ["choice", "subjective", "choice", "choice"],
-        )
+        self.assertEqual(sorted(q["kind"] for q in session["questions"]), ["choice"] * 3 + ["subjective"])
         [written] = [q for q in session["questions"] if q["kind"] == "subjective"]
         self.assertEqual((written["prompt"], written["options"]), (WRITTEN.prompt, []))
 
@@ -245,7 +242,7 @@ class ServedTest(SubjectiveCase):
         self.assertEqual([q["kind"] for q in session["questions"]], ["subjective", "subjective"])
 
     async def test_shuffling_keeps_the_subjective_question_whole(self):
-        sid = await self.publish(with_written(shuffle_questions=True, shuffle_options=True, difficulty="medium"))
+        sid = await self.publish(with_written(difficulty="medium"))
         session = await self.start(sid)
         self.assertEqual(sorted(q["kind"] for q in session["questions"]), ["choice"] * 3 + ["subjective"])
         review = await D1AttemptRepository(self.db).review(session["attempt"]["id"])
@@ -264,7 +261,7 @@ class ServedTest(SubjectiveCase):
     async def test_the_question_is_copied_onto_the_paper(self):
         aid = (await self.start())["attempt"]["id"]
         rows = (await self.db.prepare(
-            "SELECT kind, model_answer FROM attempt_questions WHERE attempt_id = ? ORDER BY position"
+            "SELECT kind, model_answer FROM attempt_questions WHERE attempt_id = ? ORDER BY source_question_id"
         ).bind(aid).all()).results
         self.assertEqual(
             [(r["kind"], r["model_answer"]) for r in rows],

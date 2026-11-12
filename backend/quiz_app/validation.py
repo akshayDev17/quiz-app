@@ -49,8 +49,8 @@ class SetImport:
     description: str | None = None
     time_limit_minutes: int | None = None
     scoring_policy: str = "all_or_nothing"
-    shuffle_questions: bool = False
-    shuffle_options: bool = False
+    shuffle_questions: bool = True
+    shuffle_options: bool = True
     reveal_answers: bool = True
     max_attempts: int | None = None
     visibility: str | None = "public"               # None on an edit = keep the current one
@@ -93,7 +93,7 @@ def _parse_fields(payload: dict, errors: list[str]) -> dict:
         errors.append("max_attempts must be a positive whole number or null")
 
     flags = {}
-    for key, default in (("shuffle_questions", False), ("shuffle_options", False), ("reveal_answers", True)):
+    for key, default in (("shuffle_questions", True), ("shuffle_options", True), ("reveal_answers", True)):
         value = payload.get(key, default)
         if not isinstance(value, bool):
             errors.append(f"{key} must be true or false")

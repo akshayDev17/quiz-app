@@ -283,3 +283,52 @@ class SubjectiveMigrationTest(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+SHUFFLE_SEED = """
+INSERT INTO quiz_sets (id, topic_id, subtopic_id, difficulty, style, seq, title, description,
+  time_limit_minutes, scoring_policy, shuffle_questions, shuffle_options, reveal_answers,
+  max_attempts, status, created_by, created_at, updated_at) VALUES
+  (8, 1, 1, 'easy', 'standard', 1, NULL, NULL, NULL, 'partial', 0, 0, 1, NULL, 'published', 'a@x.com', 1, 1),
+  (24, 1, 1, 'medium', 'standard', 1, NULL, NULL, NULL, 'partial', 0, 0, 1, NULL, 'published', 'a@x.com', 1, 1);
+INSERT INTO questions (id, set_id, position, prompt, explanation, points) VALUES
+  (80, 8, 0, 'Plain?', 'Nothing here names an option by place.', 1),
+  (240, 24, 0, 'What does k1 control?',
+   'Term-frequency saturation. Option B describes the b parameter (length normalization).', 1);
+"""
+
+
+class ShuffleOnMigrationTest(unittest.IsolatedAsyncioTestCase):
+    """0006 turns both shuffle switches on for every set, except the live sets whose
+    explanations name options by position, which keep option order."""
+
+    async def asyncSetUp(self):
+        db = SqliteD1(":memory:")
+        for path in sorted(MIGRATIONS.glob("*.sql")):
+            if path.name == "0003_attempt_papers.sql":
+                db.executescript(SEED)
+            if path.name == "0006_shuffle_on.sql":
+                db.executescript(SHUFFLE_SEED)
+            db.executescript(path.read_text())
+        self.db = db
+
+    async def flags(self):
+        rows = (await self.db.prepare(
+            "SELECT id, shuffle_questions, shuffle_options FROM quiz_sets ORDER BY id"
+        ).all()).results
+        return {r["id"]: (r["shuffle_questions"], r["shuffle_options"]) for r in rows}
+
+    async def test_existing_sets_are_turned_on(self):
+        flags = await self.flags()
+        self.assertEqual(flags[3], (1, 1))
+
+    async def test_an_exception_keeps_option_order_only_where_its_text_is(self):
+        flags = await self.flags()
+        self.assertEqual(flags[24], (1, 0))  # its explanation names "Option B"
+        self.assertEqual(flags[8], (1, 1))   # id on the exception list, but not that set's text
+
+    async def test_attempts_are_untouched(self):
+        rows = (await self.db.prepare("SELECT id, status, score FROM attempts ORDER BY id").all()).results
+        self.assertEqual([(r["id"], r["status"], r["score"]) for r in rows],
+                         [("finished", "submitted", 2.0), ("paused", "in_progress", None)])
+        self.assertEqual((await self.db.prepare("PRAGMA foreign_key_check").all()).results, [])

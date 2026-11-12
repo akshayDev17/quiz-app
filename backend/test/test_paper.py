@@ -10,7 +10,7 @@ import unittest
 
 import helpers  # noqa: F401  (sys.path)
 
-from helpers import sample_import
+from helpers import authored_key, sample_import
 
 from quiz_app import serializers
 from quiz_app.auth import Identity  # noqa: F401  (kept for parity with other suites)
@@ -60,7 +60,7 @@ class PaperCase(unittest.IsolatedAsyncioTestCase):
 
     async def start(self, email=ALICE) -> str:
         aid = (await self.svc.start_or_resume(email, self.sid)).attempt.id
-        self.q1, self.q2, self.q3 = (await self.repo.answer_key(aid) + [None, None, None])[:3]
+        self.q1, self.q2, self.q3 = (await authored_key(self.db, aid) + [None, None, None])[:3]
         return aid
 
     async def answered_and_submitted(self) -> str:
@@ -117,7 +117,7 @@ class EditTest(PaperCase):
         info = await self.authoring.import_set(ADMIN, sample_import(scoring_policy="partial"))
         await self.authoring.publish(ADMIN, info.id)
         aid = (await self.svc.start_or_resume(ALICE, info.id)).attempt.id
-        half = (await self.repo.answer_key(aid))[1]
+        half = (await authored_key(self.db, aid))[1]
         await self.svc.save(ALICE, aid, half.question_id, list(half.correct)[:1])
         await self.svc.pause(ALICE, aid)
 
@@ -134,15 +134,17 @@ class EditTest(PaperCase):
         # under, for its score and for each question's maximum on the results page.
         aid = await self.start()
         await self.db.prepare("UPDATE attempts SET scoring_policy = 'partial' WHERE id = ?").bind(aid).run()
-        half = (await self.repo.answer_key(aid))[1]
+        half = (await authored_key(self.db, aid))[1]
         await self.svc.save(ALICE, aid, half.question_id, list(half.correct)[:1])
         await self.svc.submit(ALICE, aid)
 
         attempt = await self.repo.get(aid)
         self.assertEqual((attempt.score, attempt.max_score), (1.0, 4))  # half of q2's 2 points
         body = serializers.results(await self.svc.results(ALICE, aid))
-        self.assertEqual([q["points"] for q in body["questions"]], [1, 2, 1])
-        self.assertEqual([q["awarded_points"] for q in body["questions"]], [0, 1.0, 0])
+        served = {q["id"]: q for q in body["questions"]}
+        authored = [served[k.question_id] for k in await authored_key(self.db, aid)]
+        self.assertEqual([q["points"] for q in authored], [1, 2, 1])
+        self.assertEqual([q["awarded_points"] for q in authored], [0, 1.0, 0])
 
 
 class ArchiveTest(PaperCase):

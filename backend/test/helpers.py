@@ -72,3 +72,18 @@ def sample_import(**overrides) -> dict:
     }
     payload.update(overrides)
     return payload
+
+
+async def authored_key(db, attempt_id: str) -> list:
+    """An attempt's answer key in the set's authored order, not the order it was served.
+
+    Every attempt shuffles its questions, so a test that means "the set's first
+    question" looks it up here. The ids are still the attempt's paper ids.
+    """
+    from quiz_app.d1.attempts import D1AttemptRepository
+
+    served = {k.question_id: k for k in await D1AttemptRepository(db).answer_key(attempt_id)}
+    rows = (await db.prepare(
+        "SELECT id FROM attempt_questions WHERE attempt_id = ? ORDER BY source_question_id"
+    ).bind(attempt_id).all()).results
+    return [served[r["id"]] for r in rows if r["id"] in served]
