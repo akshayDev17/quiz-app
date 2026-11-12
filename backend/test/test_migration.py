@@ -450,5 +450,120 @@ class ExplanationsByContentMigrationTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await self.flags(), flags)
 
 
+# Live texts 0008 rewrites (its guards), the texts it writes, and an edited look-alike.
+SET12_Q360 = (
+    "Attribution only asks whether a source exists that the claim points at — and here the source "
+    "really exists, so attribution held. Faithfulness asks whether that source entails the claim — it "
+    "does not, so faithfulness failed. Option 2 inverts the two; option 3 is wrong because attribution "
+    "genuinely held; option 4 is a red herring, since latency is unrelated to whether the cited source "
+    "supports the answer."
+)
+SET12_Q360_AFTER = (
+    "Attribution only asks whether a source exists that the claim points at — and here the source "
+    "really exists, so attribution held. Faithfulness asks whether that source entails the claim — it "
+    "does not, so faithfulness failed. The 'faithfulness held, but attribution failed' option inverts "
+    "the two; the 'both failed' option is wrong because attribution genuinely held; the "
+    "retrieval-latency option is a red herring, since latency is unrelated to whether the cited source "
+    "supports the answer."
+)
+SET19_Q765 = (
+    "Temperature scaling fits T to fix miscalibration; sampling temperature sets T and treats the "
+    "entropy as the product — same function, opposite goals. They're not interchangeable, the effects "
+    "are reversed in the second distractor, and both involve a scalar."
+)
+SET19_Q765_AFTER = (
+    "Temperature scaling fits T to fix miscalibration; sampling temperature sets T and treats the "
+    "entropy as the product — same function, opposite goals. They're not interchangeable, the effects "
+    "are reversed in the option where the calibration use makes output more varied, and both involve "
+    "a scalar."
+)
+SET34_Q1597 = (
+    "The passthrough key itself is still camelCased (`runtimeVarOverrides`); only its value's keys are "
+    "preserved. `extra_info` is not a passthrough field, so `POD_NAME` → `\"POD\" + \"Name\"` = `PODName`, "
+    "because `capitalize()` lowercases everything after the first letter. That mangling is exactly why "
+    "SLX var names need the passthrough set. Option 2 has no passthrough. Option 3 wrongly preserves the "
+    "outer key. Option 4 wrongly treats `POD_NAME` as preserved."
+)
+# Question 1602's live text with one edit, as if an author had touched it since: 0008 must skip it.
+SET34_Q1602_EDITED = (
+    "Narrowing on the literal `type` removes the handled members (edited). Option 2 describes today's "
+    "untyped behaviour."
+)
+
+NUMBERED_SEED = f"""
+INSERT INTO quiz_sets (id, topic_id, subtopic_id, difficulty, style, seq, title, description,
+  time_limit_minutes, scoring_policy, shuffle_questions, shuffle_options, reveal_answers,
+  max_attempts, status, created_by, created_at, updated_at) VALUES
+  (12, 1, 1, 'hard', 'standard', 2, NULL, NULL, NULL, 'partial', 0, 0, 1, NULL, 'published', 'a@x.com', 1, 1),
+  (19, 1, 1, 'hard', 'standard', 3, NULL, NULL, NULL, 'partial', 0, 0, 1, NULL, 'published', 'a@x.com', 1, 1),
+  (34, 1, 1, 'hard', 'standard', 4, NULL, NULL, NULL, 'partial', 0, 0, 1, NULL, 'published', 'a@x.com', 1, 1);
+INSERT INTO questions (id, set_id, position, prompt, explanation, points) VALUES
+  (360, 12, 0, 'Attribution or faithfulness?', {_sql(SET12_Q360)}, 1),
+  (361, 12, 1, 'Unrelated?', 'Nothing here numbers an option.', 1),
+  (765, 19, 0, 'Calibration or sampling?', {_sql(SET19_Q765)}, 1),
+  (1597, 34, 0, 'What does this print?', {_sql(SET34_Q1597)}, 1),
+  (1602, 34, 1, 'What happens with this renderer?', {_sql(SET34_Q1602_EDITED)}, 1);
+-- the paper of an attempt that was served set 12 in authored order
+INSERT INTO attempt_questions (id, attempt_id, source_question_id, position, prompt, explanation, points)
+  VALUES (901, 'finished', 360, 9, 'Attribution or faithfulness?', {_sql(SET12_Q360)}, 1);
+"""
+
+
+class NumberedExplanationsByContentMigrationTest(unittest.IsolatedAsyncioTestCase):
+    """0008 rewrites the explanations that number their options in sets 12 and 34 (and one
+    in set 19), and turns option shuffle back on for 12 and 34 once none is left."""
+
+    async def asyncSetUp(self):
+        db = SqliteD1(":memory:")
+        for path in sorted(MIGRATIONS.glob("*.sql")):
+            if path.name == "0003_attempt_papers.sql":
+                db.executescript(SEED)
+            if path.name == "0006_shuffle_on.sql":
+                db.executescript(NUMBERED_SEED)
+            db.executescript(path.read_text())
+        self.db = db
+
+    async def explanation(self, table, row_id):
+        rows = (await self.db.prepare(f"SELECT explanation FROM {table} WHERE id = ?").bind(row_id).all()).results
+        return rows[0]["explanation"]
+
+    async def flags(self):
+        rows = (await self.db.prepare(
+            "SELECT id, shuffle_questions, shuffle_options FROM quiz_sets ORDER BY id"
+        ).all()).results
+        return {r["id"]: (r["shuffle_questions"], r["shuffle_options"]) for r in rows}
+
+    async def test_a_numbered_explanation_names_the_options_by_content(self):
+        self.assertEqual(await self.explanation("questions", 360), SET12_Q360_AFTER)
+        q1597 = await self.explanation("questions", 1597)
+        for phrase in ("Option 2", "Option 3", "Option 4"):
+            self.assertNotIn(phrase, q1597)
+        self.assertTrue(q1597.startswith(SET34_Q1597.split(" Option 2")[0]))  # the rest is unchanged
+
+    async def test_the_second_distractor_in_set_19_is_named_by_content(self):
+        self.assertEqual(await self.explanation("questions", 765), SET19_Q765_AFTER)
+        self.assertEqual((await self.flags())[19], (1, 1))  # it already shuffled its options
+
+    async def test_unrelated_and_already_edited_explanations_are_left_alone(self):
+        self.assertEqual(await self.explanation("questions", 361), "Nothing here numbers an option.")
+        self.assertEqual(await self.explanation("questions", 1602), SET34_Q1602_EDITED)
+
+    async def test_option_shuffle_goes_back_on_only_where_no_numbered_option_is_left(self):
+        flags = await self.flags()
+        self.assertEqual(flags[12], (1, 1))  # its numbered explanation was rewritten
+        self.assertEqual(flags[34], (1, 0))  # 1602 still says "Option 2 describes …"
+
+    async def test_past_papers_keep_the_text_they_were_served(self):
+        self.assertEqual(await self.explanation("attempt_questions", 901), SET12_Q360)
+
+    async def test_running_it_again_changes_nothing(self):
+        before = (await self.db.prepare("SELECT id, explanation FROM questions ORDER BY id").all()).results
+        flags = await self.flags()
+        self.db.executescript((MIGRATIONS / "0008_explanations_by_content_numbered.sql").read_text())
+        after = (await self.db.prepare("SELECT id, explanation FROM questions ORDER BY id").all()).results
+        self.assertEqual([dict(r) for r in after], [dict(r) for r in before])
+        self.assertEqual(await self.flags(), flags)
+
+
 if __name__ == "__main__":
     unittest.main()
