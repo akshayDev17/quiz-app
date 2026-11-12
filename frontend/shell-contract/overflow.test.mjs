@@ -30,6 +30,8 @@ const topics = { topics: [
     { subtopic: { id: 2, name: 'Embeddings and vector space' }, sets: [
       card(2, 'Embeddings and vector space · Set 1', 'Set 1', { open_attempt: { attempt_id: 'a2', remaining_ms: 7 * 60_000 } }),
       card(3, 'Embeddings and vector space · Set 2', 'Set 2', { difficulty: 'hard', style: 'scenario' }),
+      card(5, 'Embeddings and vector space · Set 3', 'Set 3', { question_count: 1,
+        last: { attempt_id: 'a4', status: 'submitted', score: 0, max_score: 0 } }),
     ] },
   ] },
   { id: 2, name: 'Distributed systems', groups: [
@@ -73,11 +75,19 @@ const results = {
       text_answer: LONG_TYPED, model_answer: MODEL_ANSWER },
   ]),
 };
+// A set of only subjective questions: nothing in it is marked, so its attempt scores 0 out of 0.
+const unmarkedResults = {
+  attempt: { id: 'a4', status: 'submitted', started_at: NOW - 3 * HOUR, finished_at: NOW - 3 * HOUR + 10 * 60_000, score: 0, max_score: 0 },
+  set: { id: 5, name: 'Embeddings and vector space · Set 3', topic: setIntro.topic, scoring_policy: 'negative_marking', reveal_answers: true },
+  questions: results.questions.filter((q) => q.kind === 'subjective'),
+};
 const history = { attempts: [
   { id: 'a2', set_id: 2, name: 'Embeddings and vector space · Set 1', topic: 'Retrieval-augmented generation', status: 'in_progress',
     started_at: NOW - 13 * 60_000, finished_at: null, score: null, max_score: null },
   { id: 'a1', set_id: 2, name: 'Embeddings and vector space · Set 1', topic: 'Retrieval-augmented generation', status: 'submitted',
     started_at: NOW - 2 * HOUR, finished_at: NOW - HOUR, score: 9.5, max_score: 12 },
+  { id: 'a4', set_id: 5, name: unmarkedResults.set.name, topic: unmarkedResults.set.topic, status: 'submitted',
+    started_at: unmarkedResults.attempt.started_at, finished_at: unmarkedResults.attempt.finished_at, score: 0, max_score: 0 },
   { id: 'a0', set_id: 4, name: 'Consensus and replication · Set 1', topic: 'Distributed systems', status: 'expired',
     started_at: NOW - 30 * HOUR, finished_at: NOW - 29 * HOUR, score: -13.5, max_score: 24 },
 ] };
@@ -114,6 +124,7 @@ const publicSet = {
 /** GET /quiz/api<path> → body. */
 const API = {
   '/me': me, '/topics': topics, '/sets/2': setIntro, '/attempts/a2': attemptSession, '/attempts/a3': writtenSession, '/attempts/a1/results': results,
+  '/attempts/a4/results': unmarkedResults,
   '/attempts': history, '/admin/sets': adminSets, '/admin/sets/2': adminSet,
   '/public/topics': publicTopics, '/public/sets/2': publicSet,
 };
@@ -125,6 +136,7 @@ const PAGES = {
   '/quiz/play?attempt=a2': { ready: '.opt' },
   '/quiz/play?attempt=a3': { ready: 'textarea.written' },
   '/quiz/results?attempt=a1': { ready: '.answer-block.model' },
+  '/quiz/results?attempt=a4': { ready: '.answer-block.model' },
   '/quiz/history': { ready: '.table td' },
   '/quiz/admin': { ready: '.table td' },
   '/quiz/admin/edit?id=2': { ready: 'textarea' },
@@ -142,6 +154,18 @@ before(async () => {
   browser = await chromium.launch({ channel: 'chrome' });
 });
 after(() => browser?.close());
+
+/** Answers the quiz API from the fixtures above; a protected call redirects to sign-in while `signedOut()` holds. */
+function answerApi(context, signedOut = () => false) {
+  return context.route((url) => url.pathname.startsWith('/quiz/api/'), (route) => {
+    const path = new URL(route.request().url()).pathname.slice('/quiz/api'.length);
+    if (signedOut() && !isPublic(path)) {
+      return route.fulfill({ status: 302, headers: { location: 'https://team.cloudflareaccess.com/cdn-cgi/access/login' } });
+    }
+    const body = API[path];
+    return body ? route.fulfill({ json: body }) : route.fulfill({ status: 404, json: { error: 'not found' } });
+  });
+}
 
 /** Opens every collapsed section (the home page's topics and subtopics), so all of its content is laid out. */
 async function expandAll(page) {
@@ -182,14 +206,7 @@ test('every page type lays out at exactly the phone width (360, 390, 412 px; bot
       const context = await browser.newContext({ viewport: { width, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true });
       await context.addInitScript((id) => { try { localStorage.setItem('site-theme', id); } catch {} }, theme);
       let signedOut = false;
-      await context.route((url) => url.pathname.startsWith('/quiz/api/'), (route) => {
-        const path = new URL(route.request().url()).pathname.slice('/quiz/api'.length);
-        if (signedOut && !isPublic(path)) {
-          return route.fulfill({ status: 302, headers: { location: 'https://team.cloudflareaccess.com/cdn-cgi/access/login' } });
-        }
-        const body = API[path];
-        return body ? route.fulfill({ json: body }) : route.fulfill({ status: 404, json: { error: 'not found' } });
-      });
+      await answerApi(context, () => signedOut);
       for (const [path, { ready, signedOut: out = false }] of Object.entries(PAGES)) {
         signedOut = out;
         const page = await context.newPage();
@@ -207,4 +224,30 @@ test('every page type lays out at exactly the phone width (360, 390, 412 px; bot
     }
   }
   assert.deepEqual(failures, []);
+});
+
+test('a set with nothing marked reads Not marked wherever its score shows: results, set card, history', async (t) => {
+  const s = await session(t, [APP, SHELL]);
+  const context = await browser.newContext();
+  await answerApi(context);
+  const page = await context.newPage();
+
+  await page.goto(`${s.base}/quiz/results?attempt=a4`, { waitUntil: 'load' });
+  await page.waitForSelector('.stats .v');
+  const stats = await page.locator('.stats > div').evaluateAll((cells) => cells.map((c) => c.textContent));
+  assert.deepEqual(stats, ['Not markedScore'], 'results: one Not marked cell, no 0 / 0, no percent, no marking label');
+
+  await page.goto(`${s.base}/quiz`, { waitUntil: 'load' });
+  await page.waitForSelector('.shead');
+  await expandAll(page);
+  const foot = (name) => page.locator('.set-card', { has: page.locator('h3', { hasText: new RegExp(`^${name}$`) }) }).locator('.foot').textContent();
+  assert.equal(await foot('Set 3'), 'Last: Not marked', 'set card: an unmarked last attempt');
+  assert.equal(await foot('RAG fundamentals · Set 1'), 'Last: 9.5 / 12', 'set card: a marked last attempt keeps its score');
+
+  await page.goto(`${s.base}/quiz/history`, { waitUntil: 'load' });
+  await page.waitForSelector('.table td');
+  const scores = await page.locator('.table tbody tr td:last-child').allTextContents();
+  assert.deepEqual(scores, ['—', '9.5 / 12', 'Not marked', '−13.5 / 24'], 'history: the unmarked attempt reads Not marked');
+
+  await context.close();
 });

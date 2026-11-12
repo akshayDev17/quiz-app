@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
 import { ApiError, getMe, getResults, isSessionExpired, signOut } from '../../lib/api';
 import { letter } from '../../lib/letters';
-import { formatScore, percent } from '../../lib/score';
+import { formatScore, isMarked, NOT_MARKED, percent } from '../../lib/score';
 import { clearReauthFlag, handleSessionExpired } from '../../lib/session';
 import type { ChoiceResult, Me, Results, SubjectiveResult } from '../../lib/types';
 import Markdown from '../components/Markdown';
@@ -152,22 +152,31 @@ function ResultsView() {
             <div className="banner">Time’s up — your saved answers were submitted automatically</div>
           )}
           <div className="stats">
-            <div>
-              {/* Two unbreakable halves: a narrow column wraps "−4 / 22" before the slash, never inside it. */}
-              <span className="v">
-                <span className="nw">{formatScore(results.attempt.score)}</span>{' '}
-                <span className="nw">/ {formatScore(results.attempt.max_score)}</span>
-              </span>
-              <span className="k">Score</span>
-            </div>
-            <div>
-              <span className="v">{formatScore(percent(results.attempt.score, results.attempt.max_score))}%</span>
-              <span className="k">{POLICY_LABEL[results.set.scoring_policy]}</span>
-            </div>
-            <div>
-              <span className="v">{unanswered}</span>
-              <span className="k">Unanswered</span>
-            </div>
+            {isMarked(results.attempt.max_score) ? (
+              <>
+                <div>
+                  {/* Two unbreakable halves: a narrow column wraps "−4 / 22" before the slash, never inside it. */}
+                  <span className="v">
+                    <span className="nw">{formatScore(results.attempt.score)}</span>{' '}
+                    <span className="nw">/ {formatScore(results.attempt.max_score)}</span>
+                  </span>
+                  <span className="k">Score</span>
+                </div>
+                <div>
+                  <span className="v">{formatScore(percent(results.attempt.score, results.attempt.max_score))}%</span>
+                  <span className="k">{POLICY_LABEL[results.set.scoring_policy]}</span>
+                </div>
+                <div>
+                  <span className="v">{unanswered}</span>
+                  <span className="k">Unanswered</span>
+                </div>
+              </>
+            ) : (
+              <div>
+                <span className="v">{NOT_MARKED}</span>
+                <span className="k">Score</span>
+              </div>
+            )}
           </div>
           {results.questions.map((q, i) =>
             q.kind === 'subjective' ? (

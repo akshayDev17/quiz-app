@@ -18,7 +18,20 @@ export function formatScore(n: number): string {
   return rounded < 0 ? `−${String(-rounded)}` : String(Math.abs(rounded));
 }
 
-/** `score / max_score` as a whole percent, below zero when the score is; 0 when there is nothing to score. */
+/** What an attempt reads as when nothing in its set is marked: every question is subjective. */
+export const NOT_MARKED = 'Not marked';
+
+/** Whether an attempt has anything to score: false when every question in its set is subjective, so max_score is 0. */
+export function isMarked(maxScore: number): boolean {
+  return maxScore > 0;
+}
+
+/** An attempt's score in a line: `score / max_score`, or "Not marked" when nothing in its set is marked. */
+export function scoreLine(score: number, maxScore: number): string {
+  return isMarked(maxScore) ? `${formatScore(score)} / ${formatScore(maxScore)}` : NOT_MARKED;
+}
+
+/** `score / max_score` as a whole percent, below zero when the score is. Only for a marked attempt (`isMarked`). */
 export function percent(score: number, maxScore: number): number {
-  return maxScore > 0 ? Math.round((100 * score) / maxScore) : 0;
+  return Math.round((100 * score) / maxScore);
 }

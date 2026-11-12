@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { formatClock } from '../../lib/countdown';
 import { pluralize } from '../../lib/names';
-import { formatScore } from '../../lib/score';
+import { scoreLine } from '../../lib/score';
 import type { SetCard as SetCardData } from '../../lib/types';
 
 /** The card's foot line, split into three visual tiers:
@@ -20,7 +20,7 @@ function Foot({ card }: { card: SetCardData }) {
   if (card.last) {
     return (
       <span className="chip score">
-        Last: {formatScore(card.last.score)} / {formatScore(card.last.max_score)}
+        Last: {scoreLine(card.last.score, card.last.max_score)}
       </span>
     );
   }

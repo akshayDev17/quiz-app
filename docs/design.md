@@ -315,6 +315,9 @@ gets no `attempt_results` row, adds nothing to the score or `max_score`, and is
 not charged the −2 when left blank. Results show it with `points`,
 `awarded_points` and `is_correct` all `null`, the solver's `text_answer`, and the
 `model_answer` when `reveal_answers` is on.
+A set of only subjective questions is allowed; its attempts score 0 out of a
+`max_score` of 0, so the results page, the set card and history read them as
+"Not marked" instead of a score or a percent.
 
 ### Applying SOLID, OOP and patterns, where they're worth it
 
