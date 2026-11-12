@@ -14,10 +14,10 @@ def grade(
     results: list[QuestionResult] = []
     for key in keys:
         selected = selections.get(key.question_id, frozenset())
-        awarded = policy.award(key.points, key.correct, selected) if selected else 0
+        awarded = policy.award(key.points, key.correct, selected)
         results.append(QuestionResult(key.question_id, awarded, selected == key.correct))
     return GradeResult(
         score=sum(r.awarded_points for r in results),
-        max_score=sum(k.points for k in keys),
+        max_score=sum(policy.max_award(k.points, k.correct) for k in keys),
         results=tuple(results),
     )

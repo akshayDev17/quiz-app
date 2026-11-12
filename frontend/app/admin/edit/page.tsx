@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useRef, useState } from 'react';
 import { getAdminSet, getMe, isSessionExpired, signOut, updateAdminSet } from '../../../lib/api';
+import { MARKING_SHORT, maxMarks } from '../../../lib/score';
 import { clearReauthFlag } from '../../../lib/session';
 import type { Me } from '../../../lib/types';
 import Masthead, { type Crumb } from '../../components/Masthead';
@@ -49,7 +50,6 @@ const blankQuestion = (): QDraft => ({
   ],
   removed: false,
 });
-const points = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
 
 /**
  * Page buttons with ellipsis: 1 … 4 5 6 … 20. Sets are small, but the editor
@@ -132,7 +132,7 @@ function Editor() {
   const questions = draft?.questions ?? [];
   const live = questions.filter((q) => !q.removed);
   const removedCount = questions.length - live.length;
-  const totalPoints = live.reduce((sum, q) => sum + (Number(q.points) || 0), 0);
+  const totalMarks = live.reduce((sum, q) => sum + maxMarks(q.options.filter((o) => o.correct).length), 0);
   const totalPages = Math.max(1, Math.ceil(questions.length / perPage));
   const current = Math.min(page, totalPages);
   const from = (current - 1) * perPage;
@@ -247,7 +247,7 @@ function Editor() {
                 {title}
                 <span>
                   {meta.status} · {live.length} {live.length === 1 ? 'question' : 'questions'} ·{' '}
-                  {points(totalPoints)} points
+                  up to {totalMarks} marks
                   {removedCount > 0 && (
                     <em className="ed-pending"> · {removedCount} to delete on save</em>
                   )}
@@ -311,12 +311,8 @@ function Editor() {
                     </select>
                   </div>
                   <div>
-                    <label className="lab" htmlFor="ed-scoring">Scoring</label>
-                    <select id="ed-scoring" value={draft.scoring_policy}
-                            onChange={(e) => set('scoring_policy', e.target.value)}>
-                      <option value="all_or_nothing">all_or_nothing</option>
-                      <option value="partial">partial</option>
-                    </select>
+                    <span className="lab">Marking</span>
+                    <p className="ed-static">{MARKING_SHORT}</p>
                   </div>
                 </div>
                 <div className="ed-grid3">
@@ -355,7 +351,7 @@ function Editor() {
                     <header className="ed-ph">
                       <b>Question {qi + 1}</b>
                       <span className="meta">
-                        {points(q.points)} points · {correct} of {q.options.length} correct
+                        {correct} of {q.options.length} correct · up to {maxMarks(correct)} marks
                       </span>
                       {!q.removed && (
                         <button className="ed-btn ed-remove" disabled={lastLive}
@@ -367,17 +363,10 @@ function Editor() {
                     </header>
 
                     <div className="ed-pb" inert={q.removed || undefined}>
-                      <div className="ed-promptrow">
-                        <div className="ed-field">
-                          <label className="lab">Prompt</label>
-                          <textarea rows={2} value={q.prompt}
-                                    onChange={(e) => setQuestion(qi, { prompt: e.target.value })} />
-                        </div>
-                        <div className="ed-field ed-pts">
-                          <label className="lab">Points</label>
-                          <input inputMode="decimal" value={String(q.points)}
-                                 onChange={(e) => setQuestion(qi, { points: Number(e.target.value) })} />
-                        </div>
+                      <div className="ed-field">
+                        <label className="lab">Prompt</label>
+                        <textarea rows={2} value={q.prompt}
+                                  onChange={(e) => setQuestion(qi, { prompt: e.target.value })} />
                       </div>
                       <div className="ed-field">
                         <label className="lab">Explanation (blank = none)</label>

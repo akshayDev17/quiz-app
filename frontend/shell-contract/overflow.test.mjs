@@ -53,12 +53,13 @@ const attemptSession = {
   server_now: NOW, set: { name: setIntro.name, topic: setIntro.topic, subtopic: setIntro.subtopic },
   questions, selections: { 11: [111] },
 };
+// Negative marking, below zero: the first question is +2 −1, the second left blank at −2.
 const results = {
-  attempt: { id: 'a1', status: 'submitted', started_at: NOW - 2 * HOUR, finished_at: NOW - HOUR, score: 1.5, max_score: 2 },
-  set: { id: 2, name: setIntro.name, topic: setIntro.topic, scoring_policy: 'partial', reveal_answers: true },
-  questions: questions.map((q, i) => ({ id: q.id, prompt: q.prompt, points: 1, awarded_points: i ? 0.5 : 1, is_correct: !i,
+  attempt: { id: 'a1', status: 'submitted', started_at: NOW - 2 * HOUR, finished_at: NOW - HOUR, score: -1, max_score: 4 },
+  set: { id: 2, name: setIntro.name, topic: setIntro.topic, scoring_policy: 'negative_marking', reveal_answers: true },
+  questions: questions.map((q, i) => ({ id: q.id, prompt: q.prompt, points: 2, awarded_points: i ? -2 : 1, is_correct: false,
     explanation: 'Normalising both vectors makes the denominator 1, so cosine similarity reduces to the inner product.',
-    options: q.options.map((o, j) => ({ id: o.id, body: o.body, selected: j === 0 || j === 2, correct: j === 0 })) })),
+    options: q.options.map((o, j) => ({ id: o.id, body: o.body, selected: !i && (j === 0 || j === 2), correct: j === 0 })) })),
 };
 const history = { attempts: [
   { id: 'a2', set_id: 2, name: 'Embeddings and vector space · Set 1', topic: 'Retrieval-augmented generation', status: 'in_progress',
@@ -66,7 +67,7 @@ const history = { attempts: [
   { id: 'a1', set_id: 2, name: 'Embeddings and vector space · Set 1', topic: 'Retrieval-augmented generation', status: 'submitted',
     started_at: NOW - 2 * HOUR, finished_at: NOW - HOUR, score: 9.5, max_score: 12 },
   { id: 'a0', set_id: 4, name: 'Consensus and replication · Set 1', topic: 'Distributed systems', status: 'expired',
-    started_at: NOW - 30 * HOUR, finished_at: NOW - 29 * HOUR, score: 3, max_score: 12 },
+    started_at: NOW - 30 * HOUR, finished_at: NOW - 29 * HOUR, score: -13.5, max_score: 24 },
 ] };
 const adminSets = { sets: [
   { id: 2, topic: 'Retrieval-augmented generation', name: 'Embeddings and vector space · Set 1', status: 'published', question_count: 12, attempt_count: 14 },

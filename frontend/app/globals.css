@@ -233,6 +233,7 @@ pre code, pre code.hljs { display: block; overflow: visible; background: none; p
 .stats div { display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; }
 .stats div + div { border-left: 1px solid var(--rule); }
 .stats .v { font-family: var(--mono); font-size: 2rem; line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.stats .nw { white-space: nowrap; }
 .stats .k { font-family: var(--mono); font-size: .625rem; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
 .rq { padding: var(--s5); margin-bottom: var(--s4); }
 .rq-head { display: flex; gap: var(--s3); align-items: baseline; margin-bottom: var(--s3); }
@@ -343,11 +344,9 @@ pre code, pre code.hljs { display: block; overflow: visible; background: none; p
   border-color: var(--accent); outline: none;
   box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 18%, transparent); }
 .editor-page input[type="checkbox"] { margin: 0; width: 1rem; height: 1rem; accent-color: var(--accent); cursor: pointer; }
-.ed-promptrow { display: grid; grid-template-columns: minmax(0, 1fr) 5.5rem; gap: .5rem;
-  align-items: start; margin-bottom: .6rem; }
-.ed-promptrow > .ed-field { margin-bottom: 0; }
-.ed-pts { min-width: 0; }
-.editor-page .ed-pts input { font-variant-numeric: tabular-nums; }
+/* A fixed setting shown where an input would be: same box, no border to suggest it edits. */
+.editor-page .ed-static { margin: 0; font-size: .8125rem; color: var(--body); padding: .35rem 0;
+  border: 1px solid transparent; font-variant-numeric: tabular-nums; }
 .ed-grid3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .5rem; }
 .ed-grid3 + .ed-grid3 { margin-top: .6rem; }
 .ed-checks { display: flex; flex-wrap: wrap; gap: .3rem 1.1rem; }
@@ -409,7 +408,6 @@ pre code, pre code.hljs { display: block; overflow: visible; background: none; p
 
 @media (max-width: 40rem) {
   .ed-grid3 { grid-template-columns: 1fr 1fr; }
-  .ed-promptrow { grid-template-columns: minmax(0, 1fr) 4.5rem; }
   .ed-bar-title span { display: block; margin-left: 0; }
   .ed-pager .range { display: none; }
   .ed-ph .meta { white-space: normal; min-width: 0; text-align: right; overflow-wrap: anywhere; }

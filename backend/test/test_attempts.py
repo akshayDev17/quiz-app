@@ -294,8 +294,8 @@ class SubmitTest(AttemptCase):
         first = await self.svc.submit(ALICE, aid)
         self.assertEqual(first.status, "submitted")
         self.assertEqual(first.finished_at, START + 60_000)
-        self.assertEqual(first.score, 3)  # 1 + 2 points; q3 blank
-        self.assertEqual(first.max_score, 4)
+        self.assertEqual(first.score, 8)  # q1 3 x 2 + q2 2 x 2; q3 blank -2
+        self.assertEqual(first.max_score, 12)  # 2 x the 6 correct options
         self.clock.advance(60_000)
         second = await self.svc.submit(ALICE, aid)
         self.assertEqual(second, first)
@@ -342,7 +342,7 @@ class SubmitTest(AttemptCase):
         attempt = await self.svc.submit(ALICE, aid)
         self.assertEqual(attempt.status, "expired")
         self.assertEqual(attempt.finished_at, START + LIMIT_MS)
-        self.assertEqual(attempt.score, 0)
+        self.assertEqual(attempt.score, -6)  # three blanks at -2: a total may go negative
 
     async def test_lazy_expiry_on_read_grades_saved_answers(self):
         aid = await self.start()
@@ -350,7 +350,7 @@ class SubmitTest(AttemptCase):
         self.clock.advance(16 * 60_000)
         session = await self.svc.session(ALICE, aid)
         self.assertEqual(session.attempt.status, "expired")
-        self.assertEqual(session.attempt.score, 1)
+        self.assertEqual(session.attempt.score, 2)  # 6, then two blanks at -2
         self.assertEqual(session.attempt.finished_at, START + LIMIT_MS)
 
     async def test_expiry_happens_at_deadline_not_after_grace(self):
@@ -393,9 +393,10 @@ class ResultsTest(AttemptCase):
         self.assertEqual([q.id for q in view.questions], [self.q1.question_id, self.q2.question_id, self.q3.question_id])
         self.assertEqual(view.selections[self.q2.question_id], frozenset(wrong))
         self.assertTrue(view.results[self.q1.question_id].is_correct)
-        self.assertEqual(view.results[self.q1.question_id].awarded_points, 1)
+        self.assertEqual(view.results[self.q1.question_id].awarded_points, 6)
         self.assertFalse(view.results[self.q2.question_id].is_correct)
-        self.assertEqual(view.results[self.q3.question_id].awarded_points, 0)
+        self.assertEqual(view.results[self.q2.question_id].awarded_points, 2)  # one of two correct ticked
+        self.assertEqual(view.results[self.q3.question_id].awarded_points, -2)
 
     async def test_results_serialize_with_a_missing_result_row(self):
         aid = await self.start()
@@ -505,7 +506,7 @@ class ArchivedSetTest(AttemptCase):
         self.assertEqual(len(session.questions), 3)
         await self.svc.save(ALICE, aid, self.q1.question_id, list(self.q1.correct))
         attempt = await self.svc.submit(ALICE, aid)
-        self.assertEqual((attempt.status, attempt.score), ("submitted", 1))
+        self.assertEqual((attempt.status, attempt.score), ("submitted", 2))
         view = await self.svc.results(ALICE, aid)
         self.assertEqual(view.attempt.set_id, self.sid)
         self.assertEqual(len(view.questions), 3)
@@ -518,7 +519,7 @@ class ArchivedSetTest(AttemptCase):
         self.clock.advance(LIMIT_MS + 1)
         await self.svc.expire_due_for(ALICE)
         attempt = await self.repo.get(aid)
-        self.assertEqual((attempt.status, attempt.score, attempt.finished_at), ("expired", 1, START + LIMIT_MS))
+        self.assertEqual((attempt.status, attempt.score, attempt.finished_at), ("expired", 2, START + LIMIT_MS))
         self.assertEqual(await self.count_results(aid), 3)
 
     async def test_history_lists_attempts_on_archived_set(self):

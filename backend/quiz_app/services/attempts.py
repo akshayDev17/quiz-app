@@ -18,7 +18,7 @@ from ..errors import Conflict, Invalid, NotFound
 from ..grading import grade
 from ..models import Attempt, QuestionForSolver, QuestionResult, QuizSetInfo, ReviewQuestion
 from ..ports import AttemptRepository, PaperSource, QuizCatalog
-from ..scoring import ScoringPolicyFactory
+from ..scoring import MARKING, ScoringPolicyFactory
 from ..shuffle import display_order
 from ..timing import GRACE_MS, TimeLimit
 
@@ -86,7 +86,8 @@ class AttemptService:
             style=info.style,
             seq=info.seq,
             title=info.title,
-            scoring_policy=info.scoring_policy,
+            # Every new attempt is marked by the current rule, whatever the set's column says.
+            scoring_policy=MARKING,
             reveal_answers=info.reveal_answers,
             started_at=now,
             deadline_at=TimeLimit.of(info.time_limit_minutes).deadline(now),
