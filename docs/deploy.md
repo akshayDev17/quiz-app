@@ -272,7 +272,7 @@ If one fails, the "if not" note says where to look.
 `https://akshayprabhakant.com/quiz/api/me`. Expect JSON with your email and
 `role: admin`. *If not:* there is no fallback. `CloudflareAccessIdentity`
 (`backend/quiz_app/auth.py`) fails closed, so without `ctx.access` every
-`/quiz/api` route answers 401. (`ctx.access` in Python Workers is undocumented;
+`/quiz/api` route except `/public/*` answers 401. (`ctx.access` in Python Workers is undocumented;
 the archive's `access-limits.md` §8 records that question.) The fix would be a new
 `IdentityProvider` that verifies the `Cf-Access-Jwt-Assertion` JWT against the
 team's JWKS. That is not implemented.
