@@ -1,7 +1,28 @@
+import { pluralize } from './names.ts';
+
 /** The marks every quiz is taken under, as the backend's `NegativeMarking` applies them. */
 export const MARKING_RULE =
   'Each correct option you tick earns +2 and each wrong one costs −1; a correct option left unticked costs nothing. ' +
   'A question left blank costs −2.';
+
+/**
+ * The set intro's line on what a set holds and its line on how it is marked, for a set of
+ * `questionCount` questions of which `subjectiveCount` are written (never marked, nothing for a blank).
+ * A set with no choice questions drops the choice-only copy; a mixed one keeps the marking rule
+ * and adds that the written questions are not marked.
+ */
+export function writeIntroRules(questionCount: number, subjectiveCount: number): { questions: string; marking: string } {
+  const count = pluralize(questionCount, 'question');
+  if (subjectiveCount >= questionCount) {
+    return { questions: `${count}, each answered in writing.`, marking: 'Written answers are not marked.' };
+  }
+  return {
+    questions: `${count}. Some have more than one correct answer.`,
+    marking: subjectiveCount > 0
+      ? `${MARKING_RULE} Written questions are not marked, so leaving one blank costs nothing.`
+      : MARKING_RULE,
+  };
+}
 
 /** The same rule in a few words, for tight spots. */
 export const MARKING_SHORT = '+2 right · −1 wrong · −2 blank';

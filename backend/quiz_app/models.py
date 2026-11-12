@@ -65,6 +65,7 @@ class QuizSetInfo:
     reveal_answers: bool
     max_attempts: int | None
     question_count: int
+    subjective_count: int  # of question_count, how many are subjective (never marked)
     visibility: str  # 'public' | 'private'; see migrations/0004_visibility.sql
 
     @property

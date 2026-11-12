@@ -237,7 +237,7 @@ class FlowTest(ApiCase):
             {
                 "id": sid, "topic": "RAG", "subtopic": "Embeddings and vector space", "name": card["name"],
                 "description": None, "time_limit_minutes": 15, "question_count": 3,
-                "max_attempts": None, "attempts_used": 1, "open_attempt_id": None,
+                "subjective_count": 0, "max_attempts": None, "attempts_used": 1, "open_attempt_id": None,
             },
         )
 

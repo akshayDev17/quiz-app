@@ -105,6 +105,7 @@ def set_intro(info: QuizSetInfo, attempts_used: int, open_attempt_id: str | None
         "description": info.description,
         "time_limit_minutes": info.time_limit_minutes,
         "question_count": info.question_count,
+        "subjective_count": info.subjective_count,
         "max_attempts": info.max_attempts,
         "attempts_used": attempts_used,
         "open_attempt_id": open_attempt_id,

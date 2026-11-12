@@ -20,8 +20,9 @@ export type Topics<C> = {
 export type TopicsResponse = { topics: Topics<SetCard> };
 
 export type SetIntro = { id: number; topic: string; subtopic: string | null; name: string; description: string | null;
-  time_limit_minutes: number | null; question_count: number; max_attempts: number | null; attempts_used: number;
-  open_attempt_id: string | null };
+  time_limit_minutes: number | null; question_count: number;
+  subjective_count: number;  // of question_count, how many are subjective (never marked)
+  max_attempts: number | null; attempts_used: number; open_attempt_id: string | null };
 
 /**
  * A choice question is answered by ticking options and marked; a subjective one is answered by

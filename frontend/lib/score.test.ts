@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { formatScore, isMarked, maxMarks, percent, scoreLine } from './score.ts';
+import { formatScore, isMarked, MARKING_RULE, maxMarks, percent, scoreLine, writeIntroRules } from './score.ts';
 
 test('formatScore trims trailing zeros and caps at 2 decimals', () => {
   assert.equal(formatScore(4), '4');
@@ -43,4 +43,25 @@ test('scoreLine reads score / max_score for a marked attempt, below zero too', (
 
 test('scoreLine reads Not marked, never 0 / 0, when nothing in the set is marked', () => {
   assert.equal(scoreLine(0, 0), 'Not marked');
+});
+
+test('the intro of an all-subjective set drops the choice-only copy and says nothing is marked', () => {
+  const rules = writeIntroRules(2, 2);
+  assert.deepEqual(rules, { questions: '2 questions, each answered in writing.', marking: 'Written answers are not marked.' });
+  const text = rules.questions + rules.marking;
+  assert.doesNotMatch(text, /more than one correct answer|−2|\+2|−1/);
+});
+
+test('the intro of a mixed set keeps the marking rule and adds that written questions are not marked', () => {
+  assert.deepEqual(writeIntroRules(4, 1), {
+    questions: '4 questions. Some have more than one correct answer.',
+    marking: `${MARKING_RULE} Written questions are not marked, so leaving one blank costs nothing.`,
+  });
+});
+
+test('the intro of a choice-only set reads the marking rule alone', () => {
+  assert.deepEqual(writeIntroRules(1, 0), {
+    questions: '1 question. Some have more than one correct answer.',
+    marking: MARKING_RULE,
+  });
 });

@@ -226,6 +226,7 @@ class ServedTest(SubjectiveCase):
     async def test_starting_an_attempt_serves_every_question(self):
         info = await self.ok("GET", f"/sets/{self.sid}")
         self.assertEqual(info["question_count"], CHOICE_COUNT + 1)
+        self.assertEqual(info["subjective_count"], 1)
         session = await self.start()
         self.assertEqual(len(session["questions"]), CHOICE_COUNT + 1)
         self.assertEqual(
@@ -237,7 +238,10 @@ class ServedTest(SubjectiveCase):
 
     async def test_a_set_of_only_subjective_questions_is_served_whole(self):
         imp = dataclasses.replace(QuizValidator.parse(sample_import(difficulty="easy")), questions=(WRITTEN, WRITTEN))
-        session = await self.start(await self.publish(imp))
+        sid = await self.publish(imp)
+        info = await self.ok("GET", f"/sets/{sid}")
+        self.assertEqual((info["question_count"], info["subjective_count"]), (2, 2))
+        session = await self.start(sid)
         self.assertEqual([q["kind"] for q in session["questions"]], ["subjective", "subjective"])
 
     async def test_shuffling_keeps_the_subjective_question_whole(self):
