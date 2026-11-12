@@ -19,6 +19,7 @@ requires-python = ">=3.11"
 dev = [
   "workers-py",
   "pytest>=8",
+  "pyyaml",
 ]
 
 [tool.pytest.ini_options]

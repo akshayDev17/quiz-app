@@ -1,17 +1,19 @@
 # Deploying quiz-app
 
 A checklist, in order. **Access is set up before anything is deployed**, so
-`/quiz` is never publicly reachable, not even for a minute. Sections A to G match
-the order you do them in; "Verify after first deploy" lists what only the real
-platform can prove.
+`/quiz` is never publicly reachable, not even for a minute. Only §A.8, applied
+later with the owner's approval, opens a fixed list of pages to signed-out
+visitors. Sections A to G match the order you do them in; "Verify after first
+deploy" lists what only the real platform can prove.
 
 > **Precondition: do not push to `main` before completing §A to §C** (Access, D1
 > with its `database_id` committed, and the `ADMIN_EMAILS` secret), plus the
 > GitHub `production` environment of §E. CI deploys on every push to `main`. The
 > API job refuses to run while `backend/wrangler.jsonc` still holds the
 > `REPLACE_AFTER_d1_create` placeholder, the frontend job waits for the API job,
-> and both jobs refuse to deploy unless a Cloudflare Access application with an
-> Allow policy covers `/quiz`.
+> and both jobs refuse to deploy unless Cloudflare Access keeps every
+> signed-in path behind an Allow policy and any Bypass under `/quiz` to the
+> fixed public list of §A.8.
 
 Topology (details in [design.md](design.md) §2 and §7):
 
@@ -65,6 +67,37 @@ copy desk.
 
    It should give `302` to `<team>.cloudflareaccess.com`. (GitHub Pages is still
    the origin at this point, and that is fine.)
+8. **Later, and only with the owner's approval: the public View.** This makes
+   the quiz list and the View page reachable signed out
+   ([ADR 0009](adr/0009-signed-out-view-via-access-bypass.md)). Do it only once
+   the public API, the signed-out pages and the new CI check are deployed.
+   Before that, skip it: everything stays signed in only.
+   1. Add a **new** self-hosted application named `Quiz Room (public)`, with
+      these destinations, all with domain `akshayprabhakant.com`: `quiz/view`,
+      `quiz/view.txt`, `quiz/index.txt`, `quiz/_next/*`, `quiz/api/public/*`.
+      Its one policy is `Quiz public pages`, Action **Bypass**, Include →
+      **Everyone**. Leave everything else at its defaults.
+   2. Move the bare `quiz` destination: remove it from `Quiz Room` (keep
+      `quiz/*` and the `Invited solvers` policy as they are), then add it to
+      `Quiz Room (public)`. Between the two edits no application covers
+      `/quiz`, so a deploy started then is refused. Re-run it afterwards.
+
+   That list is the whole public surface. The deploy check (§E) refuses any
+   Bypass application that reaches `/quiz` and holds anything else, so adding a
+   public page means editing `PUBLIC_DESTINATIONS` in
+   `.github/scripts/access_check.py` and ADR 0009 too. Each public destination
+   is more specific than `quiz/*`, so it wins. Every other path stays behind
+   `Invited solvers`, and the Worker answers `401` to every non-public API route
+   without an identity even if Access let a request through. Then check:
+
+   ```sh
+   curl -sI https://akshayprabhakant.com/quiz                  # 200
+   curl -s  https://akshayprabhakant.com/quiz/api/public/topics # 200 JSON
+   curl -sI https://akshayprabhakant.com/quiz/set               # 302 to Access
+   curl -sI https://akshayprabhakant.com/quiz/api/me            # 302 to Access
+   ```
+
+   To roll back, delete `Quiz Room (public)`, then add `quiz` back to `Quiz Room`.
 
 ## B. D1 (CLI, not the dashboard)
 
@@ -163,15 +196,29 @@ themes (`npm run test:overflow`). On
 `main`, after the tests pass, two jobs run under `environment: production`:
 **Deploy API** (Access check, secrets check, D1 reachability check,
 `d1 migrations apply`, `pywrangler deploy`) and **Deploy Frontend** (Access
-check, `npm run build`, `wrangler deploy`). The Access check is each job's first
-step: it asks the Cloudflare API for the account's Access applications and
-judges the most specific self-hosted one covering `akshayprabhakant.com/quiz`,
-the one Cloudflare enforces. An exact `quiz` destination beats a wildcard over a
-parent path, and a longer wildcard prefix beats a shorter one. The job fails
-unless that application has an Allow policy and no Bypass policy (Cloudflare
-evaluates Bypass before Allow), so a missing or broken §A never publishes the
-quiz. It reads the API rather than the page because Cloudflare answers GitHub's
-runners with a 403 instead of the login redirect. A token without
+check, `npm run build`, `wrangler deploy`). The Access check runs first in
+each job, right after checkout. Both jobs run the same script,
+`.github/scripts/access_check.py`; the test job runs its fixtures
+(`test_access_check.py`) on every push. It asks the Cloudflare API for the
+account's Access applications. For each path it judges the most specific
+self-hosted application covering it, the one Cloudflare enforces: an exact
+destination beats a wildcard, and a longer wildcard prefix beats a shorter
+one. The job fails unless:
+
+- every signed-in-only probe path (`/quiz/set`, `/quiz/play`, `/quiz/results`,
+  `/quiz/history`, `/quiz/admin`, `/quiz/signin`, `/quiz/api/me`,
+  `/quiz/api/topics`, `/quiz/api/attempts`, `/quiz/api/admin/sets`) is covered
+  by an application with an Allow policy and no Bypass policy (Cloudflare
+  evaluates Bypass before Allow);
+- each public path of §A.8 is covered by an application with an Allow policy
+  (before §A.8) or a Bypass policy (after it);
+- any application with a Bypass policy that reaches `/quiz` or anything below
+  it holds only the §A.8 destinations plus `quiz`.
+
+So a missing or broken §A never publishes the quiz, and the check passes both
+before and after §A.8. It reads the API rather than the pages because
+Cloudflare answers GitHub's runners with a 403 instead of the login redirect.
+A token without
 **Access: Apps and Policies · Read** fails this step with a message naming that
 permission. To add it, go to My Profile → API Tokens → **Edit** on the token →
 **+ Add more** → Account / Access: Apps and Policies / Read → **Continue to
@@ -183,7 +230,8 @@ green tick.
 ## F. Verify
 
 - `curl -sI https://akshayprabhakant.com/quiz` and `…/quiz/api/me` both give a
-  302 to Access.
+  302 to Access. (After §A.8, `/quiz` gives a 200 and `/quiz/api/me` still
+  gives a 302.)
 - `curl -sI https://akshayprabhakant.com/chat-archives` gives a 200 with no
   Access redirect (the archive is untouched).
 - `curl -s https://akshayprabhakant.com/api/health` still shows the archive's

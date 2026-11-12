@@ -31,7 +31,12 @@ count — until the solver submits or the clock runs out.
 - **History is the solver's, not the author's.** Editing or deleting a quiz never
   rewrites someone's past attempt: every attempt keeps its own copy of the
   questions, so the per-question breakdown survives even after the quiz is gone.
-- **Invite-only.** Cloudflare Access with an email one-time PIN is the only way in.
+- **Invite-only to take a quiz.** Cloudflare Access with an email one-time PIN
+  guards every signed-in path. Once the public View is switched on, a fixed
+  Access Bypass list (the quiz list, the View page, its static code and
+  `/quiz/api/public/*`) is open to signed-out visitors, and the Worker still
+  refuses every other route without an identity
+  ([ADR 0009](docs/adr/0009-signed-out-view-via-access-bypass.md)).
 
 ## The authoring plugin → [`tools/`](tools/README.md)
 
@@ -91,7 +96,7 @@ before §A–C are complete**.
 
 The same shape as `ai-chat-archive`: a Python Cloudflare Worker + D1 for the API, a
 Next.js static export uploaded as static assets for the frontend, and Cloudflare
-Access (email one-time PIN) as the only way in. No framework is used in the
-backend — the router is a pure function of `(method, path, body, identity)`, and
-every repository is the single SQL implementation that both D1 and the tests run
-against.
+Access (email one-time PIN) in front of every signed-in path. No framework is
+used in the backend — the router is a pure function of
+`(method, path, body, identity)`, and every repository is the single SQL
+implementation that both D1 and the tests run against.
