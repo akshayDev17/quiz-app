@@ -207,6 +207,7 @@ def admin_sets(rows: list[tuple[QuizSetInfo, int]]) -> dict:
                 "topic": info.topic_name,
                 "name": info.name,
                 "status": info.status,
+                "visibility": info.visibility,
                 "question_count": info.question_count,
                 "attempt_count": attempt_count,
             }
@@ -235,6 +236,7 @@ def admin_set_detail(info: QuizSetInfo, questions: list[QuestionImport]) -> dict
         "shuffle_questions": info.shuffle_questions,
         "shuffle_options": info.shuffle_options,
         "reveal_answers": info.reveal_answers,
+        "visibility": info.visibility,
         "questions": [
             {
                 "prompt": q.prompt,

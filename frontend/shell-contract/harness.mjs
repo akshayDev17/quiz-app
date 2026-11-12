@@ -32,6 +32,8 @@ export const PAGES = {
   '/quiz/history': 'history.html',
   '/quiz/admin': 'admin.html',
   '/quiz/admin/edit': 'admin/edit.html',
+  '/quiz/view?id=x': 'view.html',
+  '/quiz/signin': 'signin.html',
 };
 
 // Each exported page's crumbs after "Quiz Room" in the site path (Masthead's `tail`).
@@ -43,6 +45,8 @@ export const TAILS = {
   'history.html': [{ label: 'History' }],
   'admin.html': [{ label: 'Admin' }],
   'admin/edit.html': [{ label: 'Admin', href: '/quiz/admin' }, { label: 'Edit set' }],
+  'view.html': [{ label: 'View' }],
+  'signin.html': [{ label: 'Sign in' }],
 };
 
 before(() => {

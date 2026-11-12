@@ -29,10 +29,12 @@ class UserRepository(ABC):
 
 class QuizCatalog(ABC):
     @abstractmethod
-    async def list_published(self) -> list[QuizSetInfo]: ...
+    async def list_published(self, include_private: bool = False) -> list[QuizSetInfo]:
+        """Published sets: public ones, plus private ones when ``include_private``."""
 
     @abstractmethod
-    async def get_set(self, set_id: int) -> QuizSetInfo | None: ...
+    async def get_set(self, set_id: int, include_private: bool = False) -> QuizSetInfo | None:
+        """A published set, or ``None``; a private one counts as missing unless ``include_private``."""
 
 class PaperSource(ABC):
     @abstractmethod
@@ -48,6 +50,9 @@ class QuizAuthoring(ABC):
 
     @abstractmethod
     async def set_status(self, set_id: int, status: str) -> None: ...
+
+    @abstractmethod
+    async def set_visibility(self, set_id: int, visibility: str) -> None: ...
 
     @abstractmethod
     async def clone(self, set_id: int, created_by: str, now_ms: int) -> int:

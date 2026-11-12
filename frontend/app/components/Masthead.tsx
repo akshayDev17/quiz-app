@@ -1,10 +1,18 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { SIGN_IN_HREF } from '../../lib/api';
 import type { Me } from '../../lib/types';
 
 /** One of this app's own crumbs after "Quiz Room" in the site path; the last is the current page. */
 export type Crumb = { label: string; href?: string };
+
+/**
+ * Who is reading, as far as the page knows. Protected pages are always `signed-in` (Access let
+ * the reader in). Pages anyone may open start `pending` until `/me` answers, so a signed-out
+ * visitor never sees History and Sign out and a signed-in reader never sees Sign in.
+ */
+export type Session = 'signed-in' | 'signed-out' | 'pending';
 
 /** next.config.mjs `basePath`: where this app's pages are served on the site. */
 const BASE_PATH = '/quiz';
@@ -128,12 +136,24 @@ async function fetchComposedRow(pathname: string): Promise<string | null> {
  * it was scrolled) and redraw only the trail (see `composedRow`).
  *
  * `me` is null while it loads. The display name is shown once there is one; until then the
- * email stands in for it. History is for everyone; Admin only for admins. The theme picker
+ * email stands in for it. History is for everyone signed in; Admin only for admins. Signed
+ * out, a single Sign in takes their place: a full navigation to a protected page, so Access
+ * shows its sign-in on the way (`SIGN_IN_HREF`). The theme picker
  * is the shared <site-theme-picker>, which site-shell's site.js defines (it stays an empty
  * element where site-shell is absent, such as `next dev`), so a choice made here carries
  * over to the other apps.
  */
-export default function Masthead({ me, onSignOut, tail }: { me: Me | null; onSignOut: () => void; tail: Crumb[] }) {
+export default function Masthead({
+  me,
+  onSignOut,
+  tail,
+  session = 'signed-in',
+}: {
+  me: Me | null;
+  onSignOut: () => void;
+  tail: Crumb[];
+  session?: Session;
+}) {
   const pathname = usePathname();
   const [sitePath, setSitePath] = useState(() => initialSitePath(tail));
   const slot = useRef<HTMLElement>(null);
@@ -190,11 +210,16 @@ export default function Masthead({ me, onSignOut, tail }: { me: Me | null; onSig
           ) : (
             <span className="mc">{me.email}</span>
           ))}
-        <Link className="linkbtn" href="/history">History</Link>
-        {me?.role === 'admin' && (
-          <Link className="linkbtn" href="/admin">Admin</Link>
+        {session === 'signed-in' && (
+          <>
+            <Link className="linkbtn" href="/history">History</Link>
+            {me?.role === 'admin' && (
+              <Link className="linkbtn" href="/admin">Admin</Link>
+            )}
+            <button className="linkbtn" onClick={onSignOut}>Sign out</button>
+          </>
         )}
-        <button className="linkbtn" onClick={onSignOut}>Sign out</button>
+        {session === 'signed-out' && <a className="linkbtn" href={SIGN_IN_HREF}>Sign in</a>}
         <site-theme-picker hide-label="" />
       </div>
     </header>

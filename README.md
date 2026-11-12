@@ -39,6 +39,10 @@ count — until the solver submits or the clock runs out.
   `/quiz/api/public/*`) is open to signed-out visitors, and the Worker still
   refuses every other route without an identity
   ([ADR 0009](docs/adr/0009-signed-out-view-via-access-bypass.md)).
+- **Each quiz is public or private.** Its author chooses, in the admin editor or the
+  set's JSON (`visibility`, default `public`). Every signed-in solver can take a public
+  quiz; a private one only admins see and take. Turning a quiz private never takes away
+  an attempt already started or finished.
 
 ## The authoring plugin → [`tools/`](tools/README.md)
 

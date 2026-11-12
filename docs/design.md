@@ -105,7 +105,8 @@ topics(id, slug UNIQUE, name, description, position, created_at)       RAG, Harn
   │             scoring_policy[all_or_nothing|partial] (stored; no longer decides marking),
   │             shuffle_questions, shuffle_options, reveal_answers,
   │             max_attempts NULL=unlimited,
-  │             status[draft|published|archived], created_by, …)
+  │             status[draft|published|archived], visibility[public|private],
+  │             created_by, …)
   │     └─< questions(id, set_id, position, prompt(md), explanation(md), points)
   │           └─< options(id, question_id, position, body(md), is_correct)
   │
@@ -217,9 +218,9 @@ attempt's existence isn't revealed.
 | Method & path | Does |
 |---|---|
 | `GET  /me` · `PATCH /me` | email, display name, role · set your display name (the first-visit prompt) |
-| `GET  /topics` | topics → subtopic groups → published sets: derived name, chips (difficulty, scenario, time limit, question count), your last score |
-| `GET  /sets/{id}` | set intro: rules, time limit, attempts used / allowed. No questions. |
-| `POST /sets/{id}/attempts` | **start or resume**: returns attempt, `deadline_at`, `server_now`, questions in solver view, saved selections |
+| `GET  /topics` | topics → subtopic groups → published sets you may take (private ones for admins only): derived name, chips (difficulty, scenario, time limit, question count), your last score |
+| `GET  /sets/{id}` | set intro: rules, time limit, attempts used / allowed. No questions. A private set is 404 unless you are an admin or have an attempt open on it. |
+| `POST /sets/{id}/attempts` | **start or resume**: returns attempt, `deadline_at`, `server_now`, questions in solver view, saved selections. A new attempt on a private set is 404 unless you are an admin; an open one always resumes. |
 | `GET  /attempts/{id}` | resume (same payload). **Lazily expires** if past deadline (see below). |
 | `PUT  /attempts/{id}/answers/{questionId}` | body `{"option_ids":[…]}`, autosave. 409 if finished, 422 if an option isn't in that question. |
 | `POST /attempts/{id}/submit` | grade now (idempotent: a second call returns the same result) |
@@ -227,19 +228,20 @@ attempt's existence isn't revealed.
 | `GET  /attempts` | your history |
 | `POST /admin/sets` | import a set from JSON (admin) |
 | `POST /admin/sets/{id}/publish` · `/archive` · `/clone` | lifecycle (admin) |
+| `POST /admin/sets/{id}/visibility` | body `{"visibility": "public" \| "private"}` (admin). Also settable on import and in the editor's `PUT /admin/sets/{id}`, where leaving it out keeps the current one. |
 | `GET  /admin/sets/{id}/attempts` | who took it, scores (admin) |
 
 The `/public/*` routes are for the signed-out View. They are matched before the
 identity check, never read or create a user, accept only `GET` (anything else is
-`405`) and send `Cache-Control: public, max-age=60`. They serve published sets
-only, and nothing of any person: no email, score, last attempt or open attempt.
+`405`) and send `Cache-Control: public, max-age=60`. They serve published, public
+sets only, and nothing of any person: no email, score, last attempt or open attempt.
 They stay behind the quiz's Access app until a separate Access change makes them
 public.
 
 | Method & path | Does |
 |---|---|
 | `GET  /public/topics` | the `/topics` cards, without `last` and `open_attempt` |
-| `GET  /public/sets/{id}` | a published set (drafts and archived sets are 404) with its questions in authored order, each with its options, their `correct` flags and the explanation. No points. When `reveal_answers` is false, `correct` and `explanation` are `null`. |
+| `GET  /public/sets/{id}` | a published, public set (drafts, archived and private sets are 404) with its questions in authored order, each with its options, their `correct` flags and the explanation. No points. When `reveal_answers` is false, `correct` and `explanation` are `null`. |
 
 ### How time is enforced
 
@@ -408,7 +410,24 @@ The quiz must look like part of the same site as `my-github-io/index.html` and
 | `/quiz/play?attempt=` | The quiz itself (below). |
 | `/quiz/results?attempt=` | Score, then a per-question review (if `reveal_answers`): each option marked *your pick ✓*, *your pick ✗*, *missed*. Explanation underneath. Header says **"Time's up — auto-submitted"** when expired. |
 | `/quiz/history` | Your attempts. |
-| `/quiz/admin` | (phase 2) import, publish, attempts table. |
+| `/quiz/admin` | (phase 2) import, publish, attempts table. Each set's visibility shows under its status, with an eye toggle among the actions; the editor has the same choice. |
+| `/quiz/view?id=` | **View**, for anyone: the results layout with every score removed. Correct options marked *correct*, explanations shown (both only if `reveal_answers`). Stats are questions, minutes and correct options. Signed out, its foot repeats *Sign up · coming soon*. |
+| `/quiz/signin` | A protected page whose only job is to be reached: Access signs the reader in on the way, then it returns them to `/quiz`. |
+
+**Signed out.** `/quiz` and `/quiz/view` are open to anyone once Access bypasses
+them (a separate change; until then they stay behind sign-in). The home page
+tells the two states apart from `GET /me`: `200` is today's page; an Access
+redirect (`opaqueredirect`) is a signed-out visitor, who gets the public
+catalogue, each card with a disabled *Sign up · coming soon* and a *View* button,
+and *Sign in* in the masthead in place of History and Sign out; a real `401` is an
+expired session, as on every other page.
+
+**Visibility** (per set, set by its editors, default `public`). Public: signed-out
+visitors can View it and signed-in solvers take it. Private: absent from the public
+routes and from solvers' `/topics`, and only admins can start it. It applies to
+published sets; a draft stays hidden either way. Turning a set private refuses new
+attempts only: an open attempt still resumes and submits, and finished results and
+history stay.
 
 ### The play screen
 

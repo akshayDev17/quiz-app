@@ -159,7 +159,7 @@ class AdminTest(ApiCase):
             listed["sets"],
             [{
                 "id": made["id"], "topic": "RAG", "name": made["name"], "status": "draft",
-                "question_count": 3, "attempt_count": 0,
+                "visibility": "public", "question_count": 3, "attempt_count": 0,
             }],
         )
         self.assertEqual(await self.ok("POST", f"/admin/sets/{made['id']}/publish", ident=ADMIN),
@@ -473,6 +473,7 @@ SIGNED_IN_PROBES = [
     ("PUT", "/admin/sets/1"),
     ("POST", "/admin/sets/1/publish"),
     ("POST", "/admin/sets/1/archive"),
+    ("POST", "/admin/sets/1/visibility"),
     ("POST", "/admin/sets/1/clone"),
     ("DELETE", "/admin/sets/1"),
 ]

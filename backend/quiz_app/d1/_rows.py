@@ -13,7 +13,7 @@ QUIZ_SET_COLUMNS = """
   s.subtopic_id, st.name AS subtopic_name, st.position AS subtopic_position,
   s.difficulty, s.style, s.seq, s.title, s.description, s.status,
   s.time_limit_minutes, s.scoring_policy,
-  s.shuffle_questions, s.shuffle_options, s.reveal_answers, s.max_attempts,
+  s.shuffle_questions, s.shuffle_options, s.reveal_answers, s.max_attempts, s.visibility,
   (SELECT COUNT(*) FROM questions q WHERE q.set_id = s.id) AS question_count"""
 
 QUIZ_SET_FROM = """
@@ -46,4 +46,5 @@ def quiz_set_from_row(row: dict) -> QuizSetInfo:
         reveal_answers=bool(row["reveal_answers"]),
         max_attempts=row["max_attempts"],
         question_count=row["question_count"],
+        visibility=row["visibility"],
     )

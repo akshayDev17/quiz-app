@@ -1,6 +1,16 @@
 import assert from 'node:assert/strict';
 import { afterEach, test } from 'node:test';
-import { ApiError, AUTH_RETRY_DELAY_MS, getMe, getTopics, isSessionExpired, saveAnswer } from './api.ts';
+import {
+  ApiError,
+  AUTH_RETRY_DELAY_MS,
+  getMe,
+  getPublicSet,
+  getPublicTopics,
+  getTopics,
+  isSessionExpired,
+  isSignedOut,
+  saveAnswer,
+} from './api.ts';
 
 const realFetch = globalThis.fetch;
 afterEach(() => {
@@ -57,7 +67,7 @@ test('one transient 401 is retried after a pause and the retry wins', async () =
 
 test('two 401s in a row are a session expiry, with exactly one retry', async () => {
   const inits = scriptFetch(status(401), status(401));
-  await assert.rejects(getMe(), (err) => isSessionExpired(err));
+  await assert.rejects(getMe(), (err) => isSessionExpired(err) && !isSignedOut(err));
   assert.equal(inits.length, 2);
 });
 
@@ -69,15 +79,36 @@ test('the retry resends the same method and body', async () => {
   assert.equal(inits[1].body, JSON.stringify({ option_ids: [7] }));
 });
 
-test('an Access redirect (expired session) is not retried', async () => {
-  const opaque = () => {
-    const res = new Response(null, { status: 200 });
-    Object.defineProperty(res, 'type', { value: 'opaqueredirect' });
-    return res;
-  };
+const opaque = () => {
+  const res = new Response(null, { status: 200 });
+  Object.defineProperty(res, 'type', { value: 'opaqueredirect' });
+  return res;
+};
+
+test('an Access redirect is not retried', async () => {
   const inits = scriptFetch(opaque);
   await assert.rejects(getMe(), (err) => isSessionExpired(err));
   assert.equal(inits.length, 1);
+});
+
+test('an Access redirect reads as signed out; a real 401 from the Worker does not', async () => {
+  scriptFetch(opaque);
+  await assert.rejects(getMe(), (err) => isSignedOut(err) && err instanceof ApiError && err.status === 401);
+  scriptFetch(status(401), status(401));
+  await assert.rejects(getMe(), (err) => isSessionExpired(err) && !isSignedOut(err));
+  scriptFetch(status(500, { error: 'boom' }));
+  await assert.rejects(getMe(), (err) => !isSignedOut(err));
+});
+
+test('the public reads hit /public/topics and /public/sets/{id}', async () => {
+  const urls: string[] = [];
+  globalThis.fetch = (async (url: unknown) => {
+    urls.push(String(url));
+    return new Response(JSON.stringify({ topics: [] }), { status: 200 });
+  }) as typeof fetch;
+  await getPublicTopics();
+  await getPublicSet(7);
+  assert.deepEqual(urls, ['/quiz/api/public/topics', '/quiz/api/public/sets/7']);
 });
 
 test('other failures are not retried', async () => {

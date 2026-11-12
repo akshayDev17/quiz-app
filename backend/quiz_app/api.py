@@ -158,6 +158,7 @@ class Api:
                 ("PUT", f"/admin/sets/{sid}", self._admin_update),
                 ("POST", f"/admin/sets/{sid}/publish", self._admin_publish),
                 ("POST", f"/admin/sets/{sid}/archive", self._admin_archive),
+                ("POST", f"/admin/sets/{sid}/visibility", self._admin_visibility),
                 ("POST", f"/admin/sets/{sid}/clone", self._admin_clone),
                 ("DELETE", f"/admin/sets/{sid}", self._admin_delete),
             ]
@@ -216,13 +217,19 @@ class Api:
     # -- solver --------------------------------------------------------------
 
     async def _topics(self, user: User, body: object) -> Response:
-        return 200, serializers.topics(*await self._attempts.overview(user.email))
+        return 200, serializers.topics(
+            *await self._attempts.overview(user.email, include_private=user.can_edit_sets)
+        )
 
     async def _set_intro(self, user: User, body: object, set_id: str) -> Response:
-        return 200, serializers.set_intro(*await self._attempts.intro(user.email, int(set_id)))
+        return 200, serializers.set_intro(
+            *await self._attempts.intro(user.email, int(set_id), include_private=user.can_edit_sets)
+        )
 
     async def _start(self, user: User, body: object, set_id: str) -> Response:
-        session = await self._attempts.start_or_resume(user.email, int(set_id))
+        session = await self._attempts.start_or_resume(
+            user.email, int(set_id), include_private=user.can_edit_sets
+        )
         return (201 if session.created else 200), serializers.attempt_session(session)
 
     async def _history(self, user: User, body: object) -> Response:
@@ -277,6 +284,11 @@ class Api:
     async def _admin_archive(self, user: User, body: object, set_id: str) -> Response:
         info = await self._authoring.archive(user, int(set_id))
         return 200, {"id": info.id, "status": info.status}
+
+    async def _admin_visibility(self, user: User, body: object, set_id: str) -> Response:
+        # The service checks the role before it looks at the payload.
+        info = await self._authoring.set_visibility(user, int(set_id), body)
+        return 200, {"id": info.id, "visibility": info.visibility}
 
     async def _admin_clone(self, user: User, body: object, set_id: str) -> Response:
         info = await self._authoring.clone(user, int(set_id))
