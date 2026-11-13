@@ -87,9 +87,18 @@ class WorkerPostTest(unittest.IsolatedAsyncioTestCase):
         self.saved = {name: sys.modules.get(name, _MISSING) for name in ("js", "pyodide", "pyodide.ffi")}
         self.sent = []
 
+        class JsNull:  # what a JS null looks like over pyodide's FFI: not None
+            def __str__(self):
+                return "jsnull"
+
         class Headers:
+            present = {"request-id": "req_42"}
+
+            def has(self, name):
+                return name in self.present
+
             def get(self, name):
-                return {"request-id": "req_42"}.get(name)
+                return self.present.get(name, JsNull())
 
         class FetchResponse:
             status = 200

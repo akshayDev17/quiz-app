@@ -31,9 +31,7 @@ async def worker_post(url: str, headers: dict, body: str, timeout_s: float) -> H
     )
     response = await fetch(url, init)
     text = await response.text()
-    kept = {}
-    for name in REQUEST_ID_HEADERS:
-        value = response.headers.get(name)
-        if value is not None:
-            kept[name] = str(value)
+    # Headers.has, not a None check on get(): over the FFI a missing header's JS null
+    # arrives as pyodide's `jsnull`, not None (seen in workerd), and would read "jsnull".
+    kept = {name: str(response.headers.get(name)) for name in REQUEST_ID_HEADERS if response.headers.has(name)}
     return HttpResponse(int(response.status), kept, str(text))
