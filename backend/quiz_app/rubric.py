@@ -44,10 +44,22 @@ not fit wait for the next call; one that could never fit alone is flagged."""
 
 OUTPUT_TOKENS_BASE = 2_000
 OUTPUT_TOKENS_PER_ITEM = 600
-"""``max_tokens`` = base + per item. An item's reply is about 150 tokens (analysis of at
+"""``max_tokens`` = base + per item. An item's reply is about 100 tokens (analysis of at
 most 60 words, two sentences of feedback, JSON); the rest is headroom for the model's own
-adaptive thinking, which counts toward the cap. At most 14,000 for 20 items, under the
-16k a non-streaming request should stay within."""
+adaptive thinking, which counts toward the cap. Measured on Claude Haiku 5.5 at low effort
+(one real call of 9 answers, 2026-11-13): 1,987 output tokens, about 900 of them the reply
+and the rest thinking, so about 220 per answer against the 600 allowed. At most 14,000 for
+20 items, under the 16k a non-streaming request should stay within."""
+
+TIMEOUT_BASE_S = 15.0
+TIMEOUT_PER_ITEM_S = 2.5
+"""How long an adapter waits for the reply: base + per item, like ``max_tokens``, because
+the reply's length (and the thinking before it) grows with the answers in the call. The
+same measured call took 10.8 s for 9 answers, about 1.2 s each. The allowance is about
+twice that per answer plus room for the first token and queueing: 17.5 s for one answer,
+37.5 s for 9 and 65 s for the 20 a call can carry (about 24 s expected). A flat 25 s would
+have cut off a full call at its expected time. A call that times out is not retried; its
+answers wait for a re-run."""
 
 
 @dataclass(frozen=True)
@@ -76,6 +88,7 @@ class EvaluationRequest:
     user: str
     schema: dict
     max_output_tokens: int
+    timeout_s: float
     items: tuple[EvaluationItem, ...]
     reveal: bool
 
@@ -131,8 +144,10 @@ _REVEAL_ON = (
 )
 _REVEAL_OFF = (
     "Answers are NOT revealed to the student. The feedback must not state the model answer, "
-    "a key point, or any missing fact; describe a gap only in general terms, such as "
-    "\"you do not explain the cause\" or \"the second part of the question is not addressed\"."
+    "a key point, or any missing fact, and must use no term from the model answer or the key "
+    "points that the question or the student's answer does not already use; describe a gap "
+    "only in general terms, such as \"you do not explain the cause\" or \"the second part of "
+    "the question is not addressed\"."
 )
 
 
@@ -195,6 +210,7 @@ def build_request(items: list[EvaluationItem], reveal: bool, nonce: str) -> Eval
         user="\n".join(parts).rstrip() + "\n",
         schema=reply_schema(keys),
         max_output_tokens=OUTPUT_TOKENS_BASE + OUTPUT_TOKENS_PER_ITEM * len(items),
+        timeout_s=TIMEOUT_BASE_S + TIMEOUT_PER_ITEM_S * len(items),
         items=tuple(items),
         reveal=reveal,
     )
@@ -261,6 +277,50 @@ def clean_feedback(text: str) -> str:
     if " " in cut:
         cut = cut[: cut.rindex(" ")]
     return cut.rstrip(" ,;:.") + "…"
+
+
+_WORD = re.compile(r"[a-z0-9]+")
+_STOP = frozenset(
+    "the and that this with from into have has had are was were will would could should "
+    "their there them then than which what when where while because also only more most "
+    "each other such some very just like does done been being its it's not but for you "
+    "your they a an of to in on is be or by as at so if no".split()
+)
+_SENTENCE_END = re.compile(r"(?<=[.!?…])\s+")
+
+HIDDEN_ANSWER_FEEDBACK = "This set keeps its answers hidden, so there is no detailed feedback on this answer."
+"""What a solver reads when every sentence of the feedback would have named the hidden answer."""
+
+
+def content_words(text: str) -> set[str]:
+    """The words of ``text`` that carry meaning: lower case, longer than three letters, not a
+    stop word."""
+    return {w for w in _WORD.findall(text.lower()) if len(w) > 3 and w not in _STOP}
+
+
+def _related(a: str, b: str) -> bool:
+    """Whether two words share a stem, crudely: one's first five letters start the other
+    (``rank`` / ``ranking``, ``vector`` / ``vectors``, ``compare`` / ``comparable``)."""
+    return b.startswith(a[:5]) or a.startswith(b[:5])
+
+
+def hide_answer_terms(feedback: str, item: EvaluationItem, level: int) -> str:
+    """Feedback that is safe to show when a set keeps its answers hidden.
+
+    The prompt already forbids naming the hidden answer, and the model mostly complies; this
+    makes sure. A *hidden term* is a word of the model answer or key points that neither the
+    question nor the student's answer uses. Every sentence that uses one is dropped; when no
+    sentence is left, the solver reads ``HIDDEN_ANSWER_FEEDBACK``. A level-4 answer already
+    holds every essential point, so its feedback has nothing left to give away and is kept.
+    Erring towards dropping a sentence only costs detail, never a mark."""
+    if level >= LEVELS:
+        return feedback
+    known = content_words(item.question) | content_words(item.answer)
+    hidden = [w for w in content_words(item.model_answer + " " + " ".join(item.key_points))
+              if not any(_related(w, k) for k in known)]
+    kept = [sentence for sentence in _SENTENCE_END.split(feedback.strip())
+            if not any(_related(word, h) for word in content_words(sentence) for h in hidden)]
+    return " ".join(kept).strip() or HIDDEN_ANSWER_FEEDBACK
 
 
 def award(level: int, max_marks: float) -> float:

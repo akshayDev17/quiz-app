@@ -31,11 +31,10 @@ from quiz_app.evaluators import (
     EvaluatorReply,
     FakeEvaluator,
     HttpResponse,
-    MessagesApiEvaluator,
     foundry_messages_url,
     usable_evaluators,
 )
-from quiz_app.services.evaluation import Quotas
+from quiz_app.services.evaluation import STALE_MS, Quotas
 from quiz_app.validation import QuestionImport, QuizValidator
 
 ADMIN = Identity("admin@example.com")
@@ -132,6 +131,13 @@ class RequestTest(unittest.TestCase):
         self.assertEqual(props["id"]["enum"], ["Q1", "Q2"])
         self.assertEqual(props["level"]["enum"], [0, 1, 2, 3, 4])
         self.assertEqual(req.max_output_tokens, rubric.OUTPUT_TOKENS_BASE + 2 * rubric.OUTPUT_TOKENS_PER_ITEM)
+        self.assertEqual(req.timeout_s, rubric.TIMEOUT_BASE_S + 2 * rubric.TIMEOUT_PER_ITEM_S)
+
+    def test_the_longest_call_ends_before_its_claim_could_be_taken_over(self):
+        # A claim older than STALE_MS may be taken over by a re-run; a call still in flight
+        # must never be that old, or two calls could mark the same answers.
+        longest = rubric.TIMEOUT_BASE_S + rubric.TIMEOUT_PER_ITEM_S * rubric.MAX_ITEMS_PER_CALL
+        self.assertLess(longest * 1000 * 2, STALE_MS)
 
     def test_pack_keeps_a_call_within_its_item_and_size_caps(self):
         small = [item(f"{i}", answer="x" * 10) for i in range(rubric.MAX_ITEMS_PER_CALL + 3)]
@@ -142,6 +148,58 @@ class RequestTest(unittest.TestCase):
         now, later, never = rubric.pack([big, item("next", answer="w" * 500), huge])
         self.assertEqual(([i.key for i in now], [i.key for i in later], [i.key for i in never]),
                          (["big"], ["next"], ["huge"]))
+
+
+RAFT_Q = "In two or three sentences: why does a Raft leader need a majority of acknowledgements before it treats a log entry as committed?"
+RAFT_MODEL = ("Any two majorities of the cluster overlap in at least one server, so once a majority stores the entry, "
+              "every future leader (which must win votes from a majority) is guaranteed to have it.")
+RAFT_POINTS = ("Any two majorities overlap in at least one server",
+               "A future leader needs a majority's votes, so it must hold every majority-stored entry")
+UNIT_Q = "In one sentence: what does normalising embeddings to unit length let you do?"
+UNIT_MODEL = ("With unit-length vectors the dot product equals cosine similarity, so the cheaper dot product "
+              "can be used to rank by cosine similarity.")
+
+
+class HiddenAnswerFeedbackTest(unittest.TestCase):
+    """With answers hidden, feedback must not hand a solver the terms of the hidden answer. The
+    feedback strings are what Claude Haiku 5.5 actually wrote in the real test call (call 2)."""
+
+    def test_a_sentence_naming_the_hidden_answer_is_dropped_and_the_rest_kept(self):
+        raft = item(question=RAFT_Q, model_answer=RAFT_MODEL, key_points=RAFT_POINTS,
+                    answer="So that the entry is stored on enough machines to survive crashes.")
+        said = ("You correctly note that storing the entry on several machines aids survival. You do not "
+                "explain why a new leader is guaranteed to have the entry, which is the core of the question.")
+        self.assertEqual(rubric.hide_answer_terms(said, raft, 1),
+                         "You correctly note that storing the entry on several machines aids survival.")
+
+        unit = item(question=UNIT_Q, model_answer=UNIT_MODEL, answer="It halves the storage each vector needs.")
+        said = ("The storage claim is not what normalising vectors achieves. You do not address the link "
+                "between the dot product and cosine similarity that the question asks about.")
+        self.assertEqual(rubric.hide_answer_terms(said, unit, 0),
+                         "The storage claim is not what normalising vectors achieves.")
+
+    def test_feedback_that_is_all_hidden_answer_becomes_a_general_line(self):
+        unit = item(question=UNIT_Q, model_answer=UNIT_MODEL, answer="No idea.")
+        said = "The answer should say the dot product equals cosine similarity."
+        self.assertEqual(rubric.hide_answer_terms(said, unit, 0), rubric.HIDDEN_ANSWER_FEEDBACK)
+
+    def test_words_the_question_or_the_answer_already_use_are_not_hidden(self):
+        unit = item(question=UNIT_Q, model_answer=UNIT_MODEL,
+                    answer="Normalised vectors make the dot product the same as cosine similarity.")
+        said = "You link the dot product to cosine similarity for normalised embeddings. The ranking use is missing."
+        self.assertEqual(rubric.hide_answer_terms(said, unit, 3), "You link the dot product to cosine similarity "
+                         "for normalised embeddings.")  # "ranking" (rank) is the hidden part
+
+    def test_a_complete_answer_keeps_its_feedback(self):
+        unit = item(question=UNIT_Q, model_answer=UNIT_MODEL,
+                    answer="Normalised vectors make the dot product the same as cosine similarity, which lets "
+                           "you use the faster dot product for cosine ranking.")
+        said = "You explain that the cheaper dot product can rank by cosine. This is complete."
+        self.assertEqual(rubric.hide_answer_terms(said, unit, 4), said)
+
+    def test_the_hidden_answers_instruction_matches_the_filter(self):
+        off = rubric.build_request([item()], False, "n0nce123").user
+        self.assertIn("no term from the model answer or the key points", off)
 
 
 class ReplyTest(unittest.TestCase):
@@ -241,6 +299,7 @@ class AdapterTest(unittest.IsolatedAsyncioTestCase):
                 got, post = await self.send(provider, HttpResponse(200, {}, message(marks_json(("Q1", 2, "f")))))
                 [(sent_url, headers, body, timeout)] = post.calls
                 self.assertEqual((sent_url, headers[header]), (url, key))
+                self.assertEqual(timeout, self.request().timeout_s)  # the request's own limit
                 self.assertEqual(headers["anthropic-version"], "2026-10-21")
                 self.assertNotIn(key, sent_url)
                 self.assertNotIn(key, json.dumps(body))
@@ -384,6 +443,23 @@ class MarkingTest(EvalCase):
         self.assertEqual(results["attempt"]["score"], CHOICE_MAX + written["awarded_points"])
         self.assertEqual(results["attempt"]["max_score"], CHOICE_MAX + WRITTEN_MAX)
         self.assertEqual(results["attempt"]["awaiting_count"], 0)
+
+    async def test_hidden_answers_keep_their_terms_out_of_stored_feedback(self):
+        said = "You are right that models differ. You do not explain that old and new vectors are not comparable."
+
+        def respond(request, model):
+            return reply(marks_json(*[(i.key, 1, said) for i in request.items]))
+
+        self.api = self.build({FAKE: FakeEvaluator(respond)})
+        await self.add_entry()
+        hidden = await self.publish(written_set(FIRST, reveal_answers=False))
+        shown = await self.publish(written_set(FIRST, difficulty="hard"))
+        hidden_aid = await self.take({FIRST.prompt: "Models differ."}, sid=hidden)
+        shown_aid = await self.take({FIRST.prompt: "Models differ."}, sid=shown)
+        row = await self.db.prepare(
+            "SELECT feedback FROM attempt_text_marks WHERE attempt_id = ?").bind(hidden_aid).first()
+        self.assertEqual(row["feedback"], "You are right that models differ.")
+        self.assertEqual((await self.written(shown_aid))["feedback"], said)
 
     async def test_objective_scores_are_exactly_what_they_were(self):
         await self.add_entry()

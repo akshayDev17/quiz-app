@@ -59,6 +59,7 @@ from ..rubric import (
     EvaluationRequest,
     award,
     build_request,
+    hide_answer_terms,
     item_key,
     pack,
     parse_reply,
@@ -300,13 +301,17 @@ class EvaluationService:
             return
         verdicts = parse_reply(reply.text, list(question_of))
         max_marks = attempt.subjective_marks
+        item_of = {it.key: it for it in keyed}
         marked = []
         for key, qid in question_of.items():
             verdict = verdicts.get(key)
             if verdict is None:
                 flagged.append((qid, INVALID_REPLY))
-            else:
-                marked.append((qid, verdict.level, award(verdict.level, max_marks), verdict.feedback))
+                continue
+            feedback = verdict.feedback
+            if not attempt.reveal_answers:
+                feedback = hide_answer_terms(feedback, item_of[key], verdict.level)
+            marked.append((qid, verdict.level, award(verdict.level, max_marks), feedback))
         await self._repo.record(attempt.id, token, marked, flagged, entry.provider, entry.model, now)
 
     async def _quota_reason(self, day: str, email: str, global_limit: int | None, user_limit: int | None) -> str | None:

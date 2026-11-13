@@ -131,6 +131,18 @@ inside the fence that addresses the examiner is ignored; the reply's schema allo
 this call's item ids and the levels 0–4; and the server validates each verdict on its own,
 whatever the provider promised. The feedback shown is plain text, capped at 300 characters.
 
+### Sets that hide their answers
+
+When a set keeps its answers hidden, the feedback must not give them away. The prompt says
+so, and that is not enough on its own. In the real test call, Claude Haiku 5.5 followed the
+letter of "describe a gap only in general terms" but still wrote "you do not address the
+link between the dot product and cosine similarity" for an answer that mentioned neither.
+So the server checks as well. A *hidden term* is a word of the model answer or key points
+that neither the question nor the student's answer uses (words count as the same when one's
+first five letters start the other). Below level 4, every feedback sentence that uses a
+hidden term is dropped. If no sentence is left, the solver reads a plain line saying the set
+keeps its answers hidden. The check can only remove feedback detail, never change a mark.
+
 ## Consequences
 
 - A set's maximum now includes its written questions, so an attempt's percentage moves
@@ -139,8 +151,10 @@ whatever the provider promised. The feedback shown is plain text, capped at 300 
   results read "Not marked" as before. Sets without subjective questions are unaffected.
 - Existing subjective questions are marked on their next attempts against their model
   answer alone until an author adds key points.
-- Submit waits for the evaluator (one call, a few seconds, at most 25 s) before the
-  results page opens; a provider outage costs latency, not marks.
+- Submit waits for the evaluator before the results page opens: one call, about 1.2 s
+  per typed answer as measured on Claude Haiku 5.5 (10.8 s for 9), with a limit of 15 s
+  plus 2.5 s per answer (65 s at the 20-answer cap). A provider outage costs latency, not
+  marks.
 - With no evaluator configured, every typed answer waits. Configure one, then re-run.
 - The adapter speaks raw HTTP through the Workers runtime's `fetch`, not the Anthropic SDK:
   the Worker has no runtime dependencies today, the SDK's stack (httpx, pydantic, jiter) is

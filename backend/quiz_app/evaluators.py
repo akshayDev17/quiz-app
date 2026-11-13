@@ -39,7 +39,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
-from .rubric import LEVELS, EvaluationRequest
+from .rubric import LEVELS, EvaluationRequest, content_words
 
 ANTHROPIC_VERSION = "2026-10-21"
 """The ``anthropic-version`` header every Messages request sends (Claude API, Bedrock
@@ -49,9 +49,6 @@ EFFORT = "low"
 """``output_config.effort``. The reply's ``analysis`` field already makes the model reason
 before it picks a level; low effort keeps any extra adaptive thinking short. ``thinking``
 is left at the model's default: Claude Opus 5.5 and Sonnet 5.5 reject ``disabled``."""
-
-TIMEOUT_S = 25.0
-"""One call's limit. A timed-out call is not retried: its answers wait for a re-run."""
 
 REQUEST_ID_HEADERS = ("request-id", "x-amzn-requestid", "apim-request-id")
 
@@ -133,7 +130,8 @@ class MessagesApiEvaluator(Evaluator):
         }
         started = self._clock_ms()
         try:
-            response = await self._post(self._url, headers, json.dumps(self.body(request, model)), TIMEOUT_S)
+            response = await self._post(self._url, headers, json.dumps(self.body(request, model)),
+                                         request.timeout_s)
         except Exception:  # network failure or timeout: the provider may still have billed
             return EvaluatorReply("network", latency_ms=self._clock_ms() - started, usage_unknown=True)
         latency = self._clock_ms() - started
@@ -257,19 +255,6 @@ def usable_evaluators(read_secret: Callable[[str], str | None], post: HttpPost) 
 
 # -- the fake --------------------------------------------------------------------
 
-_WORD = re.compile(r"[a-z0-9]+")
-_STOP = frozenset(
-    "the and that this with from into have has had are was were will would could should "
-    "their there them then than which what when where while because also only more most "
-    "each other such some very just like does done been being its it's not but for you "
-    "your they a an of to in on is be or by as at so if no".split()
-)
-
-
-def _terms(text: str) -> set[str]:
-    return {w for w in _WORD.findall(text.lower()) if len(w) > 3 and w not in _STOP}
-
-
 class FakeEvaluator(Evaluator):
     """Deterministic: an answer's level is the share of the model answer's and key points'
     content words it contains, scaled to 0–4. Not a judgment, only a stand-in so that tests
@@ -288,8 +273,8 @@ class FakeEvaluator(Evaluator):
             return self._respond(request, model)
         marks = []
         for item in request.items:
-            wanted = _terms(item.model_answer + " " + " ".join(item.key_points))
-            found = wanted & _terms(item.answer)
+            wanted = content_words(item.model_answer + " " + " ".join(item.key_points))
+            found = wanted & content_words(item.answer)
             level = round(LEVELS * len(found) / len(wanted)) if wanted else 0
             marks.append({
                 "id": item.key,
