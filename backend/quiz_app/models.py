@@ -65,7 +65,7 @@ class QuizSetInfo:
     reveal_answers: bool
     max_attempts: int | None
     question_count: int
-    subjective_count: int  # of question_count, how many are subjective (never marked)
+    subjective_count: int  # of question_count, how many are subjective (marked by the evaluator)
     visibility: str  # 'public' | 'private'; see migrations/0004_visibility.sql
 
     @property
@@ -89,8 +89,13 @@ class OptionForSolver:
 CHOICE = "choice"
 SUBJECTIVE = "subjective"
 """The two question kinds. A choice question has options and an answer key and is
-marked; a subjective one is answered in a text box, has no options, carries an
-authored model answer, and is never marked."""
+marked +2/−1/−2; a subjective one is answered in a text box, has no options, carries an
+authored model answer (and optional key points), and is marked 0 to ``SUBJECTIVE_MARKS``
+by the evaluator, never below 0 (ADR 0010)."""
+
+SUBJECTIVE_MARKS = 4.0
+"""What one subjective question is worth on every attempt started now. Frozen onto the
+attempt at start (``Attempt.subjective_marks``), so changing it never re-marks history."""
 
 MAX_TEXT_ANSWER = 10_000
 """The most characters a typed answer may hold (the D1 column checks it too)."""
@@ -127,6 +132,7 @@ class ReviewQuestion:
     options: tuple[ReviewOption, ...]  # empty for a subjective question
     kind: str = CHOICE
     model_answer: str | None = None    # subjective only
+    key_points: tuple[str, ...] = ()   # subjective only; authored rubric, may be empty
 
 
 @dataclass(frozen=True)
@@ -157,6 +163,9 @@ class Attempt:
     score: float | None
     max_score: float | None
     paused_at: int | None = None
+    #: Marks per subjective question, frozen at start. ``None``: started before written
+    #: answers were marked, so they count toward neither score nor maximum (ADR 0010).
+    subjective_marks: float | None = None
 
     @property
     def name(self) -> str:
@@ -206,3 +215,27 @@ class GradeResult:
     score: float
     max_score: float
     results: tuple[QuestionResult, ...]
+
+
+BLANK, AWAITING, MARKED, FLAGGED = "blank", "awaiting", "marked", "flagged"
+"""A marked attempt's subjective question is one of these (``attempt_text_marks.status``):
+left blank (0), awaiting evaluation (nothing counted yet), marked by the evaluator, or
+flagged for review because the evaluator's reply was unusable (0)."""
+
+
+@dataclass(frozen=True)
+class TextMark:
+    """How one subjective question of a marked attempt stands.
+
+    ``reason``, ``provider`` and ``model`` are for admins only: no solver response may
+    carry them."""
+
+    question_id: int
+    status: str
+    awarded: float
+    max_marks: float
+    level: int | None = None
+    feedback: str | None = None
+    reason: str | None = None
+    provider: str | None = None
+    model: str | None = None

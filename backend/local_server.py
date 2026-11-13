@@ -11,6 +11,13 @@ Environment:
   DB_PATH        SQLite file (default backend/quiz.db, created from the migration if missing)
   DEV_EMAIL      the signed-in user (default dev@example.com)
   ADMIN_EMAILS   comma-separated admins (default: DEV_EMAIL, so you can use /admin)
+
+Written answers are marked by the evaluators the admin lists at /quiz/admin/evaluators.
+Locally the ``Fake (local)`` provider is always there (deterministic, free, no network):
+add a "Fake (local) · fake-overlap" entry to mark answers offline. A real provider is
+listed as usable only when its secrets are in this process's environment (the same names
+as the Worker's, e.g. ANTHROPIC_API_KEY), and it is called over urllib. Use a separate dev
+key with its own small spend limit, never the production one.
 """
 
 from __future__ import annotations
@@ -27,8 +34,9 @@ from urllib.parse import urlsplit
 
 from quiz_app.api import decode_body, response_headers
 from quiz_app.auth import DevIdentity, normalize_email, parse_emails
-from quiz_app.composition import build_api
+from quiz_app.composition import build_api, quotas_from
 from quiz_app.d1.sqlite_binding import SqliteD1
+from quiz_app.evaluators import FAKE, FakeEvaluator, urllib_post, usable_evaluators
 
 HERE = Path(__file__).resolve().parent
 DB_PATH = Path(os.environ.get("DB_PATH", HERE / "quiz.db"))
@@ -51,7 +59,8 @@ def open_db(path: Path) -> SqliteD1:
     return db
 
 
-API = build_api(open_db(DB_PATH), ADMIN_EMAILS)
+EVALUATORS = {FAKE: FakeEvaluator(), **usable_evaluators(os.environ.get, urllib_post)}
+API = build_api(open_db(DB_PATH), ADMIN_EMAILS, evaluators=EVALUATORS, quotas=quotas_from(os.environ.get))
 IDENTITY = DevIdentity(DEV_EMAIL)
 LOCK = threading.Lock()
 
@@ -110,4 +119,5 @@ if __name__ == "__main__":
     print(f"quiz backend listening on http://127.0.0.1:{port}/quiz/api")
     print(f"  db       : {DB_PATH}")
     print(f"  identity : {DEV_EMAIL}" + (" (admin)" if DEV_EMAIL in ADMIN_EMAILS else ""))
+    print(f"  providers: {', '.join(sorted(EVALUATORS))}")
     ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()

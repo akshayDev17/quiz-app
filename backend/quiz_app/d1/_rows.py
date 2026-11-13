@@ -9,7 +9,27 @@ attempt's paper, into ``ReviewQuestion``s.
 
 from __future__ import annotations
 
+import json
+
 from ..models import QuizSetInfo, ReviewOption, ReviewQuestion
+
+
+def key_points_to_json(points) -> str | None:
+    """A question's key points as stored: a JSON array, or ``NULL`` when there are none."""
+    return json.dumps(list(points)) if points else None
+
+
+def key_points_from_json(raw) -> tuple[str, ...]:
+    """The stored key points; anything that is not a JSON array of strings reads as none."""
+    if not raw:
+        return ()
+    try:
+        value = json.loads(str(raw))
+    except ValueError:
+        return ()
+    if not isinstance(value, list):
+        return ()
+    return tuple(p for p in value if isinstance(p, str) and p.strip())
 
 QUIZ_SET_COLUMNS = """
   s.id, s.topic_id, t.name AS topic_name, t.position AS topic_position,
@@ -58,9 +78,9 @@ def quiz_set_from_row(row: dict) -> QuizSetInfo:
 def review_questions(rows: list[dict]) -> list[ReviewQuestion]:
     """Rows of a question LEFT JOIN its options, in order, folded into questions.
 
-    Each row carries ``question_id, prompt, explanation, points, kind, model_answer``
-    and the option's ``option_id, body, is_correct``, all ``NULL`` for a question that
-    has no options."""
+    Each row carries ``question_id, prompt, explanation, points, kind, model_answer,
+    key_points`` and the option's ``option_id, body, is_correct``, all ``NULL`` for a
+    question that has no options."""
     heads: dict[int, dict] = {}
     options: dict[int, list[ReviewOption]] = {}
     for row in rows:
@@ -73,6 +93,7 @@ def review_questions(rows: list[dict]) -> list[ReviewQuestion]:
         ReviewQuestion(
             qid, head["prompt"], head["explanation"], head["points"], tuple(options[qid]),
             kind=head["kind"], model_answer=head["model_answer"],
+            key_points=key_points_from_json(head["key_points"]),
         )
         for qid, head in heads.items()
     ]

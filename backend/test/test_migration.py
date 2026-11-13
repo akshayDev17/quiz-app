@@ -565,5 +565,51 @@ class NumberedExplanationsByContentMigrationTest(unittest.IsolatedAsyncioTestCas
         self.assertEqual(await self.flags(), flags)
 
 
+class SubjectiveMarkingMigrationTest(unittest.IsolatedAsyncioTestCase):
+    """0009 adds the marking scheme beside what exists; no stored score or grade moves."""
+
+    async def asyncSetUp(self):
+        self.db = _pre_migration_db()
+        self.repo = D1AttemptRepository(self.db)
+
+    async def rows(self, sql, *params):
+        return [dict(r) for r in (await self.db.prepare(sql).bind(*params).all()).results]
+
+    async def fails(self, sql, *params):
+        with self.assertRaises(Exception) as caught:
+            await self.db.prepare(sql).bind(*params).run()
+        self.assertIn("constraint failed", str(caught.exception))
+
+    async def test_existing_attempts_stay_unmarked_with_their_scores(self):
+        self.assertEqual({r["subjective_marks"] for r in await self.rows("SELECT subjective_marks FROM attempts")},
+                         {None})
+        finished = await self.rows("SELECT score, max_score FROM attempts WHERE id = 'finished'")
+        self.assertEqual(finished, [{"score": 2.0, "max_score": 3.0}])
+        self.assertEqual(await self.repo.text_marks("finished"), {})
+        self.assertEqual(await self.rows("SELECT key_points FROM questions WHERE key_points IS NOT NULL"), [])
+        self.assertEqual(await self.rows("PRAGMA foreign_key_check"), [])
+
+    async def test_a_mark_is_never_negative_never_over_its_maximum_and_only_marked_earns(self):
+        [question] = await self.rows("SELECT id FROM attempt_questions WHERE attempt_id = 'finished' LIMIT 1")
+        insert = ("INSERT INTO attempt_text_marks (attempt_id, attempt_question_id, status, max_marks, awarded) "
+                  "VALUES ('finished', ?, ?, 4, ?)")
+        await self.fails(insert, question["id"], "marked", -1)
+        await self.fails(insert, question["id"], "marked", 4.5)
+        await self.fails(insert, question["id"], "flagged", 2)
+        await self.fails(insert, question["id"], "graded", 0)
+        await self.db.prepare(insert).bind(question["id"], "marked", 3).run()
+        await self.fails(insert, question["id"], "marked", 1)  # one row per question
+
+    async def test_a_ledger_row_and_an_entry_hold_their_checks(self):
+        await self.fails(
+            "INSERT INTO evaluation_calls (token, provider, model, attempt_id, user_email, trigger, day, month, "
+            "reserved_micros, rubric, created_at) VALUES ('t', 'p', 'm', 'a', 'e', 'cron', 'd', 'm', 0, 'r', 1)"
+        )
+        await self.fails(
+            "INSERT INTO evaluator_models (provider, model, position, monthly_budget_micros, input_price_per_mtok, "
+            "output_price_per_mtok, created_at, updated_at) VALUES ('p', 'm', 0, -1, 0, 0, 1, 1)"
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

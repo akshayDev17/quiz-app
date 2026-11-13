@@ -79,5 +79,61 @@ class ResponseMappingTest(unittest.TestCase):
         self.assertEqual((r.status, r.body, r.headers), (404, "", {"allow": "GET"}))
 
 
+class WorkerPostTest(unittest.IsolatedAsyncioTestCase):
+    """The Worker's ``fetch`` shim, with ``js`` and ``pyodide.ffi`` stubbed: what it hands to
+    ``fetch``, and how it reads the status, the request id and the body back."""
+
+    async def asyncSetUp(self):
+        self.saved = {name: sys.modules.get(name, _MISSING) for name in ("js", "pyodide", "pyodide.ffi")}
+        self.sent = []
+
+        class Headers:
+            def get(self, name):
+                return {"request-id": "req_42"}.get(name)
+
+        class FetchResponse:
+            status = 200
+            headers = Headers()
+
+            async def text(self):
+                return '{"ok": true}'
+
+        async def fetch(url, init):
+            self.sent.append((url, init))
+            return FetchResponse()
+
+        js = types.ModuleType("js")
+        js.fetch = fetch
+        js.Object = types.SimpleNamespace(fromEntries="fromEntries")
+        js.AbortSignal = types.SimpleNamespace(timeout=lambda ms: ("signal", ms))
+        ffi = types.ModuleType("pyodide.ffi")
+        ffi.to_js = lambda value, dict_converter=None: {"converted_by": dict_converter, **value}
+        sys.modules.update({"js": js, "pyodide": types.ModuleType("pyodide"), "pyodide.ffi": ffi})
+        sys.modules.pop("quiz_app.worker_http", None)
+        from quiz_app import worker_http
+
+        self.worker_http = worker_http
+
+    async def asyncTearDown(self):
+        sys.modules.pop("quiz_app.worker_http", None)
+        for name, module in self.saved.items():
+            if module is _MISSING:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = module
+
+    async def test_posts_headers_and_body_with_a_timeout_and_reads_the_reply(self):
+        got = await self.worker_http.worker_post(
+            "https://api.example/v1/messages", {"x-api-key": "k"}, '{"a": 1}', 25.0
+        )
+        [(url, init)] = self.sent
+        self.assertEqual(url, "https://api.example/v1/messages")
+        self.assertEqual(init, {
+            "converted_by": "fromEntries", "method": "POST", "headers": {"x-api-key": "k"},
+            "body": '{"a": 1}', "signal": ("signal", 25_000),
+        })
+        self.assertEqual((got.status, got.headers, got.text), (200, {"request-id": "req_42"}, '{"ok": true}'))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -247,6 +247,7 @@ class FlowTest(ApiCase):
             {
                 "id": aid, "set_id": sid, "name": card["name"], "topic": "RAG", "status": "submitted",
                 "started_at": START, "finished_at": START, "score": 8, "max_score": 12,
+                "awaiting_count": 0,
             },
         )
         status, body = await self.answer(aid, q3.question_id, q3.correct)
@@ -477,6 +478,12 @@ SIGNED_IN_PROBES = [
     ("POST", "/admin/sets/1/visibility"),
     ("POST", "/admin/sets/1/clone"),
     ("DELETE", "/admin/sets/1"),
+    ("GET", "/admin/evaluators"),
+    ("POST", "/admin/evaluators"),
+    ("POST", "/admin/evaluators/order"),
+    ("PUT", "/admin/evaluators/1"),
+    ("DELETE", "/admin/evaluators/1"),
+    ("POST", "/admin/evaluations/rerun"),
 ]
 
 #: Keys that belong to a person or an attempt; none may appear in a public payload.

@@ -12,6 +12,7 @@ from .models import (
     QuestionResult,
     QuizSetInfo,
     ReviewQuestion,
+    TextMark,
     User,
 )
 from .validation import QuestionImport, SetImport
@@ -127,8 +128,16 @@ class AttemptRepository(ABC):
         """Store the question's typed answer, replacing any earlier one; ``None`` clears it."""
 
     @abstractmethod
-    async def finish(self, attempt_id: str, status: str, finished_at: int, grade: GradeResult) -> bool:
-        """Close an open attempt and write its results once. False if it was already closed."""
+    async def finish(
+        self,
+        attempt_id: str,
+        status: str,
+        finished_at: int,
+        grade: GradeResult,
+        text_marks: tuple[tuple[int, str, float], ...] = (),
+    ) -> bool:
+        """Close an open attempt and write its results once, with a row per subjective
+        question (id, 'blank' or 'awaiting', max marks). False if it was already closed."""
 
     @abstractmethod
     async def pause(
@@ -146,6 +155,14 @@ class AttemptRepository(ABC):
 
     @abstractmethod
     async def results(self, attempt_id: str) -> dict[int, QuestionResult]: ...
+
+    @abstractmethod
+    async def text_marks(self, attempt_id: str) -> dict[int, TextMark]:
+        """How each subjective question of a marked attempt stands; empty for any other."""
+
+    @abstractmethod
+    async def awaiting_by_attempt(self, email: str) -> dict[str, int]:
+        """Written answers still awaiting evaluation, per attempt id of the person's."""
 
     @abstractmethod
     async def for_user(self, email: str) -> list[Attempt]:

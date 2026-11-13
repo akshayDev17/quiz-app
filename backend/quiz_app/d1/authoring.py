@@ -7,7 +7,14 @@ from ..errors import NotFound
 from ..models import QuizSetInfo
 from ..ports import QuizAuthoring
 from ..validation import QuestionImport, SetImport
-from ._rows import QUIZ_SET_COLUMNS, QUIZ_SET_FROM, QUIZ_SET_SELECT, quiz_set_from_row
+from ._rows import (
+    QUIZ_SET_COLUMNS,
+    QUIZ_SET_FROM,
+    QUIZ_SET_SELECT,
+    key_points_from_json,
+    key_points_to_json,
+    quiz_set_from_row,
+)
 
 _NEXT_SEQ = (
     "SELECT COALESCE(MAX(seq), 0) + 1 AS seq FROM quiz_sets "
@@ -64,11 +71,12 @@ class D1QuizAuthoring(QuizAuthoring):
     async def _insert_questions(self, set_id: int, questions) -> None:
         for position, question in enumerate(questions):
             question_id = (await self._db.prepare(
-                "INSERT INTO questions (set_id, position, prompt, explanation, points, kind, model_answer) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id"
+                "INSERT INTO questions "
+                "(set_id, position, prompt, explanation, points, kind, model_answer, key_points) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id"
             ).bind(
                 set_id, position, question.prompt, question.explanation, question.points,
-                question.kind, question.model_answer,
+                question.kind, question.model_answer, key_points_to_json(question.key_points),
             ).first())["id"]
             if not question.options:
                 continue  # a subjective question has none, and D1 refuses an empty batch
@@ -111,15 +119,17 @@ class D1QuizAuthoring(QuizAuthoring):
 
         try:
             questions = (await self._db.prepare(
-                "SELECT id, position, prompt, explanation, points, kind, model_answer "
+                "SELECT id, position, prompt, explanation, points, kind, model_answer, key_points "
                 "FROM questions WHERE set_id = ? ORDER BY position"
             ).bind(set_id).all()).results
             for question in questions:
                 new_question_id = (await self._db.prepare(
-                    "INSERT INTO questions (set_id, position, prompt, explanation, points, kind, model_answer) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id"
+                    "INSERT INTO questions "
+                    "(set_id, position, prompt, explanation, points, kind, model_answer, key_points) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING id"
                 ).bind(new_id, question["position"], question["prompt"], question["explanation"],
-                       question["points"], question["kind"], question["model_answer"]).first())["id"]
+                       question["points"], question["kind"], question["model_answer"],
+                       question["key_points"]).first())["id"]
                 await self._db.prepare(
                     "INSERT INTO options (question_id, position, body, is_correct) "
                     "SELECT ?, position, body, is_correct FROM options WHERE question_id = ?"
@@ -170,7 +180,7 @@ class D1QuizAuthoring(QuizAuthoring):
         # LEFT JOIN: a subjective question has no options and must still be listed.
         rows = (await self._db.prepare(
             "SELECT q.id AS question_id, q.prompt, q.explanation, q.points, q.kind, q.model_answer, "
-            "o.id AS option_id, o.body, o.is_correct "
+            "q.key_points, o.id AS option_id, o.body, o.is_correct "
             "FROM questions q LEFT JOIN options o ON o.question_id = q.id "
             "WHERE q.set_id = ? ORDER BY q.position, o.position"
         ).bind(set_id).all()).results
@@ -185,6 +195,7 @@ class D1QuizAuthoring(QuizAuthoring):
         return [
             QuestionImport(prompt=head["prompt"], explanation=head["explanation"],
                            points=head["points"], options=tuple(options[qid]),
-                           kind=head["kind"], model_answer=head["model_answer"])
+                           kind=head["kind"], model_answer=head["model_answer"],
+                           key_points=key_points_from_json(head["key_points"]))
             for qid, head in heads.items()
         ]

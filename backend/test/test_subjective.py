@@ -1,5 +1,6 @@
 """Subjective questions, end to end through the API: imported, served, typed, paused,
-edited, never marked.
+edited, and closed into the marking scheme (ADR 0010). Here no evaluator is configured, so
+a typed answer awaits evaluation; ``test_evaluation.py`` covers the evaluator itself.
 
 Most tests store a subjective question as a ``SetImport`` handed straight to the authoring
 repository; ``ImportTest`` and ``EditRoundTripTest`` go through the admin routes.
@@ -40,6 +41,8 @@ WRITTEN = QuestionImport(
 #: sample_import's three choice questions have 3, 2 and 1 correct options: +2 each.
 CHOICE_MAX = 2 * (3 + 2 + 1)
 CHOICE_COUNT = 3
+#: What one subjective question adds to an attempt's maximum.
+WRITTEN_MAX = 4
 
 
 def with_written(position: int = 1, **overrides):
@@ -131,7 +134,33 @@ class ValidatorTest(unittest.TestCase):
                 "options": [{"body": "a", "correct": True}, {"body": "b", "correct": False}], "points": 1,
             }),
             "question 1: a subjective question has no options; "
-            "question 1: a subjective question is not marked, so it takes no points",
+            "question 1: a subjective question is marked out of 4 by the evaluator, so it takes no points",
+        )
+
+    def test_key_points_are_optional_and_kept_trimmed(self):
+        base = {"type": "subjective", "prompt": "Explain.", "model_answer": "Because."}
+        [without] = self.parse(base).questions
+        [with_points] = self.parse({**base, "key_points": ["  First point. ", "Second point."]}).questions
+        self.assertEqual((without.key_points, with_points.key_points), ((), ("First point.", "Second point.")))
+
+    def test_key_points_must_be_a_short_list_of_short_texts(self):
+        base = {"type": "subjective", "prompt": "Explain.", "model_answer": "Because."}
+        shape = "question 1: key_points must be a list of 1 to 6 short texts"
+        for bad, message in (
+            ("one point", shape),
+            ([], shape),
+            (["p"] * 7, shape),
+            (["fine", "  "], "question 1: key point 2 must be non-empty text"),
+            (["x" * 301], "question 1: key point 1 is over 300 characters"),
+        ):
+            with self.subTest(bad=bad):
+                self.assertEqual(self.refused({**base, "key_points": bad}), message)
+
+    def test_a_choice_question_takes_no_key_points(self):
+        options = [{"body": "a", "correct": True}, {"body": "b", "correct": False}]
+        self.assertEqual(
+            self.refused({"prompt": "Q", "options": options, "key_points": ["a"]}),
+            "question 1: key_points are only for subjective questions",
         )
 
     def test_a_choice_question_takes_no_model_answer(self):
@@ -167,7 +196,7 @@ def written_json(**overrides) -> dict:
 
 
 class ImportTest(SubjectiveCase):
-    async def test_an_uploaded_subjective_question_is_served_and_left_unmarked(self):
+    async def test_an_uploaded_subjective_question_is_served_and_awaits_evaluation(self):
         payload = sample_import(difficulty="easy")
         payload["questions"].insert(1, written_json())
         made = await self.ok("POST", "/admin/sets", payload, ADMIN, 201)
@@ -179,10 +208,23 @@ class ImportTest(SubjectiveCase):
         self.assertEqual(got, 204, body)
         await self.ok("POST", f"/attempts/{aid}/submit")
         results = await self.ok("GET", f"/attempts/{aid}/results")
-        self.assertEqual(results["attempt"]["max_score"], CHOICE_MAX)
+        self.assertEqual(results["attempt"]["max_score"], CHOICE_MAX + WRITTEN_MAX)
         [written] = [q for q in results["questions"] if q["kind"] == "subjective"]
-        self.assertEqual((written["text_answer"], written["model_answer"], written["points"]),
-                         ("Typed.", WRITTEN.model_answer, None))
+        self.assertEqual(
+            (written["text_answer"], written["model_answer"], written["points"], written["evaluation"]),
+            ("Typed.", WRITTEN.model_answer, WRITTEN_MAX, "awaiting"),
+        )
+
+    async def test_uploaded_key_points_are_copied_onto_the_paper(self):
+        payload = sample_import(difficulty="easy")
+        payload["questions"].insert(1, written_json(key_points=["Vector spaces differ per model."]))
+        made = await self.ok("POST", "/admin/sets", payload, ADMIN, 201)
+        await self.ok("POST", f"/admin/sets/{made['id']}/publish", None, ADMIN)
+        detail = await self.ok("GET", f"/admin/sets/{made['id']}", ident=ADMIN)
+        self.assertEqual(detail["questions"][1]["key_points"], ["Vector spaces differ per model."])
+        aid = (await self.start(made["id"]))["attempt"]["id"]
+        [question] = [q for q in await D1AttemptRepository(self.db).review(aid) if q.kind == "subjective"]
+        self.assertEqual(question.key_points, ("Vector spaces differ per model.",))
 
     async def test_an_upload_without_a_model_answer_is_refused(self):
         payload = sample_import(difficulty="easy")
@@ -366,7 +408,9 @@ class TextAnswerTest(SubjectiveCase):
         self.assertEqual(session["texts"], {})
 
 
-class NotMarkedTest(SubjectiveCase):
+class MarkingTest(SubjectiveCase):
+    """How a closed attempt counts its written answer when no evaluator can take it."""
+
     async def finish(self, typed: str | None, tick: bool) -> tuple[str, dict]:
         session = await self.start()
         aid = session["attempt"]["id"]
@@ -377,34 +421,45 @@ class NotMarkedTest(SubjectiveCase):
         await self.ok("POST", f"/attempts/{aid}/submit")
         return aid, await self.ok("GET", f"/attempts/{aid}/results")
 
-    async def test_a_blank_subjective_question_costs_nothing(self):
+    async def test_a_blank_subjective_question_scores_zero_never_below(self):
         _, results = await self.finish(typed=None, tick=False)
-        # Only the three choice questions are charged the -2 for a blank.
+        # Only the three choice questions are charged the -2 for a blank; the written one is 0.
         self.assertEqual((results["attempt"]["score"], results["attempt"]["max_score"]),
-                         (-2 * CHOICE_COUNT, CHOICE_MAX))
+                         (-2 * CHOICE_COUNT, CHOICE_MAX + WRITTEN_MAX))
+        [written] = [q for q in results["questions"] if q["kind"] == "subjective"]
+        self.assertEqual((written["evaluation"], written["awarded_points"], written["points"]),
+                         ("blank", 0, WRITTEN_MAX))
+        self.assertEqual(results["attempt"]["awaiting_count"], 0)
 
-    async def test_a_written_answer_earns_nothing(self):
+    async def test_a_typed_answer_with_no_evaluator_awaits_and_counts_nothing_yet(self):
         aid, results = await self.finish(typed="A thoughtful answer.", tick=True)
-        self.assertEqual((results["attempt"]["score"], results["attempt"]["max_score"]), (CHOICE_MAX, CHOICE_MAX))
+        self.assertEqual((results["attempt"]["score"], results["attempt"]["max_score"]),
+                         (CHOICE_MAX, CHOICE_MAX + WRITTEN_MAX))
+        self.assertEqual(results["attempt"]["awaiting_count"], 1)
+        # The choice grade is untouched: one result row per choice question, none for the written one.
         rows = await self.db.prepare(
             "SELECT COUNT(*) AS n FROM attempt_results WHERE attempt_id = ?"
         ).bind(aid).first()
         self.assertEqual(rows["n"], CHOICE_COUNT)
+        history = await self.ok("GET", "/attempts")
+        self.assertEqual(history["attempts"][0]["awaiting_count"], 1)
 
-    async def test_results_show_the_typed_answer_and_the_model_answer_unmarked(self):
+    async def test_results_show_the_typed_answer_and_its_standing(self):
         _, results = await self.finish(typed="  Mine, as typed.\n", tick=True)
         [written] = [q for q in results["questions"] if q["kind"] == "subjective"]
         self.assertEqual(written, {
             "id": written["id"],
             "kind": "subjective",
             "prompt": WRITTEN.prompt,
-            "points": None,
+            "points": WRITTEN_MAX,
             "awarded_points": None,
             "is_correct": None,
             "explanation": WRITTEN.explanation,
             "options": [],
             "text_answer": "  Mine, as typed.\n",
             "model_answer": WRITTEN.model_answer,
+            "evaluation": "awaiting",
+            "feedback": None,
         })
         self.assertTrue(all(q["kind"] == "choice" for q in results["questions"] if q is not written))
         self.assertEqual(len(results["questions"]), CHOICE_COUNT + 1)

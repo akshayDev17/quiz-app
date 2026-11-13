@@ -13,7 +13,8 @@ from workers import Response, WorkerEntrypoint
 
 from .api import decode_body, response_headers
 from .auth import CloudflareAccessIdentity, parse_emails, request_path
-from .composition import build_api
+from .composition import build_api, quotas_from
+from .evaluators import usable_evaluators
 
 
 def _response(status: int, body: dict | None, extra: dict[str, str] | None = None) -> Response:
@@ -32,6 +33,21 @@ def _admin_emails(env) -> frozenset[str]:
     return parse_emails(str(raw) if raw else "")
 
 
+def _setting(env, name: str) -> str | None:
+    """A Worker secret or var as text, or ``None`` when it is not set. Never logged."""
+    value = getattr(env, name, None)
+    return str(value) if value is not None else None
+
+
+def _evaluators(env) -> dict:
+    """The evaluator of every provider whose secrets are set (``evaluators.PROVIDERS``:
+    ``ANTHROPIC_API_KEY``; ``BEDROCK_API_KEY`` + ``BEDROCK_REGION``;
+    ``AZURE_FOUNDRY_API_KEY`` + ``AZURE_FOUNDRY_ENDPOINT``). Never the fake."""
+    from .worker_http import worker_post  # Worker-only: needs the js and pyodide modules
+
+    return usable_evaluators(lambda name: _setting(env, name), worker_post)
+
+
 class Default(WorkerEntrypoint):
     async def fetch(self, request):
         method = str(request.method).upper()
@@ -39,7 +55,12 @@ class Default(WorkerEntrypoint):
         if method in ("POST", "PUT", "PATCH"):
             body = decode_body(str(await request.text()))
         identity = await CloudflareAccessIdentity(getattr(self, "ctx", None)).identify(request)
-        api = build_api(self.env.DB, _admin_emails(self.env))
+        api = build_api(
+            self.env.DB,
+            _admin_emails(self.env),
+            evaluators=_evaluators(self.env),
+            quotas=quotas_from(lambda name: _setting(self.env, name)),
+        )
         path = request_path(request)
         status, payload = await api.handle(method, path, body, identity)
         return _response(status, payload, response_headers(path, status))
