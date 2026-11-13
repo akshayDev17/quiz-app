@@ -116,25 +116,58 @@ const adminSet = {
       key_points: ['Each embedding model learns its own vector space', 'Old and new vectors cannot be compared, whatever their dimension'] },
   ]),
 };
-// The admin's evaluators: long ids, one with its secret missing, and the published presets.
+// The admin's evaluators: keys in each state (one out of credit, one with a cloud budget), long
+// labels, ids and endpoints, entries with and without a cap, and the published presets.
 const SOURCE = 'Anthropic list price, platform.claude.com/docs/en/about-claude/pricing, read 2026-11-13 (Claude Haiku 5.5: prompts up to 100k tokens).';
-const evaluatorModel = (id, provider, provider_label, model, extra = {}) => ({ id, provider, provider_label, model, position: id - 1,
-  usable: true, monthly_budget_usd: 5, spent_usd: 0.0123, remaining_usd: 4.9877, input_price_per_mtok: 0.1, output_price_per_mtok: 0.5, ...extra });
+const field = (name, label, secret, placeholder = '', help = '') => ({ name, label, secret, placeholder, help });
+const budgetReading = { limit: 50, spent: 12.5, remaining: 37.5, currency: 'USD',
+  source: 'AWS Budgets "quiz-app-evaluator-monthly-budget" (monthly)', as_of: 1794580000000 };
+const evaluatorKey = (id, provider, provider_label, label, extra = {}) => ({ id, provider, provider_label, label, hint: '…a1b2',
+  settings: {}, billing: null, state: 'ready', problem: null, unusable_since: null, retry_at: null, checked_at: null,
+  check_result: null, reads_balance: false, provider_budget: null, provider_budget_error: null, spent_usd: 0.0123,
+  entries: 1, created_at: 1794570000000, ...extra });
+const evaluatorEntry = (id, key, model, extra = {}) => ({ id, key_id: key.id, key_label: key.label, provider: key.provider,
+  provider_label: key.provider_label, model, position: id - 1, usable: true, problem: null, monthly_cap_usd: 5,
+  spent_usd: 0.0123, left_of_cap_usd: 4.9877, provider_budget: null, input_price_per_mtok: 0.1, output_price_per_mtok: 0.5, ...extra });
+const personal = evaluatorKey(1, 'anthropic', 'Anthropic API', 'Anthropic, personal default workspace', {
+  state: 'out_of_credit', problem: 'out of credit at provider', unusable_since: 1794580000000, retry_at: 1794583600000,
+  checked_at: 1794580000000, check_result: 'out of credit at provider' });
+const work = evaluatorKey(2, 'bedrock', 'Amazon Bedrock', 'Work AWS account', {
+  settings: { region: 'ap-southeast-2' }, billing: { settings: { account_id: '123456789012', budget_name: 'quiz-app-evaluator-monthly-budget' } },
+  reads_balance: true, provider_budget: budgetReading });
+const foundry = evaluatorKey(3, 'azure', 'Azure AI Foundry', 'Foundry', {
+  settings: { endpoint: 'https://my-very-long-resource-name-for-the-quiz-app.services.ai.azure.com/anthropic' },
+  provider_budget_error: 'Microsoft Entra refused the billing credential (401 invalid_client)', entries: 1 });
 const adminEvaluators = {
   month: '2026-11',
+  key_storage: { ready: true, secret: 'KEY_ENCRYPTION_KEY' },
   providers: [
-    { id: 'anthropic', label: 'Anthropic API', secrets: ['ANTHROPIC_API_KEY'], usable: true },
-    { id: 'bedrock', label: 'Amazon Bedrock', secrets: ['BEDROCK_API_KEY', 'BEDROCK_REGION'], usable: false },
-    { id: 'azure', label: 'Azure AI Foundry', secrets: ['AZURE_FOUNDRY_API_KEY', 'AZURE_FOUNDRY_ENDPOINT'], usable: false },
+    { id: 'anthropic', label: 'Anthropic API', key_fields: [field('api_key', 'API key', true, 'paste the key')], billing: null,
+      balance_note: "Anthropic has no API for an account's prepaid balance. The page shows this month's spend from each call's tokens, and marks the key out of credit when Anthropic refuses a call for credit." },
+    { id: 'bedrock', label: 'Amazon Bedrock',
+      key_fields: [field('api_key', 'Bedrock API key', true, 'paste the key'), field('region', 'Region', false, 'us-east-1')],
+      billing: { label: 'AWS Budgets, read-only', fields: [
+        field('aws_access_key_id', 'Access key ID', true, 'AKIA…', 'An IAM user or role key allowed only budgets:ViewBudget.'),
+        field('aws_secret_access_key', 'Secret access key', true, 'paste the secret'),
+        field('account_id', 'AWS account ID', false, '123456789012'), field('budget_name', 'Budget name', false, 'quiz-ai')] },
+      balance_note: 'With a read-only AWS Budgets credential, the page shows the budget’s own figures.' },
+    { id: 'azure', label: 'Azure AI Foundry',
+      key_fields: [field('api_key', 'API key', true, 'paste the key'),
+        field('endpoint', 'Endpoint', false, 'https://<resource>.services.ai.azure.com/anthropic')],
+      billing: { label: 'Azure Cost Management, read-only', fields: [field('tenant_id', 'Tenant ID', false), field('client_id', 'Client ID', false),
+        field('client_secret', 'Client secret', true), field('scope', 'Scope', false), field('budget_name', 'Budget name', false)] },
+      balance_note: 'With a read-only Azure budget credential, the page shows the budget’s own figures.' },
   ],
-  models: [
-    evaluatorModel(1, 'anthropic', 'Anthropic API', 'claude-haiku-5-5'),
-    evaluatorModel(2, 'bedrock', 'Amazon Bedrock', 'anthropic.claude-sonnet-5-5', { usable: false, monthly_budget_usd: 12.5,
-      spent_usd: 0, remaining_usd: 12.5, input_price_per_mtok: 2, output_price_per_mtok: 10 }),
-    evaluatorModel(3, 'azure', 'Azure AI Foundry', 'my-claude-haiku-deployment-for-the-quiz-app-evaluation', { usable: false }),
+  keys: [personal, work, foundry],
+  entries: [
+    evaluatorEntry(1, personal, 'claude-haiku-5-5', { usable: false, problem: 'out of credit at provider' }),
+    evaluatorEntry(2, work, 'anthropic.claude-sonnet-5-5', { monthly_cap_usd: null, left_of_cap_usd: null, spent_usd: 0,
+      provider_budget: budgetReading, input_price_per_mtok: 2, output_price_per_mtok: 10 }),
+    evaluatorEntry(3, foundry, 'my-claude-haiku-deployment-for-the-quiz-app-evaluation', { monthly_cap_usd: 12.5, left_of_cap_usd: 12.5 }),
   ],
+  defaults: { monthly_cap_usd: 5 },
   price_presets: [{ provider: 'anthropic', model: 'claude-haiku-5-5', input_price_per_mtok: 0.1, output_price_per_mtok: 0.5, source: SOURCE }],
-  queue: { awaiting: 3, flagged: 1, awaiting_reasons: { 'no budget left': 2, 'daily limit per person reached': 1 } },
+  queue: { awaiting: 3, flagged: 1, awaiting_reasons: { 'out of credit at provider': 2, 'daily limit per person reached': 1 } },
   quotas: { per_user_daily: 20, global_daily: 300, calls_today: 17 },
 };
 

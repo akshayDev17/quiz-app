@@ -335,10 +335,15 @@ pre code, pre code.hljs { display: block; overflow: visible; background: none; p
 .chip.ev-ok { border-color: var(--ok); color: var(--ok); }
 .chip.ev-miss { border-color: var(--warn); color: var(--warn); }
 .ev-sub { font-size: .875rem; color: var(--muted); margin-top: var(--s1); overflow-wrap: anywhere; }
-.ev-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s3); }
+/* rows are spaced by each field's own top margin, so rows inside a grid and grids in a row match */
+.ev-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 var(--s3); }
 .ev-grid.ev-grid-2 { grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); }
+.ev-grid.ev-grid-halves { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .ev-grid .field { margin-top: var(--s3); min-width: 0; gap: var(--s1); }
 .ev-grid .field input, .ev-grid .field select { width: 100%; min-width: 0; padding: .5rem .6rem; }
+/* the select keeps room for its chevron, so a long key name never runs under it */
+.ev-grid .field select { padding-right: 2rem; text-overflow: ellipsis; }
+.ev-add > .ev-grid:first-child .field { margin-top: 0; }
 .ev-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); margin-top: var(--s4); }
 .ev-actions .ev-fill { flex: 1; }
 .ev-actions .btn { padding: .45rem .9rem; }
@@ -351,10 +356,28 @@ pre code, pre code.hljs { display: block; overflow: visible; background: none; p
 .ev-providers li { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s2) var(--s3); }
 .ev-secrets { font-size: .875rem; color: var(--muted); display: inline-flex; flex-wrap: wrap; gap: var(--s2); }
 .ev-reasons { list-style: none; font-size: .9375rem; color: var(--muted); margin-bottom: var(--s3); }
+/* keys: write-only fields, the inline edit form, and the "key storage not set up" note */
+.ev-grid.ev-grid-auto { grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr)); }
+.ev-help { font-size: .8125rem; color: var(--muted); line-height: 1.35; }
+.ev-sub code { font-family: var(--mono); font-size: .8125rem; overflow-wrap: anywhere; }
+.ev-sub.ev-warn { color: var(--warn); }
+.ev-form { margin-top: var(--s4); padding-top: var(--s3); border-top: 1px dashed var(--rule); }
+.ev-form > .field { margin-top: 0; max-width: 26rem; }
+.ev-form > .field input { padding: .5rem .6rem; }
+.ev-form > .ev-sub { margin-top: var(--s3); }
+.ev-check-row { display: flex; align-items: center; gap: var(--s2); margin-top: var(--s3); font-size: .9375rem; cursor: pointer; }
+.ev-check-row input { width: 1rem; height: 1rem; accent-color: var(--accent); }
+.ev-check { text-transform: none; letter-spacing: .02em; overflow-wrap: anywhere; min-width: 0; }
+.ev-storage { border-color: var(--warn); margin-bottom: var(--s4); line-height: 1.5; }
+.ev-storage code { font-family: var(--mono); font-size: .8125rem; }
+.ev-add-title { margin-top: 0; }
+.ev-key + .ev-key { margin-top: 0; }
+ul.ev-list + .ev-add { margin-top: var(--s3); }
 @media (max-width: 40rem) {
   .ev-entry { padding: var(--s4); }
-  .ev-grid, .ev-grid.ev-grid-2 { grid-template-columns: minmax(0, 1fr); }
+  .ev-grid, .ev-grid.ev-grid-2, .ev-grid.ev-grid-halves { grid-template-columns: minmax(0, 1fr); }
   .ev-grid .field input, .ev-grid .field select { font-size: 16px; }
+  .ev-form > .field input { font-size: 16px; }
 }
 /* the editor: a written question's key points sit under its model answer */
 .editor-page .ed-field textarea + .lab { margin-top: .6rem; }

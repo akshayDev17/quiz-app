@@ -49,7 +49,7 @@ ADMIN_EMAILS = parse_emails(os.environ.get("ADMIN_EMAILS", DEV_EMAIL))
 
 #: The Next dev server. Credentials are sent, so the origin must be echoed, never "*".
 ALLOWED_ORIGIN = "http://localhost:3000"
-ALLOWED_METHODS = "GET, POST, PUT, PATCH, OPTIONS"
+ALLOWED_METHODS = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
 ALLOWED_HEADERS = "content-type"
 
 

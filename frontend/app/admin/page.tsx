@@ -192,7 +192,7 @@ export default function AdminPage() {
           <div className="import card">
             <div className="import-left">
               <h3 className="import-title">AI evaluators</h3>
-              <span className="import-sub">Providers, models, budgets and order for marking written answers.</span>
+              <span className="import-sub">Keys, models, caps and order for marking written answers.</span>
             </div>
             <Link className="import-btn" href="/admin/evaluators">Manage</Link>
           </div>
