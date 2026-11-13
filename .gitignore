@@ -7,7 +7,10 @@ out/
 next-env.d.ts
 __pycache__/
 .venv/
-.env
+# Local secrets (Cloudflare: never commit .dev.vars* or .env*); keep templates tracked
+.env*
+.dev.vars*
+!*.example
 *.db
 .superpowers/
 
