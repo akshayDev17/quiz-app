@@ -396,7 +396,7 @@ export default function EvaluatorsPage() {
               <p className="ev-note">
                 A re-run marks up to 5 attempts per click, oldest first. It skips the daily limits
                 ({state.quotas.per_user_daily} per person, {state.quotas.global_daily} for the site; {state.quotas.calls_today}{' '}
-                {state.quotas.calls_today === 1 ? 'call' : 'calls'} today) but never a cap.
+                {state.quotas.calls_today === 1 ? 'attempt' : 'attempts'} evaluated today) but never a cap.
               </p>
             </>
           )}

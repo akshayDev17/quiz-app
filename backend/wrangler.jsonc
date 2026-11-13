@@ -39,7 +39,7 @@
 	//     key can be stored or used, and written answers wait.
 	// "vars" holds only non-secret settings the owner has not settled yet, each a
 	// placeholder with a default in code (composition.settings_from): the daily
-	// evaluation limits (model calls, one per attempt, per UTC day) and the cap
+	// evaluation limits (attempts evaluated, one unit each, per UTC day) and the cap
 	// prefilled for a new evaluator entry. Change them here and deploy.
 	"vars": {
 		"EVAL_USER_DAILY_LIMIT": "20",

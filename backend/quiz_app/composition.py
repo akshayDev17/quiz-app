@@ -38,7 +38,7 @@ def settings_from(read_setting: Callable[[str], str | None]) -> EvaluationSettin
     its default when missing or malformed:
 
     * ``EVAL_USER_DAILY_LIMIT``, ``EVAL_GLOBAL_DAILY_LIMIT``: whole numbers of evaluations
-      (model calls, one per attempt) per UTC day;
+      (attempts evaluated, one unit each however many entries it tries) per UTC day;
     * ``EVAL_DEFAULT_MONTHLY_CAP_USD``: the cap prefilled for a new entry."""
     defaults = EvaluationSettings()
 

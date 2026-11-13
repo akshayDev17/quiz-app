@@ -79,9 +79,9 @@ above the maximum, or non-zero on any answer not marked.
 | `flagged` | 0, final, flagged for review | the model finished a reply but it was unusable: invalid JSON, a bad or missing verdict, a refusal, or an answer too large to ever fit a call |
 
 - **Awaiting is not 0.** When nothing can evaluate the answer (no evaluator configured, no
-  provider secret, every budget spent, a daily quota reached) or every entry fails (an
-  HTTP error, a timeout, or a reply cut off at `max_tokens`, which is our own output
-  sizing), the answer waits, adding nothing; results and history say the score is
+  provider secret, every budget spent, a daily quota reached), every entry fails (an
+  HTTP error, or a reply cut off at `max_tokens`, which is our own output sizing), or a
+  call times out, the answer waits, adding nothing; results and history say the score is
   provisional, and the mark is added when it is evaluated. A failure of ours never costs
   the solver marks.
 - **Flagged is 0 and counts.** If an unusable reply were left out of the maximum instead, an
@@ -115,9 +115,10 @@ monthly cap per entry, and what the page shows about money are [ADR 0011](0011-e
 In short: a call goes to the first entry, in order, that can take it; its conservative
 estimate is reserved in the app's own ledger (`evaluation_calls`) atomically with the
 entry's cap and the daily quotas, and settled to the real token cost afterwards. A credit
-refusal, a refused key, any other HTTP error, a timeout or a cut-off reply moves the call
-down the list; only a finished reply ends it. Daily quotas (defaults 20
-evaluations per person and 300 site-wide, `EVAL_USER_DAILY_LIMIT` and
+refusal, a refused key, any other HTTP error or a cut-off reply moves the call down the
+list; a finished reply ends it, and so does a timeout (it may already have been billed),
+leaving the answers awaiting. Daily quotas (defaults 20 attempts evaluated per person and
+300 site-wide, one unit per attempt however many entries it tries, `EVAL_USER_DAILY_LIMIT` and
 `EVAL_GLOBAL_DAILY_LIMIT`) bound what solvers can trigger; admins are exempt from the
 per-person one, and admin re-runs from both, never from a cap.
 

@@ -67,7 +67,7 @@ PROBE_TIMEOUT_S = 15.0
 #: "refusal" and "truncated"; every other one means no answer was obtained at all.
 OK, REFUSAL, TRUNCATED = "ok", "refusal", "truncated"
 #: The provider refused the key's account for want of credit, or refused the key itself.
-#: Neither is billed; both mark the key (every failure sends marking down the list).
+#: Neither is billed; both mark the key and send marking down the list.
 OUT_OF_CREDIT, KEY_REFUSED = "out_of_credit", "key_refused"
 NO_ANSWER = ("http_error", "network", "bad_envelope", "error", OUT_OF_CREDIT, KEY_REFUSED)
 

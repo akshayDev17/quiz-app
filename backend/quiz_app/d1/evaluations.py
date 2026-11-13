@@ -122,7 +122,8 @@ _ENTRY_COLUMNS = (
 _ENTRIES = "FROM evaluator_entries e JOIN evaluator_keys k ON k.id = e.key_id"
 #: The ledger rows that count toward the daily quotas: marking calls, not probes, and not
 #: calls the provider refused with an HTTP error, for credit, for the key or otherwise
-#: (nobody was marked or billed).
+#: (nobody was marked or billed). The quotas count the distinct attempts among them, so one
+#: attempt is one unit however many entries it tries.
 _MARKING = ("trigger <> 'check' AND "
             "(outcome IS NULL OR outcome NOT IN ('out_of_credit', 'key_refused', 'http_error'))")
 
@@ -336,34 +337,38 @@ class D1EvaluationRepository:
             by_key[row["key_id"]] = by_key.get(row["key_id"], 0) + spent
         return by_entry, by_key
 
-    async def calls_today(self, day: str, email: str) -> tuple[int, int]:
-        """(every marking call today, this person's marking calls today)."""
+    async def calls_today(self, day: str, email: str, other_than: str | None = None) -> tuple[int, int]:
+        """(attempts evaluated today, this person's attempts evaluated today), leaving out
+        the attempt ``other_than`` when given."""
         row = await self._db.prepare(
-            "SELECT COUNT(*) AS everyone, COALESCE(SUM(user_email = ?), 0) AS mine "
-            f"FROM evaluation_calls WHERE day = ? AND {_MARKING}"
-        ).bind(email, day).first()
+            "SELECT COUNT(DISTINCT attempt_id) AS everyone, "
+            "COUNT(DISTINCT CASE WHEN user_email = ? THEN attempt_id END) AS mine "
+            f"FROM evaluation_calls WHERE day = ? AND {_MARKING} AND attempt_id IS NOT ?"
+        ).bind(email, day, other_than).first()
         return row["everyone"], row["mine"]
 
     async def reserve(
         self, r: Reservation, cap_micros: int | None, global_limit: int | None, user_limit: int | None
     ) -> bool:
         """Insert the ledger row only if the entry's cap and the daily quotas allow it (a
-        ``None`` cap or limit is not enforced). True when it was inserted."""
+        ``None`` cap or limit is not enforced; the quotas count other attempts than this
+        one). True when it was inserted."""
         await self._db.prepare(
             "INSERT INTO evaluation_calls (token, entry_id, key_id, provider, model, attempt_id, user_email, "
             "trigger, day, month, reserved_micros, rubric, created_at) "
             "SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE "
             "(? IS NULL OR (SELECT COALESCE(SUM(COALESCE(cost_micros, reserved_micros)), 0) FROM evaluation_calls "
             " WHERE entry_id = ? AND month = ?) + ? <= ?) "
-            f"AND (? IS NULL OR (SELECT COUNT(*) FROM evaluation_calls WHERE day = ? AND {_MARKING}) < ?) "
-            "AND (? IS NULL OR (SELECT COUNT(*) FROM evaluation_calls "
-            f" WHERE day = ? AND user_email = ? AND {_MARKING}) < ?)"
+            "AND (? IS NULL OR (SELECT COUNT(DISTINCT attempt_id) FROM evaluation_calls "
+            f" WHERE day = ? AND {_MARKING} AND attempt_id IS NOT ?) < ?) "
+            "AND (? IS NULL OR (SELECT COUNT(DISTINCT attempt_id) FROM evaluation_calls "
+            f" WHERE day = ? AND user_email = ? AND {_MARKING} AND attempt_id IS NOT ?) < ?)"
         ).bind(
             r.token, r.entry_id, r.key_id, r.provider, r.model, r.attempt_id, r.user_email, r.trigger,
             r.day, r.month, r.reserved_micros, r.rubric, r.created_at,
             cap_micros, r.entry_id, r.month, r.reserved_micros, cap_micros,
-            global_limit, r.day, global_limit,
-            user_limit, r.day, r.user_email, user_limit,
+            global_limit, r.day, r.attempt_id, global_limit,
+            user_limit, r.day, r.user_email, r.attempt_id, user_limit,
         ).run()
         row = await self._db.prepare(
             "SELECT 1 AS ok FROM evaluation_calls WHERE token = ?"

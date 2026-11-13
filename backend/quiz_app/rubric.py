@@ -58,9 +58,8 @@ the reply's length (and the thinking before it) grows with the answers in the ca
 same measured call took 10.8 s for 9 answers, about 1.2 s each. The allowance is about
 twice that per answer plus room for the first token and queueing: 17.5 s for one answer,
 37.5 s for 9 and 65 s for the 20 a call can carry (about 24 s expected). A flat 25 s would
-have cut off a full call at its expected time. A call that times out is not retried on
-its entry; the next entry in the admin's list is tried, and if none answers the answers
-wait for a re-run."""
+have cut off a full call at its expected time. A call that times out is not retried, on
+its entry or the next (it may already have been billed); its answers wait for a re-run."""
 
 
 @dataclass(frozen=True)

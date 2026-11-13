@@ -65,13 +65,16 @@ cap has no room for the call's conservative estimate. A provider **credit refusa
 **refused key** (401, 403) is not billed: the key is marked (`out_of_credit` or
 `key_refused`, with the time), and the same submit moves on to the next entry. A marked
 key is retried automatically by the next marking call an hour later, and at once by
-**Check now**; a call that gets an answer clears the mark. Any other failure (another
-HTTP error such as a 400, 404, 429 or 5xx, a timeout or network failure, or a reply cut off
-at `max_tokens`) also moves the same submit on to the next entry, without marking the key;
-a timeout keeps its reservation as spend. Calls refused with an HTTP error (credit, key or
-otherwise) are not billed and do not count toward the daily quotas. Only a reply the model
-finished ends the walk; when every entry fails, the answers wait, with the last failure's
-reason shown on the admin page.
+**Check now**; a call that gets an answer clears the mark. Another HTTP error (such as a
+400, 404, 429 or 5xx) or a reply cut off at `max_tokens` also moves the same submit on to
+the next entry, without marking the key. A failure whose usage is unknown (a timeout or
+network failure, an unreadable body, an adapter that raised) may already have been
+processed and billed, so it ends the walk: its reservation stays as spend and the answers
+wait for an admin re-run, as `provider error`. A reply the model finished ends the walk
+too; when every entry fails, the answers wait, with the last failure's reason shown on
+the admin page. Calls refused with an HTTP error (credit, key or otherwise) are not billed
+and do not count toward the daily quotas; the quotas count attempts, so one attempt is
+one unit however many entries it tries.
 
 ### Money: the provider's figure where it has one, else the app's tracking
 

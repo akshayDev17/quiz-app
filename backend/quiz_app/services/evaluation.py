@@ -15,14 +15,16 @@ closed attempt it:
    its key cannot be opened, or when its optional monthly cap has no room for this call's
    conservative estimate. The first entry that can take the call reserves the estimate in
    the ledger (atomically, with the cap and the quotas) and is called. A credit refusal
-   or a refused key marks the key and moves on to the next entry; so does any other
-   failure (an HTTP error, a timeout, a reply cut off at ``max_tokens``), without marking
-   the key. A reply the model finished ends the walk;
+   or a refused key marks the key and moves on to the next entry; so does another HTTP
+   error or a reply cut off at ``max_tokens``, without marking the key. A failure whose
+   usage is unknown (a timeout or network failure, an unreadable body, an adapter that
+   raised) may already have been processed and billed, so it ends the walk, as does a
+   reply the model finished;
 5. settles the ledger to the call's real token cost, logs one line, and records each
    answer as marked (level, award, feedback) or flagged (0, for review).
 
-When nothing can evaluate or every entry fails, the answers are released still
-*awaiting*, with the last failure's reason: never scored 0 for a failure of ours. Only a
+When nothing can evaluate, every entry fails, or a call's usage is unknown, the answers
+are released still *awaiting*, with the last failure's reason: never scored 0 for a failure of ours. Only a
 finished reply that is unusable (a refusal, or no valid verdict) scores 0, flagged for
 review. Answers are never re-sent automatically; an admin re-run picks awaiting answers
 up later.
@@ -71,7 +73,8 @@ the next marking call; a "check now" tries it at once."""
 
 RERUN_ATTEMPTS = 5
 """Attempts one re-run click evaluates: one model call each (plus one per entry that
-fails and passes the call down the list), well inside a Worker request's subrequest and query limits."""
+refuses the call, answers with an HTTP error or cuts the reply off, passing it down the
+list; a timeout ends the walk), well inside a Worker request's subrequest and query limits."""
 
 #: Why answers still await evaluation, as recorded for admins (``attempt_text_marks.reason``).
 NO_EVALUATOR = "no evaluator configured"
@@ -93,8 +96,8 @@ UNUSABLE_REASONS = {OUT_OF_CREDIT: OUT_OF_CREDIT_REASON, KEY_REFUSED: KEY_REFUSE
 @dataclass(frozen=True)
 class EvaluationSettings:
     """The numbers the owner has not settled yet, kept as configuration (``settings_from``)
-    with these defaults: daily evaluations (model calls; one per attempt) a submit may
-    trigger, per person and site-wide (admins are exempt from the per-person limit, admin
+    with these defaults: daily evaluations (attempts evaluated, each one unit however many
+    entries it tries) a submit may trigger, per person and site-wide (admins are exempt from the per-person limit, admin
     re-runs from both); and the cap prefilled for a new entry."""
 
     user_daily: int = 20
@@ -190,7 +193,7 @@ class EvaluationService:
         global_limit = None if trigger == RERUN else self._settings.global_daily
         user_limit = None if trigger == RERUN or quota_exempt else self._settings.user_daily
         day, month = utc_day(now), utc_month(now)
-        quota = await self._quota_reason(day, attempt.user_email, global_limit, user_limit)
+        quota = await self._quota_reason(day, attempt, global_limit, user_limit)
         if quota:
             await self._repo.release(attempt.id, token, waiting, quota)
             await self._repo.record(attempt.id, token, [], flagged, None, None, now)
@@ -222,10 +225,11 @@ class EvaluationService:
             marked.append((qid, verdict.level, award(verdict.level, max_marks), feedback))
         await self._repo.record(attempt.id, token, marked, flagged, entry.provider, entry.model, now)
 
-    async def _quota_reason(self, day: str, email: str, global_limit: int | None, user_limit: int | None) -> str | None:
+    async def _quota_reason(self, day: str, attempt: Attempt, global_limit: int | None,
+                            user_limit: int | None) -> str | None:
         if global_limit is None and user_limit is None:
             return None
-        everyone, mine = await self._repo.calls_today(day, email)
+        everyone, mine = await self._repo.calls_today(day, attempt.user_email, attempt.id)
         if global_limit is not None and everyone >= global_limit:
             return QUOTA_GLOBAL
         if user_limit is not None and mine >= user_limit:
@@ -270,7 +274,7 @@ class EvaluationService:
                 cap, global_limit, user_limit,
             )
             if not ok:  # a concurrent call took the last of the cap or of a quota
-                quota = await self._quota_reason(day, attempt.user_email, global_limit, user_limit)
+                quota = await self._quota_reason(day, attempt, global_limit, user_limit)
                 if quota:
                     return quota
                 reason = CAP_REACHED
@@ -285,6 +289,8 @@ class EvaluationService:
                 await self._repo.mark_key(key.id, None, None)
                 keys[key.id] = replace(key, unusable=None, unusable_at=None)
             if not reply.answered:
+                if reply.usage_unknown:
+                    return PROVIDER_ERROR
                 reason = PROVIDER_ERROR
                 continue
             if reply.outcome == TRUNCATED:

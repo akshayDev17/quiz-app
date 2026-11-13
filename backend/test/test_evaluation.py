@@ -943,19 +943,35 @@ class RoutingTest(EvalCase):
                          {SECOND_FAKE: "ready", FAKE: "ready"})
         self.assertEqual((await self.page())["quotas"]["calls_today"], 1)
 
-    async def test_a_cut_off_reply_or_a_timeout_passes_the_call_down_and_the_last_failure_is_kept(self):
+    async def test_a_cut_off_reply_passes_the_call_down_and_the_attempt_counts_once_toward_the_quotas(self):
+        self.settings = EvaluationSettings(user_daily=1, global_daily=2)
+        self.api = self.build()
         await self.add_entry(SECOND_FAKE, "second-model")
         await self.add_entry()
-        self.second._respond = lambda req, model: EvaluatorReply("truncated", text="{", http_status=200)
+        self.second._respond = lambda req, model: EvaluatorReply(
+            "truncated", text="{", http_status=200, input_tokens=900, output_tokens=14_000)
         aid = await self.take({FIRST.prompt: GOOD_FIRST})
+        self.assertEqual((await self.written(aid))["evaluation"], "marked")
         self.assertEqual((await self.reason(aid))["provider"], FAKE)
-        self.fake._respond = lambda req, model: EvaluatorReply("network", usage_unknown=True)
-        waiting = await self.take({FIRST.prompt: GOOD_FIRST}, ident=BOB)
-        self.assertEqual((await self.written(waiting, ident=BOB))["evaluation"], "awaiting")
-        self.assertEqual((await self.reason(waiting))["reason"], "provider error")
+        self.assertEqual([(c["provider"], c["outcome"]) for c in await self.ledger()],
+                         [(SECOND_FAKE, "truncated"), (FAKE, "ok")])
+        self.assertEqual((await self.page())["quotas"]["calls_today"], 1)
+        later = await self.take({FIRST.prompt: GOOD_FIRST})
+        self.assertEqual((await self.reason(later))["reason"], "daily limit per person reached")
+
+    async def test_a_timeout_ends_the_walk_and_leaves_the_answer_awaiting(self):
+        await self.add_entry(SECOND_FAKE, "second-model")
+        await self.add_entry()
+        self.second._respond = lambda req, model: EvaluatorReply("network", usage_unknown=True)
+        aid = await self.take({FIRST.prompt: GOOD_FIRST})
+        self.assertEqual((await self.written(aid))["evaluation"], "awaiting")
+        self.assertEqual((await self.reason(aid))["reason"], "provider error")
+        self.assertEqual((len(self.second.calls), len(self.fake.calls)), (1, 0))
         self.assertEqual((await self.page())["queue"]["awaiting_reasons"], {"provider error": 1})
-        timed_out = (await self.ledger())[-1]
+        [timed_out] = await self.ledger()
         self.assertEqual((timed_out["outcome"], timed_out["cost_micros"]), ("network", timed_out["reserved_micros"]))
+        self.assertEqual({k["provider"]: k["state"] for k in (await self.page())["keys"]},
+                         {SECOND_FAKE: "ready", FAKE: "ready"})
 
     async def test_refused_calls_do_not_use_up_the_daily_quotas(self):
         self.settings = EvaluationSettings(user_daily=1, global_daily=1)
