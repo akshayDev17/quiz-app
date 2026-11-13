@@ -197,9 +197,10 @@ priced at the rates you entered; a cloud budget reading is **the provider's own
 figure**. Keep the provider's own spend limit or budget alert as the hard stop.
 
 The numbers you have not settled yet are `vars` in `backend/wrangler.jsonc`, with
-these defaults: `EVAL_USER_DAILY_LIMIT` (20 evaluations per person per day),
-`EVAL_GLOBAL_DAILY_LIMIT` (300 for the site) and `EVAL_DEFAULT_MONTHLY_CAP_USD` (5,
-the cap prefilled for a new entry). Change them there and deploy.
+these defaults: `EVAL_USER_DAILY_LIMIT` (20 attempts evaluated per person per day,
+each one unit however many entries it tries), `EVAL_GLOBAL_DAILY_LIMIT` (300 for the
+site) and `EVAL_DEFAULT_MONTHLY_CAP_USD` (5, the cap prefilled for a new entry).
+Change them there and deploy.
 
 Once a key and an entry exist, press **Re-run awaiting evaluations** on the same
 page to mark what waited.

@@ -81,9 +81,9 @@ above the maximum, or non-zero on any answer not marked.
 - **Awaiting is not 0.** When nothing can evaluate the answer (no evaluator configured, no
   provider secret, every budget spent, a daily quota reached), every entry fails (an
   HTTP error, or a reply cut off at `max_tokens`, which is our own output sizing), or a
-  call times out, the answer waits, adding nothing; results and history say the score is
-  provisional, and the mark is added when it is evaluated. A failure of ours never costs
-  the solver marks.
+  call times out or otherwise fails with its usage unknown, the answer waits, adding
+  nothing; results and history say the score is provisional, and the mark is added when
+  it is evaluated. A failure of ours never costs the solver marks.
 - **Flagged is 0 and counts.** If an unusable reply were left out of the maximum instead, an
   answer that breaks the evaluator (for example by prompt injection) would beat an honest
   wrong one. Scoring it 0 makes breaking the evaluator never better than answering badly.
@@ -116,11 +116,12 @@ In short: a call goes to the first entry, in order, that can take it; its conser
 estimate is reserved in the app's own ledger (`evaluation_calls`) atomically with the
 entry's cap and the daily quotas, and settled to the real token cost afterwards. A credit
 refusal, a refused key, any other HTTP error or a cut-off reply moves the call down the
-list; a finished reply ends it, and so does a timeout (it may already have been billed),
-leaving the answers awaiting. Daily quotas (defaults 20 attempts evaluated per person and
-300 site-wide, one unit per attempt however many entries it tries, `EVAL_USER_DAILY_LIMIT` and
-`EVAL_GLOBAL_DAILY_LIMIT`) bound what solvers can trigger; admins are exempt from the
-per-person one, and admin re-runs from both, never from a cap.
+list; a finished reply ends it, and so does a timeout or another failure whose usage is
+unknown (it may already have been billed), leaving the answers awaiting. Daily quotas
+(defaults 20 attempts evaluated per person and 300 site-wide, one unit per attempt however
+many entries it tries, `EVAL_USER_DAILY_LIMIT` and `EVAL_GLOBAL_DAILY_LIMIT`) bound what
+solvers can trigger; admins are exempt from the per-person one, and admin re-runs from
+both, never from a cap.
 
 Everything about providers, keys, models, caps, prices and spend is admin-only, on every
 route; a solver's results say an answer was AI-marked and show its marks and feedback.
