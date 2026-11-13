@@ -44,11 +44,24 @@ const key = (extra: Partial<EvaluatorKey> = {}): EvaluatorKey => ({
   provider_budget: null, provider_budget_error: null, spent_usd: 0, entries: 1, created_at: 1, ...extra,
 });
 
-test('an entry reads Provider · key · model (the best money figure there is)', () => {
+test('an entry reads Provider · key · model (the money it can still spend)', () => {
   assert.equal(evaluatorLabel(entry()), 'Anthropic API · Personal · claude-haiku-5-5 ($4.99 left of cap)');
   assert.equal(entryFigure(entry({ monthly_cap_usd: null, left_of_cap_usd: null })), '$0.01 spent this month');
-  assert.equal(entryFigure(entry({ provider_budget: budget() })), '$37.50 left in budget');
+  const uncapped = { monthly_cap_usd: null, left_of_cap_usd: null };
+  assert.equal(entryFigure(entry({ ...uncapped, provider_budget: budget() })), '$37.50 left in budget');
+  assert.equal(entryFigure(entry({ ...uncapped, provider_budget: budget({ remaining: -1.25 }) })), '$1.25 over budget');
+});
+
+test('with a cap and a provider budget, the smaller of the two is shown, named for which it is', () => {
+  assert.equal(entryFigure(entry({ left_of_cap_usd: 0, provider_budget: budget({ remaining: 480 }) })), '$0.00 left of cap');
+  assert.equal(entryFigure(entry({ left_of_cap_usd: 4.9998, provider_budget: budget() })), '$4.99 left of cap');
+  assert.equal(entryFigure(entry({ monthly_cap_usd: 100, left_of_cap_usd: 99, provider_budget: budget() })),
+    '$37.50 left in budget');
   assert.equal(entryFigure(entry({ provider_budget: budget({ remaining: -1.25 }) })), '$1.25 over budget');
+  assert.equal(entryFigure(entry({ monthly_cap_usd: 100, left_of_cap_usd: 99, provider_budget: budget({ currency: 'EUR' }) })),
+    '$99.00 left of cap');
+  assert.equal(entryFigure(entry({ monthly_cap_usd: null, left_of_cap_usd: null, provider_budget: budget({ currency: 'EUR' }) })),
+    '37.50 EUR left in budget');
 });
 
 test('what is left rounds down and what is spent rounds up, to the cent', () => {

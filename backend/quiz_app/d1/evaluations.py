@@ -121,8 +121,10 @@ _ENTRY_COLUMNS = (
 )
 _ENTRIES = "FROM evaluator_entries e JOIN evaluator_keys k ON k.id = e.key_id"
 #: The ledger rows that count toward the daily quotas: marking calls, not probes, and not
-#: calls the provider refused for credit or for the key (nobody was marked or billed).
-_MARKING = "trigger <> 'check' AND (outcome IS NULL OR outcome NOT IN ('out_of_credit', 'key_refused'))"
+#: calls the provider refused with an HTTP error, for credit, for the key or otherwise
+#: (nobody was marked or billed).
+_MARKING = ("trigger <> 'check' AND "
+            "(outcome IS NULL OR outcome NOT IN ('out_of_credit', 'key_refused', 'http_error'))")
 
 
 def _settings(raw: str | None) -> dict[str, str] | None:

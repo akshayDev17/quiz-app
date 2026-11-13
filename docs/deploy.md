@@ -148,9 +148,8 @@ cd backend
 openssl rand -base64 32 | ../frontend/node_modules/.bin/wrangler secret put KEY_ENCRYPTION_KEY
 ```
 
-CI deploys keep it ("Secrets are never deleted by a deployment"); `wrangler secret
-list` prints names only, and CI warns (never fails) after each deploy when it is
-missing. Without it nothing breaks: the admin page says key storage is not set up,
+CI deploys keep it ("Secrets are never deleted by a deployment"). Without it nothing
+breaks: the admin page says key storage is not set up,
 no key can be added, and typed answers wait as *awaiting evaluation* (counting
 nothing, never 0).
 
@@ -199,10 +198,8 @@ figure**. Keep the provider's own spend limit or budget alert as the hard stop.
 
 The numbers you have not settled yet are `vars` in `backend/wrangler.jsonc`, with
 these defaults: `EVAL_USER_DAILY_LIMIT` (20 evaluations per person per day),
-`EVAL_GLOBAL_DAILY_LIMIT` (300 for the site), `EVAL_DEFAULT_MONTHLY_CAP_USD` (5,
-the cap prefilled for a new entry), `EVAL_TIMEOUT_BASE_SECONDS` and
-`EVAL_TIMEOUT_PER_ANSWER_SECONDS` (15 + 2.5 per typed answer: how long submit waits
-for one call). Change them there and deploy.
+`EVAL_GLOBAL_DAILY_LIMIT` (300 for the site) and `EVAL_DEFAULT_MONTHLY_CAP_USD` (5,
+the cap prefilled for a new entry). Change them there and deploy.
 
 Once a key and an entry exist, press **Re-run awaiting evaluations** on the same
 page to mark what waited.

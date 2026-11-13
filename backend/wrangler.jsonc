@@ -39,15 +39,12 @@
 	//     key can be stored or used, and written answers wait.
 	// "vars" holds only non-secret settings the owner has not settled yet, each a
 	// placeholder with a default in code (composition.settings_from): the daily
-	// evaluation limits (model calls, one per attempt, per UTC day), the cap prefilled
-	// for a new evaluator entry, and how long submit waits for one call (base plus per
-	// typed answer). Change them here and deploy.
+	// evaluation limits (model calls, one per attempt, per UTC day) and the cap
+	// prefilled for a new evaluator entry. Change them here and deploy.
 	"vars": {
 		"EVAL_USER_DAILY_LIMIT": "20",
 		"EVAL_GLOBAL_DAILY_LIMIT": "300",
-		"EVAL_DEFAULT_MONTHLY_CAP_USD": "5",
-		"EVAL_TIMEOUT_BASE_SECONDS": "15",
-		"EVAL_TIMEOUT_PER_ANSWER_SECONDS": "2.5"
+		"EVAL_DEFAULT_MONTHLY_CAP_USD": "5"
 	},
 	// Lets `wrangler dev` simulate an authenticated Access identity, so
 	// CloudflareAccessIdentity can be exercised locally without a login flow.

@@ -67,7 +67,7 @@ PROBE_TIMEOUT_S = 15.0
 #: "refusal" and "truncated"; every other one means no answer was obtained at all.
 OK, REFUSAL, TRUNCATED = "ok", "refusal", "truncated"
 #: The provider refused the key's account for want of credit, or refused the key itself.
-#: Neither is billed; both send marking down the admin's list to the next entry.
+#: Neither is billed; both mark the key (every failure sends marking down the list).
 OUT_OF_CREDIT, KEY_REFUSED = "out_of_credit", "key_refused"
 NO_ANSWER = ("http_error", "network", "bad_envelope", "error", OUT_OF_CREDIT, KEY_REFUSED)
 
@@ -107,7 +107,7 @@ class Evaluator(ABC):
 def failure_outcome(status: int, text: str) -> str:
     """What a non-200 reply means. 402 (``billing_error``) is a credit refusal, as is a 400
     whose message is about the credit balance (the Claude API's older form); 401 and 403
-    refuse the key. Anything else is a plain error that does not move down the list."""
+    refuse the key. Anything else is a plain error: the key is not marked."""
     error: dict = {}
     try:
         data = json.loads(text)

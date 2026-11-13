@@ -15,15 +15,17 @@ closed attempt it:
    its key cannot be opened, or when its optional monthly cap has no room for this call's
    conservative estimate. The first entry that can take the call reserves the estimate in
    the ledger (atomically, with the cap and the quotas) and is called. A credit refusal
-   or a refused key marks the key and moves on to the next entry; any other result ends
-   the walk;
+   or a refused key marks the key and moves on to the next entry; so does any other
+   failure (an HTTP error, a timeout, a reply cut off at ``max_tokens``), without marking
+   the key. A reply the model finished ends the walk;
 5. settles the ledger to the call's real token cost, logs one line, and records each
    answer as marked (level, award, feedback) or flagged (0, for review).
 
-When nothing can evaluate or the provider fails, the answers are released still
-*awaiting*: never scored 0 for a failure of ours. Only an unusable reply from a model that
-did answer scores 0, flagged for review. Answers are never re-sent automatically; an admin
-re-run picks awaiting answers up later.
+When nothing can evaluate or every entry fails, the answers are released still
+*awaiting*, with the last failure's reason: never scored 0 for a failure of ours. Only a
+finished reply that is unusable (a refusal, or no valid verdict) scores 0, flagged for
+review. Answers are never re-sent automatically; an admin re-run picks awaiting answers
+up later.
 
 Every exception is contained: evaluation can never fail a submit.
 """
@@ -46,8 +48,6 @@ from ..models import Attempt, User
 from ..ports import AttemptRepository
 from ..rubric import (
     RUBRIC_VERSION,
-    TIMEOUT_BASE_S,
-    TIMEOUT_PER_ITEM_S,
     EvaluationItem,
     EvaluationRequest,
     award,
@@ -70,8 +70,8 @@ RETRY_UNUSABLE_MS = 60 * 60 * 1000
 the next marking call; a "check now" tries it at once."""
 
 RERUN_ATTEMPTS = 5
-"""Attempts one re-run click evaluates: one model call each (plus one per key that turns
-out to be out of credit), well inside a Worker request's subrequest and query limits."""
+"""Attempts one re-run click evaluates: one model call each (plus one per entry that
+fails and passes the call down the list), well inside a Worker request's subrequest and query limits."""
 
 #: Why answers still await evaluation, as recorded for admins (``attempt_text_marks.reason``).
 NO_EVALUATOR = "no evaluator configured"
@@ -81,10 +81,10 @@ KEY_REFUSED_REASON = "key refused by provider"
 QUOTA_USER = "daily limit per person reached"
 QUOTA_GLOBAL = "daily limit for the site reached"
 PROVIDER_ERROR = "provider error"
+CUT_OFF = "reply cut off"
 #: Why an answer was flagged (scored 0) for review.
 INVALID_REPLY = "invalid reply"
 REFUSED = "model declined"
-CUT_OFF = "reply cut off"
 TOO_LONG = "too long to evaluate"
 
 UNUSABLE_REASONS = {OUT_OF_CREDIT: OUT_OF_CREDIT_REASON, KEY_REFUSED: KEY_REFUSED_REASON}
@@ -95,16 +95,11 @@ class EvaluationSettings:
     """The numbers the owner has not settled yet, kept as configuration (``settings_from``)
     with these defaults: daily evaluations (model calls; one per attempt) a submit may
     trigger, per person and site-wide (admins are exempt from the per-person limit, admin
-    re-runs from both); the cap prefilled for a new entry; and how long a call may take."""
+    re-runs from both); and the cap prefilled for a new entry."""
 
     user_daily: int = 20
     global_daily: int = 300
     default_cap_usd: float = 5.0
-    timeout_base_s: float = TIMEOUT_BASE_S
-    timeout_per_answer_s: float = TIMEOUT_PER_ITEM_S
-
-    def timeout_for(self, answers: int) -> float:
-        return self.timeout_base_s + self.timeout_per_answer_s * answers
 
 
 def utc_day(now_ms: int) -> str:
@@ -189,8 +184,7 @@ class EvaluationService:
         keyed = [EvaluationItem(item_key(i), it.question, it.model_answer, it.key_points, it.answer)
                  for i, it in enumerate(now_items)]
         question_of = {k.key: int(it.key) for k, it in zip(keyed, now_items)}
-        request = replace(build_request(keyed, attempt.reveal_answers, self._nonce()),
-                          timeout_s=self._settings.timeout_for(len(keyed)))
+        request = build_request(keyed, attempt.reveal_answers, self._nonce())
         waiting = list(question_of.values())
 
         global_limit = None if trigger == RERUN else self._settings.global_daily
@@ -209,13 +203,8 @@ class EvaluationService:
             return
         entry, reply = outcome
 
-        if not reply.answered:
-            await self._repo.release(attempt.id, token, waiting, PROVIDER_ERROR)
-            await self._repo.record(attempt.id, token, [], flagged, None, None, now)
-            return
-        if reply.outcome in (REFUSAL, TRUNCATED):
-            reason = REFUSED if reply.outcome == REFUSAL else CUT_OFF
-            flagged += [(qid, reason) for qid in waiting]
+        if reply.outcome == REFUSAL:
+            flagged += [(qid, REFUSED) for qid in waiting]
             await self._repo.record(attempt.id, token, [], flagged, entry.provider, entry.model, now)
             return
         verdicts = parse_reply(reply.text, list(question_of))
@@ -244,8 +233,8 @@ class EvaluationService:
         return None
 
     async def _route_and_call(self, attempt, request, trigger, day, month, now, global_limit, user_limit):
-        """(entry, reply) of the call that ended the walk down the list, or why no entry
-        could take the call."""
+        """(entry, reply) of the first call the model finished, or why no entry could take
+        the call (the last failure's reason)."""
         entries = await self._repo.list_entries()
         if not entries:
             return NO_EVALUATOR
@@ -294,6 +283,13 @@ class EvaluationService:
                 continue
             if key.unusable and reply.answered:  # the retry worked: the key has credit again
                 await self._repo.mark_key(key.id, None, None)
+                keys[key.id] = replace(key, unusable=None, unusable_at=None)
+            if not reply.answered:
+                reason = PROVIDER_ERROR
+                continue
+            if reply.outcome == TRUNCATED:
+                reason = CUT_OFF
+                continue
             return entry, reply
         return reason
 

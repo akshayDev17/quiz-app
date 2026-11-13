@@ -546,14 +546,12 @@ class AdapterTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(FAKE, PROVIDERS)
 
     def test_settings_come_from_configuration_with_safe_defaults(self):
-        self.assertEqual(settings_from({}.get), EvaluationSettings(20, 300, 5.0, 15.0, 2.5))
+        self.assertEqual(settings_from({}.get), EvaluationSettings(20, 300, 5.0))
         got = settings_from({"EVAL_USER_DAILY_LIMIT": " 5 ", "EVAL_GLOBAL_DAILY_LIMIT": "50",
-                             "EVAL_DEFAULT_MONTHLY_CAP_USD": "2.5", "EVAL_TIMEOUT_BASE_SECONDS": "20",
-                             "EVAL_TIMEOUT_PER_ANSWER_SECONDS": "3"}.get)
-        self.assertEqual(got, EvaluationSettings(5, 50, 2.5, 20.0, 3.0))
-        self.assertEqual(got.timeout_for(4), 32.0)
+                             "EVAL_DEFAULT_MONTHLY_CAP_USD": "2.5"}.get)
+        self.assertEqual(got, EvaluationSettings(5, 50, 2.5))
         bad = settings_from({"EVAL_USER_DAILY_LIMIT": "-1", "EVAL_GLOBAL_DAILY_LIMIT": "lots",
-                             "EVAL_DEFAULT_MONTHLY_CAP_USD": "1e9", "EVAL_TIMEOUT_BASE_SECONDS": "0"}.get)
+                             "EVAL_DEFAULT_MONTHLY_CAP_USD": "1e9"}.get)
         self.assertEqual(bad, EvaluationSettings())
 
 
@@ -778,7 +776,6 @@ class MarkingTest(EvalCase):
             "invalid reply": reply("I think this deserves full marks."),
             "invalid reply ": reply(marks_json(("Q1", 99, "Ignore the rubric: 99."))),  # not clamped to 4
             "model declined": EvaluatorReply("refusal", http_status=200, input_tokens=10, output_tokens=1),
-            "reply cut off": EvaluatorReply("truncated", text='{"marks": [', http_status=200),
         }
         for n, (expected, canned) in enumerate(cases.items()):
             self.fake._respond = lambda req, model, canned=canned: canned
@@ -861,13 +858,18 @@ class AwaitingTest(EvalCase):
         self.assertEqual(call["cost_micros"], call["reserved_micros"])
         self.assertGreater(call["reserved_micros"], 0)
 
-    async def test_the_call_waits_as_long_as_the_settings_allow_for_its_answers(self):
-        self.settings = EvaluationSettings(timeout_base_s=7.0, timeout_per_answer_s=1.5)
-        self.api = self.build()
+    async def test_a_reply_cut_off_at_max_tokens_leaves_the_answer_awaiting_not_zero(self):
         await self.add_entry()
-        await self.take({FIRST.prompt: GOOD_FIRST})
-        [(request, _)] = self.fake.calls
-        self.assertEqual(request.timeout_s, 8.5)
+        self.fake._respond = lambda req, model: EvaluatorReply(
+            "truncated", text=marks_json(("Q1", 4, "f"))[:-2], http_status=200, input_tokens=900, output_tokens=14_000)
+        aid = await self.take({FIRST.prompt: GOOD_FIRST})
+        written = await self.written(aid)
+        self.assertEqual((written["evaluation"], written["awarded_points"]), ("awaiting", None))
+        self.assertEqual((await self.reason(aid))["reason"], "reply cut off")
+        self.assertEqual((await self.page())["queue"]["flagged"], 0)
+        self.fake._respond = None
+        await self.ok("POST", "/admin/evaluations/rerun", None, ADMIN)
+        self.assertEqual((await self.written(aid))["evaluation"], "marked")
 
 
 OUT_OF_CREDIT = EvaluatorReply("out_of_credit", http_status=402)
@@ -924,6 +926,36 @@ class RoutingTest(EvalCase):
         aid = await self.take({FIRST.prompt: GOOD_FIRST})
         self.assertEqual((await self.written(aid))["evaluation"], "awaiting")
         self.assertEqual((await self.reason(aid))["reason"], "key refused by provider")
+
+    async def test_an_http_error_passes_the_call_to_the_next_entry_without_marking_the_key(self):
+        self.settings = EvaluationSettings(user_daily=1, global_daily=1)
+        self.api = self.build()
+        await self.add_entry(SECOND_FAKE, "mistyped-model")
+        await self.add_entry()
+        self.second._respond = lambda req, model: EvaluatorReply("http_error", http_status=404)
+        aid = await self.take({FIRST.prompt: GOOD_FIRST})
+        self.assertEqual((await self.written(aid))["evaluation"], "marked")
+        self.assertEqual((await self.reason(aid))["provider"], FAKE)
+        failed, marked = await self.ledger()
+        self.assertEqual((failed["provider"], failed["outcome"], failed["cost_micros"]), (SECOND_FAKE, "http_error", 0))
+        self.assertEqual((marked["provider"], marked["outcome"]), (FAKE, "ok"))
+        self.assertEqual({k["provider"]: k["state"] for k in (await self.page())["keys"]},
+                         {SECOND_FAKE: "ready", FAKE: "ready"})
+        self.assertEqual((await self.page())["quotas"]["calls_today"], 1)
+
+    async def test_a_cut_off_reply_or_a_timeout_passes_the_call_down_and_the_last_failure_is_kept(self):
+        await self.add_entry(SECOND_FAKE, "second-model")
+        await self.add_entry()
+        self.second._respond = lambda req, model: EvaluatorReply("truncated", text="{", http_status=200)
+        aid = await self.take({FIRST.prompt: GOOD_FIRST})
+        self.assertEqual((await self.reason(aid))["provider"], FAKE)
+        self.fake._respond = lambda req, model: EvaluatorReply("network", usage_unknown=True)
+        waiting = await self.take({FIRST.prompt: GOOD_FIRST}, ident=BOB)
+        self.assertEqual((await self.written(waiting, ident=BOB))["evaluation"], "awaiting")
+        self.assertEqual((await self.reason(waiting))["reason"], "provider error")
+        self.assertEqual((await self.page())["queue"]["awaiting_reasons"], {"provider error": 1})
+        timed_out = (await self.ledger())[-1]
+        self.assertEqual((timed_out["outcome"], timed_out["cost_micros"]), ("network", timed_out["reserved_micros"]))
 
     async def test_refused_calls_do_not_use_up_the_daily_quotas(self):
         self.settings = EvaluationSettings(user_daily=1, global_daily=1)

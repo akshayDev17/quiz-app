@@ -39,9 +39,7 @@ def settings_from(read_setting: Callable[[str], str | None]) -> EvaluationSettin
 
     * ``EVAL_USER_DAILY_LIMIT``, ``EVAL_GLOBAL_DAILY_LIMIT``: whole numbers of evaluations
       (model calls, one per attempt) per UTC day;
-    * ``EVAL_DEFAULT_MONTHLY_CAP_USD``: the cap prefilled for a new entry;
-    * ``EVAL_TIMEOUT_BASE_SECONDS``, ``EVAL_TIMEOUT_PER_ANSWER_SECONDS``: how long submit
-      waits for one call (base plus per typed answer in it)."""
+    * ``EVAL_DEFAULT_MONTHLY_CAP_USD``: the cap prefilled for a new entry."""
     defaults = EvaluationSettings()
 
     def number(name: str, default, kind, low, high):
@@ -56,9 +54,6 @@ def settings_from(read_setting: Callable[[str], str | None]) -> EvaluationSettin
         user_daily=number("EVAL_USER_DAILY_LIMIT", defaults.user_daily, int, 0, 1_000_000),
         global_daily=number("EVAL_GLOBAL_DAILY_LIMIT", defaults.global_daily, int, 0, 1_000_000),
         default_cap_usd=number("EVAL_DEFAULT_MONTHLY_CAP_USD", defaults.default_cap_usd, float, 0, 10_000),
-        timeout_base_s=number("EVAL_TIMEOUT_BASE_SECONDS", defaults.timeout_base_s, float, 1, 120),
-        timeout_per_answer_s=number("EVAL_TIMEOUT_PER_ANSWER_SECONDS", defaults.timeout_per_answer_s,
-                                    float, 0, 30),
     )
 
 

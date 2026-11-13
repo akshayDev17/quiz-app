@@ -246,28 +246,6 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: uv run pywrangler deploy
 
-      # Optional and never fails the deploy: a warning when no AI evaluator
-      # provider has all of its Worker secrets, so written answers would wait as
-      # "awaiting evaluation" (docs/deploy.md §C, ADR 0010). `wrangler secret
-      # list` prints secret NAMES only, never a value; the keys stay Worker
-      # secrets the owner sets by hand, and GitHub never holds them.
-      - name: Check the evaluator key storage secret is set (warning only)
-        continue-on-error: true
-        working-directory: backend
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          if ! listing=$(../frontend/node_modules/.bin/wrangler secret list --format json 2>/dev/null); then
-            echo "::warning::Could not list the Worker's secret names, so the key storage check was skipped."
-            exit 0
-          fi
-          names=$(printf '%s' "$listing" | python3 -c 'import json, sys; print(" ".join(s.get("name", "") for s in json.load(sys.stdin)))' 2>/dev/null) || names=""
-          case " $names " in
-            *" KEY_ENCRYPTION_KEY "*) echo "KEY_ENCRYPTION_KEY is set: evaluator keys can be stored from the admin page." ;;
-            *) echo "::warning::KEY_ENCRYPTION_KEY is not set, so no AI evaluator key can be stored and written answers will wait as awaiting evaluation. Set it once with wrangler secret put (docs/deploy.md §C)." ;;
-          esac
-
   deploy-frontend:
     name: Deploy Frontend
     runs-on: ubuntu-latest

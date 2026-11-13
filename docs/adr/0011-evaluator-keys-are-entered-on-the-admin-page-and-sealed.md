@@ -65,8 +65,13 @@ cap has no room for the call's conservative estimate. A provider **credit refusa
 **refused key** (401, 403) is not billed: the key is marked (`out_of_credit` or
 `key_refused`, with the time), and the same submit moves on to the next entry. A marked
 key is retried automatically by the next marking call an hour later, and at once by
-**Check now**; a call that gets an answer clears the mark. Refused calls do not count
-toward the daily quotas. Any other failure ends the walk, and the answers wait.
+**Check now**; a call that gets an answer clears the mark. Any other failure (another
+HTTP error such as a 400, 404, 429 or 5xx, a timeout or network failure, or a reply cut off
+at `max_tokens`) also moves the same submit on to the next entry, without marking the key;
+a timeout keeps its reservation as spend. Calls refused with an HTTP error (credit, key or
+otherwise) are not billed and do not count toward the daily quotas. Only a reply the model
+finished ends the walk; when every entry fails, the answers wait, with the last failure's
+reason shown on the admin page.
 
 ### Money: the provider's figure where it has one, else the app's tracking
 
@@ -96,11 +101,11 @@ entry's spend but not toward the daily quotas.
 
 ### Open numbers stay configuration
 
-The owner has not settled the money numbers or how long submit may wait. They are Worker
-`vars` with defaults in code (`composition.settings_from`): `EVAL_USER_DAILY_LIMIT` (20),
-`EVAL_GLOBAL_DAILY_LIMIT` (300), `EVAL_DEFAULT_MONTHLY_CAP_USD` (5, the cap prefilled for
-a new entry), `EVAL_TIMEOUT_BASE_SECONDS` and `EVAL_TIMEOUT_PER_ANSWER_SECONDS` (15 + 2.5
-per answer). Key expiry, per-deploy approval and an AI Gateway are not built.
+The owner has not settled the money numbers. They are Worker `vars` with defaults in
+code (`composition.settings_from`): `EVAL_USER_DAILY_LIMIT` (20),
+`EVAL_GLOBAL_DAILY_LIMIT` (300) and `EVAL_DEFAULT_MONTHLY_CAP_USD` (5, the cap prefilled
+for a new entry). How long submit waits for one call is the rubric's own sizing
+(`rubric.TIMEOUT_BASE_S` + `TIMEOUT_PER_ITEM_S` per answer). Key expiry, per-deploy approval and an AI Gateway are not built.
 
 ## Consequences
 

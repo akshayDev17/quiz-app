@@ -24,11 +24,18 @@ export function money(n: number, currency: string): string {
   return currency === 'USD' ? dollars(n) : `${(Math.floor(n * 100 + 1e-9) / 100).toFixed(2)} ${currency}`;
 }
 
-/** The best money figure for an entry: the provider's own budget, else what is left of its cap, else its spend. */
+/**
+ * The money an entry can still spend: the smaller of what is left of its cap and the provider's own
+ * budget (a budget in another currency than the cap's dollars is shown only when it is overspent or
+ * there is no cap), else its spend this month.
+ */
 export function entryFigure(e: Pick<EvaluatorEntry, 'provider_budget' | 'left_of_cap_usd' | 'spent_usd'>): string {
   const b = e.provider_budget;
-  if (b) return b.remaining < 0 ? `${money(-b.remaining, b.currency)} over budget` : `${money(b.remaining, b.currency)} left in budget`;
-  if (e.left_of_cap_usd !== null) return `${dollars(e.left_of_cap_usd)} left of cap`;
+  const cap = e.left_of_cap_usd;
+  if (b && (cap === null || b.remaining < 0 || (b.currency === 'USD' && b.remaining < cap))) {
+    return b.remaining < 0 ? `${money(-b.remaining, b.currency)} over budget` : `${money(b.remaining, b.currency)} left in budget`;
+  }
+  if (cap !== null) return `${dollars(cap)} left of cap`;
   return `${spentDollars(e.spent_usd)} spent this month`;
 }
 
