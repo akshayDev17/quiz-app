@@ -11,7 +11,7 @@ and counted, with three fixed rules: a written answer never carries negative mar
 minimum is 0, a blank answer scores 0, a wrong answer scores 0); the marks a question is
 worth and what answer quality earns what are for the builder to decide; and the model
 call goes through a provider the owner chooses, with the key kept out of GitHub, the
-repo, logs and the browser, and spend held to small monthly budgets.
+repo, logs and the browser, and spend held within the owner's limits (ADR 0011).
 
 The owner later added that, as the sole admin, they choose the provider and model (Anthropic
 API, Amazon Bedrock, Azure AI Foundry, or another later), may use several, and see each with
@@ -100,27 +100,25 @@ page always submits after the buzzer) or by an admin re-run. Nothing is retried
 automatically; a claim whose request was cut off is taken over only by an admin re-run after
 10 minutes.
 
-### Who evaluates, and within what budget
+### Who evaluates, and within what limits
 
 One port, `Evaluator.evaluate(request, model) -> EvaluatorReply` (as identity is, ADR
 0002), with `FakeEvaluator` for tests and local runs. The Anthropic API, Claude in Amazon
 Bedrock (`bedrock-mantle`) and Claude in Microsoft Foundry all take the same Messages API
 body, so one adapter (`MessagesApiEvaluator`) serves all three; only the URL and the key
-header differ. A provider is usable when its Worker secrets are present: `ANTHROPIC_API_KEY`;
-`BEDROCK_API_KEY` + `BEDROCK_REGION`; `AZURE_FOUNDRY_API_KEY` + `AZURE_FOUNDRY_ENDPOINT`.
+header differ.
 
-The admin keeps an ordered list of provider · model entries, each with a monthly budget
-and per-token prices (prefilled from published prices). A call goes to the first entry, in
-order, whose provider is usable and whose budget has room for the call's conservative
-estimate; that estimate is reserved in the app's own ledger (`evaluation_calls`) atomically
-with the daily quotas, and settled to the real token cost afterwards. Remaining budget is
-the budget minus this UTC month's ledger spend: the app's tracking, not the provider's
-bill, which stays the hard backstop through a provider-side spend limit. Daily quotas
-(defaults 20 evaluations per person and 300 site-wide, `EVAL_USER_DAILY_LIMIT` and
+The keys, the admin's ordered list of entries (a key and a model each), the optional
+monthly cap per entry, and what the page shows about money are [ADR 0011](0011-evaluator-keys-are-entered-on-the-admin-page-and-sealed.md).
+In short: a call goes to the first entry, in order, that can take it; its conservative
+estimate is reserved in the app's own ledger (`evaluation_calls`) atomically with the
+entry's cap and the daily quotas, and settled to the real token cost afterwards. A credit
+refusal or a refused key moves the call down the list. Daily quotas (defaults 20
+evaluations per person and 300 site-wide, `EVAL_USER_DAILY_LIMIT` and
 `EVAL_GLOBAL_DAILY_LIMIT`) bound what solvers can trigger; admins are exempt from the
-per-person one, and admin re-runs from both, never from a budget.
+per-person one, and admin re-runs from both, never from a cap.
 
-Everything about providers, models, budgets, prices and spend is admin-only, on every
+Everything about providers, keys, models, caps, prices and spend is admin-only, on every
 route; a solver's results say an answer was AI-marked and show its marks and feedback.
 
 ### Prompt injection

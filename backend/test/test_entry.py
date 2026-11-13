@@ -7,6 +7,7 @@ Run:  python3 test/test_entry.py
 
 from __future__ import annotations
 
+import importlib
 import sys
 import types
 import unittest
@@ -119,9 +120,9 @@ class WorkerPostTest(unittest.IsolatedAsyncioTestCase):
         ffi.to_js = lambda value, dict_converter=None: {"converted_by": dict_converter, **value}
         sys.modules.update({"js": js, "pyodide": types.ModuleType("pyodide"), "pyodide.ffi": ffi})
         sys.modules.pop("quiz_app.worker_http", None)
-        from quiz_app import worker_http
-
-        self.worker_http = worker_http
+        # import_module, not "from quiz_app import worker_http": that would hand back the module
+        # still attached to the package from an earlier test, bound to that test's fetch stub.
+        self.worker_http = importlib.import_module("quiz_app.worker_http")
 
     async def asyncTearDown(self):
         sys.modules.pop("quiz_app.worker_http", None)
@@ -132,8 +133,8 @@ class WorkerPostTest(unittest.IsolatedAsyncioTestCase):
                 sys.modules[name] = module
 
     async def test_posts_headers_and_body_with_a_timeout_and_reads_the_reply(self):
-        got = await self.worker_http.worker_post(
-            "https://api.example/v1/messages", {"x-api-key": "k"}, '{"a": 1}', 25.0
+        got = await self.worker_http.worker_send(
+            "POST", "https://api.example/v1/messages", {"x-api-key": "k"}, '{"a": 1}', 25.0
         )
         [(url, init)] = self.sent
         self.assertEqual(url, "https://api.example/v1/messages")
@@ -142,6 +143,12 @@ class WorkerPostTest(unittest.IsolatedAsyncioTestCase):
             "body": '{"a": 1}', "signal": ("signal", 25_000),
         })
         self.assertEqual((got.status, got.headers, got.text), (200, {"request-id": "req_42"}, '{"ok": true}'))
+
+    async def test_a_get_sends_no_body(self):
+        await self.worker_http.worker_send("GET", "https://management.example/budget", {"authorization": "b"},
+                                           None, 10.0)
+        [(_, init)] = self.sent
+        self.assertEqual((init["method"], "body" in init), ("GET", False))
 
 
 if __name__ == "__main__":

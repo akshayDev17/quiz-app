@@ -30,9 +30,11 @@ count — until the solver submits or the clock runs out.
   typed into a text box and marked out of 4 by an AI evaluator against its model
   answer, with partial credit and short feedback; blank or wrong scores 0, never
   less ([ADR 0010](docs/adr/0010-subjective-answers-are-marked-by-an-evaluator.md)).
-  The admin picks the providers and models (Anthropic API, Amazon Bedrock, Azure
-  AI Foundry) and their monthly budgets; each key is a Worker secret, never in
-  GitHub ([deploy §C](docs/deploy.md)).
+  The admin adds the keys (Anthropic API, Amazon Bedrock, Azure AI Foundry) on the
+  admin page, where they are stored sealed and never shown again, and orders the
+  key · model entries marking tries, each with an optional monthly cap
+  ([ADR 0011](docs/adr/0011-evaluator-keys-are-entered-on-the-admin-page-and-sealed.md),
+  [deploy §C](docs/deploy.md)).
 - **The server owns the clock.** The deadline is fixed at start, the browser's
   countdown only displays it, and closing the tab cannot buy time.
 - **Pausing freezes the clock.** A paused attempt keeps its time, its answers, and

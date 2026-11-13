@@ -1,7 +1,9 @@
-"""Marking written answers (ADR 0010): the rubric request and its strict reply validation,
-the provider adapters' wire shape, and the evaluation service end to end through the API
-with the fake evaluator: routing by the admin's order and budgets, the ledger, quotas,
-claims (once per answer), awaiting versus flagged, re-runs, and what never leaks.
+"""Marking written answers (ADRs 0010 and 0011): the rubric request and its strict reply
+validation; the provider adapters' wire shape and failure meanings; key sealing; the
+billing readers; and the evaluation service end to end through the API with fake
+evaluators: keys and entries, routing down the admin's order (credit refusals, refused
+keys, caps), the ledger, quotas, claims (once per answer), awaiting versus flagged,
+re-runs, "check now", and what never leaks.
 
 No test makes a network call.
 
@@ -11,18 +13,23 @@ Run:  python3 test/test_evaluation.py
 from __future__ import annotations
 
 import asyncio
+import base64
 import dataclasses
+import hashlib
+import hmac
 import json
 import unittest
+from urllib.parse import parse_qs
 
 import helpers  # noqa: F401  (sys.path)
 
 from helpers import fresh_db, sample_import
 
-from quiz_app import rubric
+from quiz_app import billing, keycipher, rubric
 from quiz_app.auth import Identity
+from quiz_app.billing import BalanceReading, BillingError
 from quiz_app.clock import FakeClock
-from quiz_app.composition import build_api, quotas_from
+from quiz_app.composition import build_api, settings_from
 from quiz_app.d1.attempts import D1AttemptRepository
 from quiz_app.d1.authoring import D1QuizAuthoring
 from quiz_app.evaluators import (
@@ -30,11 +37,14 @@ from quiz_app.evaluators import (
     PROVIDERS,
     EvaluatorReply,
     FakeEvaluator,
+    Field,
     HttpResponse,
+    failure_outcome,
+    fake_provider,
     foundry_messages_url,
-    usable_evaluators,
 )
-from quiz_app.services.evaluation import STALE_MS, Quotas
+from quiz_app.keycipher import CannotOpen, KeyCipher
+from quiz_app.services.evaluation import RETRY_UNUSABLE_MS, STALE_MS, EvaluationSettings
 from quiz_app.validation import QuestionImport, QuizValidator
 
 ADMIN = Identity("admin@example.com")
@@ -60,8 +70,9 @@ GOOD_FIRST = "Every model has its own vector space, so old and new vectors are n
 
 #: Words that would tell a solver who or what marked them, or what it cost.
 ADMIN_ONLY_KEYS = {
-    "provider", "provider_label", "model", "models", "providers", "budget", "monthly_budget_usd",
-    "spent_usd", "remaining_usd", "cost", "cost_micros", "input_price_per_mtok",
+    "provider", "provider_label", "model", "models", "providers", "entries", "keys", "key_id",
+    "key_label", "key_storage", "hint", "budget", "monthly_cap_usd", "left_of_cap_usd",
+    "provider_budget", "spent_usd", "remaining_usd", "cost", "cost_micros", "input_price_per_mtok",
     "output_price_per_mtok", "price_presets", "reason", "level", "analysis",
 }
 
@@ -246,19 +257,185 @@ class ReplyTest(unittest.TestCase):
         self.assertEqual(rubric.award(1, 6), 1.5)
 
 
+
+
+# -- sealing keys ------------------------------------------------------------------
+
+class StandInCipher(KeyCipher):
+    """For the service tests: reversible and tamper-evident, not encryption (XOR with the
+    key, an HMAC tag over the additional data). The real ciphers are tested below and, for
+    Web Crypto, in workerd."""
+
+    def __init__(self, key: bytes = b"k" * 32):
+        self._key = key
+
+    def _xor(self, data: bytes) -> bytes:
+        return bytes(b ^ self._key[i % len(self._key)] for i, b in enumerate(data))
+
+    def _tag(self, aad: bytes, data: bytes) -> bytes:
+        return hmac.new(self._key, aad + data, hashlib.sha256).digest()[:keycipher.TAG_BYTES]
+
+    async def seal(self, plaintext: str, aad: bytes) -> str:
+        data = self._xor(plaintext.encode())
+        return keycipher.pack(b"\0" * keycipher.IV_BYTES, data + self._tag(aad, data))
+
+    async def unseal(self, value: str, aad: bytes) -> str:
+        _, sealed = keycipher.unpack(value)
+        data, tag = sealed[:-keycipher.TAG_BYTES], sealed[-keycipher.TAG_BYTES:]
+        if not hmac.compare_digest(tag, self._tag(aad, data)):
+            raise CannotOpen()
+        return self._xor(data).decode()
+
+
+def _has_cryptography() -> bool:
+    try:
+        import cryptography  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+class KeyCipherTest(unittest.IsolatedAsyncioTestCase):
+    def test_the_master_key_is_32_bytes_of_base64_or_nothing(self):
+        good = base64.b64encode(bytes(range(32))).decode()
+        self.assertEqual(keycipher.master_key(good), bytes(range(32)))
+        self.assertEqual(keycipher.master_key(f"  {good}\n"), bytes(range(32)))
+        for bad in (None, "", "   ", base64.b64encode(b"short").decode(), "not base64!!", good + "AAAA"):
+            with self.subTest(raw=bad):
+                self.assertIsNone(keycipher.master_key(bad))
+
+    def test_a_sealed_value_has_one_shape_and_anything_else_cannot_open(self):
+        value = keycipher.pack(b"\1" * 12, b"\2" * 20)
+        self.assertTrue(value.startswith("v1:"))
+        self.assertEqual(keycipher.unpack(value), (b"\1" * 12, b"\2" * 20))
+        for bad in ("", "v2:AAAA", "v1:not base64", "v1:" + base64.b64encode(b"x" * 27).decode(), None):
+            with self.subTest(value=bad), self.assertRaises(CannotOpen):
+                keycipher.unpack(bad)
+
+    @unittest.skipUnless(_has_cryptography(), "the cryptography package is a local-only dependency")
+    async def test_aes_gcm_round_trips_and_is_bound_to_its_master_key_and_its_place(self):
+        cipher = keycipher.CryptographyCipher(b"\7" * 32)
+        here = keycipher.additional_data("anthropic", keycipher.KEY_PART)
+        sealed = await cipher.seal("sk-ant-SENTINEL", here)
+        self.assertNotIn("SENTINEL", sealed)
+        self.assertNotEqual(sealed, await cipher.seal("sk-ant-SENTINEL", here))  # a fresh IV each time
+        self.assertEqual(await cipher.unseal(sealed, here), "sk-ant-SENTINEL")
+        elsewhere = [keycipher.additional_data("bedrock", keycipher.KEY_PART),
+                     keycipher.additional_data("anthropic", keycipher.BILLING_PART)]
+        for aad in elsewhere:
+            with self.assertRaises(CannotOpen):
+                await cipher.unseal(sealed, aad)
+        with self.assertRaises(CannotOpen):
+            await keycipher.CryptographyCipher(b"\x09" * 32).unseal(sealed, here)  # another master key
+        tampered = sealed[:-4] + ("AAAA" if not sealed.endswith("AAAA") else "BBBB")
+        with self.assertRaises(CannotOpen):
+            await cipher.unseal(tampered, here)
+
+
+# -- the billing readers -------------------------------------------------------------
+
+class RecordingSend:
+    """An ``HttpSend`` that records each request and answers from a list (or raises)."""
+
+    def __init__(self, *responses):
+        self.responses = list(responses)
+        self.calls: list[tuple[str, str, dict, str | None, float]] = []
+
+    async def __call__(self, method, url, headers, body, timeout_s):
+        self.calls.append((method, url, dict(headers), body, timeout_s))
+        response = self.responses.pop(0) if self.responses else RuntimeError("no network in tests")
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+
+AWS_VALUES = {"aws_access_key_id": "AKIAEXAMPLE0000000", "aws_secret_access_key": "aws-secret-SENTINEL",
+              "account_id": "123456789012", "budget_name": "quiz-ai"}
+AZURE_VALUES = {"tenant_id": "00000000-0000-0000-0000-000000000001", "client_id": "00000000-0000-0000-0000-000000000002",
+                "client_secret": "azure-billing-SENTINEL", "scope": "subscriptions/00000000-0000-0000-0000-000000000003",
+                "budget_name": "quiz-ai"}
+
+
+class BillingTest(unittest.IsolatedAsyncioTestCase):
+    def test_signature_v4_matches_the_aws_documentation_examples(self):
+        # "Examples of how to derive a signing key" and the IAM ListUsers example of the
+        # Signature Version 4 documentation (example credentials, not real ones).
+        secret = "wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY"
+        self.assertEqual(billing.sigv4_signing_key(secret, "20120215", "us-east-1", "iam").hex(),
+                         "f4780e2d9f65fa895f9c67b32ce1baf0b0d8a43505a000a1a9e090d414db404d")
+        self.assertEqual(billing.sigv4_signing_key(secret, "20150830", "us-east-1", "iam").hex(),
+                         "c4afb1cc5771d871763a393e44b703571b55cc28424d1a5e86da6ed3c154a4b9")
+        auth = billing.sigv4_authorization(
+            "GET", "/", "Action=ListUsers&Version=2010-05-08",
+            {"content-type": "application/x-www-form-urlencoded; charset=utf-8", "host": "iam.amazonaws.com",
+             "x-amz-date": "20150830T123600Z"},
+            b"", "AKIDEXAMPLE", secret, "20150830T123600Z", "us-east-1", "iam",
+        )
+        self.assertEqual(auth, "AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/20150830/us-east-1/iam/aws4_request, "
+                               "SignedHeaders=content-type;host;x-amz-date, "
+                               "Signature=5d672d79c15b13162d9279b0855cfba6789a8edb4c82c400e06b5924a6f2b5d7")
+
+    async def test_aws_budgets_is_asked_with_a_signed_request_and_read_back(self):
+        send = RecordingSend(HttpResponse(200, {}, json.dumps({"Budget": {
+            "BudgetName": "quiz-ai", "TimeUnit": "MONTHLY",
+            "BudgetLimit": {"Amount": "50.0", "Unit": "USD"},
+            "CalculatedSpend": {"ActualSpend": {"Amount": "12.5", "Unit": "USD"}},
+        }})))
+        got = await billing.read_aws_budget(AWS_VALUES, send, START)
+        self.assertEqual((got.limit_micros, got.spent_micros, got.remaining_micros, got.currency),
+                         (50_000_000, 12_500_000, 37_500_000, "USD"))
+        self.assertEqual(got.source, 'AWS Budgets "quiz-ai" (monthly)')
+        [(method, url, headers, body, _)] = send.calls
+        self.assertEqual((method, url), ("POST", "https://budgets.amazonaws.com/"))
+        self.assertEqual(json.loads(body), {"AccountId": "123456789012", "BudgetName": "quiz-ai"})
+        self.assertEqual(headers["x-amz-target"], "AWSBudgetServiceGateway.DescribeBudget")
+        self.assertNotIn("host", headers)  # the runtime sets it; it is still signed
+        self.assertTrue(headers["authorization"].startswith(
+            "AWS4-HMAC-SHA256 Credential=AKIAEXAMPLE0000000/20231114/us-east-1/budgets/aws4_request, "
+            "SignedHeaders=content-type;host;x-amz-date;x-amz-target, Signature="))
+        self.assertNotIn("SENTINEL", json.dumps([url, headers, body]))
+
+    async def test_azure_takes_a_token_then_reads_the_budget(self):
+        send = RecordingSend(
+            HttpResponse(200, {}, json.dumps({"access_token": "tok-123", "expires_in": 3599})),
+            HttpResponse(200, {}, json.dumps({"properties": {
+                "amount": 40, "timeGrain": "Monthly", "currentSpend": {"amount": 41.25, "unit": "USD"}}})),
+        )
+        got = await billing.read_azure_budget(AZURE_VALUES, send, START)
+        self.assertEqual((got.limit_micros, got.spent_micros, got.remaining_micros), (40_000_000, 41_250_000, -1_250_000))
+        (m1, token_url, h1, form, _), (m2, budget_url, h2, b2, _) = send.calls
+        self.assertEqual((m1, token_url), ("POST", "https://login.microsoftonline.com/"
+                                                   "00000000-0000-0000-0000-000000000001/oauth2/v2.0/token"))
+        self.assertEqual(parse_qs(form)["client_secret"], ["azure-billing-SENTINEL"])  # in the body, not the URL
+        self.assertEqual(parse_qs(form)["scope"], ["https://management.azure.com/.default"])
+        self.assertEqual((m2, b2, h2["authorization"]), ("GET", None, "Bearer tok-123"))
+        self.assertEqual(budget_url, "https://management.azure.com/subscriptions/00000000-0000-0000-0000-000000000003"
+                                     "/providers/Microsoft.Consumption/budgets/quiz-ai?api-version=2023-05-01")
+        self.assertNotIn("SENTINEL", token_url + budget_url)
+
+    async def test_refusals_become_short_reasons_without_secrets_or_bodies(self):
+        cases = [
+            (billing.read_aws_budget, AWS_VALUES,
+             [HttpResponse(403, {}, '{"__type": "com.amazon#AccessDeniedException", "Message": "arn:aws:iam::1:x"}')],
+             "AWS Budgets refused the request (403 AccessDeniedException)"),
+            (billing.read_aws_budget, AWS_VALUES, [TimeoutError()], "AWS Budgets did not answer"),
+            (billing.read_aws_budget, AWS_VALUES, [HttpResponse(200, {}, '{"Budget": {}}')],
+             "AWS Budgets returned a budget with no limit or spend"),
+            (billing.read_azure_budget, AZURE_VALUES,
+             [HttpResponse(401, {}, '{"error": "invalid_client", "error_description": "secret azure-billing"}')],
+             "Microsoft Entra refused the billing credential (401 invalid_client)"),
+            (billing.read_azure_budget, AZURE_VALUES,
+             [HttpResponse(200, {}, '{"access_token": "t"}'), HttpResponse(404, {}, '{"error": {"code": "NotFound"}}')],
+             "Azure refused the budget request (404 NotFound)"),
+        ]
+        for reader, values, responses, expected in cases:
+            with self.subTest(expected=expected):
+                with self.assertRaises(BillingError) as caught:
+                    await reader(values, RecordingSend(*responses), START)
+                self.assertEqual(str(caught.exception), expected)
+
+
 # -- the adapters' wire shape ---------------------------------------------------------
-
-class RecordingPost:
-    def __init__(self, response: HttpResponse | Exception):
-        self.response = response
-        self.calls: list[tuple[str, dict, dict, float]] = []
-
-    async def __call__(self, url, headers, body, timeout_s):
-        self.calls.append((url, headers, json.loads(body), timeout_s))
-        if isinstance(self.response, Exception):
-            raise self.response
-        return self.response
-
 
 def message(text: str, stop="end_turn") -> str:
     return json.dumps({
@@ -268,12 +445,10 @@ def message(text: str, stop="end_turn") -> str:
     })
 
 
-SECRETS = {
-    "ANTHROPIC_API_KEY": "sk-test-anthropic-SENTINEL",
-    "BEDROCK_API_KEY": "bedrock-test-SENTINEL",
-    "BEDROCK_REGION": "us-east-1",
-    "AZURE_FOUNDRY_API_KEY": "azure-test-SENTINEL",
-    "AZURE_FOUNDRY_ENDPOINT": "https://example-res.services.ai.azure.com/anthropic/",
+KEY_VALUES = {
+    "anthropic": {"api_key": "sk-test-anthropic-SENTINEL"},
+    "bedrock": {"api_key": "bedrock-test-SENTINEL", "region": "us-east-1"},
+    "azure": {"api_key": "azure-test-SENTINEL", "endpoint": "https://example-res.services.ai.azure.com/anthropic/"},
 }
 
 
@@ -282,27 +457,27 @@ class AdapterTest(unittest.IsolatedAsyncioTestCase):
         return rubric.build_request([item()], True, "n0nce123")
 
     async def send(self, provider, response, model="claude-haiku-5-5"):
-        post = RecordingPost(response)
-        evaluator = usable_evaluators(SECRETS.get, post)[provider]
-        return await evaluator.evaluate(self.request(), model), post
+        send = RecordingSend(response)
+        evaluator = PROVIDERS[provider].build(KEY_VALUES[provider], send)
+        return await evaluator.evaluate(self.request(), model), send
 
     async def test_each_provider_sends_the_same_messages_body_to_its_own_url_and_header(self):
         cases = {
-            "anthropic": ("https://api.anthropic.com/v1/messages", "x-api-key", SECRETS["ANTHROPIC_API_KEY"]),
-            "bedrock": ("https://bedrock-mantle.us-east-1.api.aws/anthropic/v1/messages", "x-api-key",
-                        SECRETS["BEDROCK_API_KEY"]),
-            "azure": ("https://example-res.services.ai.azure.com/anthropic/v1/messages", "api-key",
-                      SECRETS["AZURE_FOUNDRY_API_KEY"]),
+            "anthropic": ("https://api.anthropic.com/v1/messages", "x-api-key"),
+            "bedrock": ("https://bedrock-mantle.us-east-1.api.aws/anthropic/v1/messages", "x-api-key"),
+            "azure": ("https://example-res.services.ai.azure.com/anthropic/v1/messages", "api-key"),
         }
-        for provider, (url, header, key) in cases.items():
+        for provider, (url, header) in cases.items():
+            key = KEY_VALUES[provider]["api_key"]
             with self.subTest(provider=provider):
-                got, post = await self.send(provider, HttpResponse(200, {}, message(marks_json(("Q1", 2, "f")))))
-                [(sent_url, headers, body, timeout)] = post.calls
-                self.assertEqual((sent_url, headers[header]), (url, key))
+                got, send = await self.send(provider, HttpResponse(200, {}, message(marks_json(("Q1", 2, "f")))))
+                [(method, sent_url, headers, raw, timeout)] = send.calls
+                body = json.loads(raw)
+                self.assertEqual((method, sent_url, headers[header]), ("POST", url, key))
                 self.assertEqual(timeout, self.request().timeout_s)  # the request's own limit
                 self.assertEqual(headers["anthropic-version"], "2026-10-21")
                 self.assertNotIn(key, sent_url)
-                self.assertNotIn(key, json.dumps(body))
+                self.assertNotIn(key, raw)
                 self.assertEqual(set(body), {"model", "max_tokens", "system", "messages", "output_config"})
                 self.assertEqual(body["output_config"]["format"]["type"], "json_schema")
                 self.assertEqual(body["messages"][-1]["role"], "user")  # no assistant prefill
@@ -314,6 +489,8 @@ class AdapterTest(unittest.IsolatedAsyncioTestCase):
             (HttpResponse(200, {"request-id": "req_9"}, message("{}", "refusal")), "refusal", True, False),
             (HttpResponse(200, {}, message('{"marks": [', "max_tokens")), "truncated", True, False),
             (HttpResponse(529, {"request-id": "req_8"}, '{"error": {"message": "overloaded"}}'), "http_error", False, False),
+            (HttpResponse(402, {}, '{"type": "error", "error": {"type": "billing_error"}}'), "out_of_credit", False, False),
+            (HttpResponse(401, {}, '{"error": {"type": "authentication_error"}}'), "key_refused", False, False),
             (HttpResponse(200, {}, "<html>not json</html>"), "bad_envelope", False, True),
             (TimeoutError("took too long"), "network", False, True),
         ]
@@ -324,16 +501,30 @@ class AdapterTest(unittest.IsolatedAsyncioTestCase):
         got, _ = await self.send("anthropic", cases[2][0])
         self.assertEqual((got.http_status, got.request_id, got.text), (529, "req_8", None))
 
-    def test_a_provider_is_usable_only_with_every_secret_present_and_well_formed(self):
-        self.assertEqual(set(usable_evaluators(SECRETS.get, RecordingPost(None))), {"anthropic", "bedrock", "azure"})
-        self.assertEqual(usable_evaluators({}.get, RecordingPost(None)), {})
-        partial = {k: v for k, v in SECRETS.items() if k != "BEDROCK_REGION"}
-        self.assertNotIn("bedrock", usable_evaluators(partial.get, RecordingPost(None)))
-        blank = {**SECRETS, "ANTHROPIC_API_KEY": "   "}
-        self.assertNotIn("anthropic", usable_evaluators(blank.get, RecordingPost(None)))
-        bad = {**SECRETS, "BEDROCK_REGION": "us-east-1/../x", "AZURE_FOUNDRY_ENDPOINT": "http://plain.example"}
-        self.assertEqual(set(usable_evaluators(bad.get, RecordingPost(None))), {"anthropic"})
-        self.assertNotIn(FAKE, usable_evaluators(SECRETS.get, RecordingPost(None)))
+    def test_credit_and_key_refusals_are_told_apart_from_other_errors(self):
+        cases = [
+            (402, "{}", "out_of_credit"),
+            (400, '{"error": {"type": "billing_error", "message": "x"}}', "out_of_credit"),
+            (400, '{"error": {"type": "invalid_request_error", "message": "Your credit balance is too low to '
+                  'access the Anthropic API."}}', "out_of_credit"),
+            (400, '{"error": {"type": "invalid_request_error", "message": "max_tokens: bad"}}', "http_error"),
+            (401, "not json", "key_refused"),
+            (403, '{"error": {"type": "permission_error"}}', "key_refused"),
+            (429, '{"error": {"type": "rate_limit_error"}}', "http_error"),
+            (500, "", "http_error"),
+        ]
+        for status, text, expected in cases:
+            with self.subTest(status=status, text=text):
+                self.assertEqual(failure_outcome(status, text), expected)
+
+    async def test_a_probe_is_the_smallest_request(self):
+        send = RecordingSend(HttpResponse(200, {}, message("OK")))
+        reply_ = await PROVIDERS["anthropic"].build(KEY_VALUES["anthropic"], send).probe("claude-haiku-5-5")
+        [(_, url, headers, raw, timeout)] = send.calls
+        body = json.loads(raw)
+        self.assertEqual((reply_.outcome, body["max_tokens"], body["model"]), ("ok", 16, "claude-haiku-5-5"))
+        self.assertEqual(set(body), {"model", "max_tokens", "messages", "output_config"})
+        self.assertNotIn("sk-test-anthropic-SENTINEL", raw)
 
     def test_a_foundry_endpoint_may_be_the_base_or_the_full_target_uri(self):
         base = "https://r.services.ai.azure.com/anthropic"
@@ -341,40 +532,84 @@ class AdapterTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(foundry_messages_url(base + "/v1/messages"), base + "/v1/messages")
         self.assertIsNone(foundry_messages_url("ftp://r.example/anthropic"))
 
-    def test_every_provider_names_its_secrets(self):
-        self.assertEqual({p: s.secrets for p, s in PROVIDERS.items()}, {
-            "anthropic": ("ANTHROPIC_API_KEY",),
-            "bedrock": ("BEDROCK_API_KEY", "BEDROCK_REGION"),
-            "azure": ("AZURE_FOUNDRY_API_KEY", "AZURE_FOUNDRY_ENDPOINT"),
+    def test_every_provider_names_its_fields_and_which_are_secret(self):
+        shape = {p: [(f.name, f.secret) for f in s.key_fields] for p, s in PROVIDERS.items()}
+        self.assertEqual(shape, {
+            "anthropic": [("api_key", True)],
+            "bedrock": [("api_key", True), ("region", False)],
+            "azure": [("api_key", True), ("endpoint", False)],
         })
+        self.assertEqual({p: [f.name for f in s.billing_fields if f.secret] for p, s in PROVIDERS.items()}, {
+            "anthropic": [], "bedrock": ["aws_access_key_id", "aws_secret_access_key"], "azure": ["client_secret"],
+        })
+        self.assertIsNone(PROVIDERS["anthropic"].read_balance)
+        self.assertNotIn(FAKE, PROVIDERS)
 
-    def test_quotas_come_from_settings_with_safe_defaults(self):
-        self.assertEqual(quotas_from({}.get), Quotas(20, 300))
-        self.assertEqual(quotas_from({"EVAL_USER_DAILY_LIMIT": "5", "EVAL_GLOBAL_DAILY_LIMIT": "50"}.get),
-                         Quotas(5, 50))
-        self.assertEqual(quotas_from({"EVAL_USER_DAILY_LIMIT": "lots", "EVAL_GLOBAL_DAILY_LIMIT": "-1"}.get),
-                         Quotas(20, 300))
+    def test_settings_come_from_configuration_with_safe_defaults(self):
+        self.assertEqual(settings_from({}.get), EvaluationSettings(20, 300, 5.0, 15.0, 2.5))
+        got = settings_from({"EVAL_USER_DAILY_LIMIT": " 5 ", "EVAL_GLOBAL_DAILY_LIMIT": "50",
+                             "EVAL_DEFAULT_MONTHLY_CAP_USD": "2.5", "EVAL_TIMEOUT_BASE_SECONDS": "20",
+                             "EVAL_TIMEOUT_PER_ANSWER_SECONDS": "3"}.get)
+        self.assertEqual(got, EvaluationSettings(5, 50, 2.5, 20.0, 3.0))
+        self.assertEqual(got.timeout_for(4), 32.0)
+        bad = settings_from({"EVAL_USER_DAILY_LIMIT": "-1", "EVAL_GLOBAL_DAILY_LIMIT": "lots",
+                             "EVAL_DEFAULT_MONTHLY_CAP_USD": "1e9", "EVAL_TIMEOUT_BASE_SECONDS": "0"}.get)
+        self.assertEqual(bad, EvaluationSettings())
 
 
-# -- the service, end to end through the API -----------------------------------------
+# -- the service, end to end through the API ----------------------------------------
+
+SECOND_FAKE = "fake2"
+BILLED_FAKE = "fakebill"
+
+
+def fake_reader(readings: list):
+    async def read(values, send, now_ms):
+        got = readings.pop(0)
+        if isinstance(got, Exception):
+            raise got
+        assert values["read_secret"] == "billing-SENTINEL" and values["budget_name"] == "quiz-ai", values
+        return got
+    return read
+
 
 class EvalCase(unittest.IsolatedAsyncioTestCase):
-    quotas = Quotas()
+    settings = EvaluationSettings()
 
     async def asyncSetUp(self):
         self.db = fresh_db()
         self.clock = FakeClock(START)
         self.fake = FakeEvaluator()
         self.second = FakeEvaluator()
+        self.billed = FakeEvaluator()
+        self.readings: list = []
         self.logs: list[str] = []
-        self.api = self.build({FAKE: self.fake})
+        self.cipher = StandInCipher()
+        self.api = self.build()
         self.authoring = D1QuizAuthoring(self.db, self.clock)
         await self.call("GET", "/me", ident=ADMIN)
         self.sid = await self.publish(written_set(FIRST))
 
-    def build(self, evaluators):
-        return build_api(self.db, [ADMIN.email], self.clock, evaluators=evaluators, quotas=self.quotas,
-                         log=self.logs.append)
+    def providers(self, fake=None) -> dict:
+        billed = dataclasses.replace(
+            fake_provider(self.billed), id=BILLED_FAKE, label="Billed fake", billing_label="Fake budget",
+            billing_fields=(Field("read_secret", "Read secret", True, "", lambda v: v.strip() or None),
+                            Field("budget_name", "Budget name", False, "", lambda v: v.strip() or None)),
+            read_balance=fake_reader(self.readings),
+        )
+        return {
+            **PROVIDERS,
+            FAKE: fake_provider(fake or self.fake),
+            SECOND_FAKE: dataclasses.replace(fake_provider(self.second), id=SECOND_FAKE, label="Second fake"),
+            BILLED_FAKE: billed,
+        }
+
+    def build(self, fake=None, cipher="same", send=None):
+        return build_api(
+            self.db, [ADMIN.email], self.clock, cipher=self.cipher if cipher == "same" else cipher,
+            providers=self.providers(fake), send=send or RecordingSend(), settings=self.settings,
+            log=self.logs.append,
+        )
 
     async def call(self, method, path, body=None, ident=ALICE):
         return await self.api.handle(method, P + path, body, ident)
@@ -389,9 +624,25 @@ class EvalCase(unittest.IsolatedAsyncioTestCase):
         await self.ok("POST", f"/admin/sets/{sid}/publish", None, ADMIN)
         return sid
 
-    async def add_entry(self, provider=FAKE, model="fake-overlap", budget=5.0, inp=0.10, out=0.50):
+    async def page(self):
+        return await self.ok("GET", "/admin/evaluators", ident=ADMIN)
+
+    async def add_key(self, provider=FAKE, label=None, fields=None, billing_=None) -> int:
+        label = label or f"{provider} key"
+        body = {"provider": provider, "label": label, "fields": fields if fields is not None else
+                KEY_VALUES.get(provider, {})}
+        if billing_ is not None:
+            body["billing"] = billing_
+        page = await self.ok("POST", "/admin/evaluators/keys", body, ADMIN, 201)
+        return next(k["id"] for k in page["keys"] if k["label"] == label)
+
+    async def key_id(self, provider) -> int:
+        found = [k["id"] for k in (await self.page())["keys"] if k["provider"] == provider]
+        return found[0] if found else await self.add_key(provider)
+
+    async def add_entry(self, provider=FAKE, model="fake-overlap", cap=5.0, inp=0.10, out=0.50, key_id=None):
         return await self.ok("POST", "/admin/evaluators", {
-            "provider": provider, "model": model, "monthly_budget_usd": budget,
+            "key_id": key_id or await self.key_id(provider), "model": model, "monthly_cap_usd": cap,
             "input_price_per_mtok": inp, "output_price_per_mtok": out,
         }, ADMIN, 201)
 
@@ -419,7 +670,7 @@ class EvalCase(unittest.IsolatedAsyncioTestCase):
 
     async def ledger(self):
         return (await self.db.prepare(
-            "SELECT provider, model, trigger, reserved_micros, cost_micros, outcome, user_email "
+            "SELECT entry_id, key_id, provider, model, trigger, reserved_micros, cost_micros, outcome, user_email "
             "FROM evaluation_calls ORDER BY id"
         ).all()).results
 
@@ -450,7 +701,7 @@ class MarkingTest(EvalCase):
         def respond(request, model):
             return reply(marks_json(*[(i.key, 1, said) for i in request.items]))
 
-        self.api = self.build({FAKE: FakeEvaluator(respond)})
+        self.api = self.build(fake=FakeEvaluator(respond))
         await self.add_entry()
         hidden = await self.publish(written_set(FIRST, reveal_answers=False))
         shown = await self.publish(written_set(FIRST, difficulty="hard"))
@@ -572,10 +823,26 @@ class AwaitingTest(EvalCase):
         self.assertEqual((await self.reason(aid))["reason"], "no evaluator configured")
         self.assertEqual(await self.ledger(), [])
 
-    async def test_an_entry_whose_provider_has_no_secret_is_skipped(self):
-        await self.add_entry(provider="anthropic", model="claude-haiku-5-5")
+    async def test_a_key_sealed_under_another_master_key_is_skipped(self):
+        await self.add_entry()
+        self.api = self.build(cipher=StandInCipher(b"x" * 32))  # the owner replaced KEY_ENCRYPTION_KEY
         aid = await self.take({FIRST.prompt: GOOD_FIRST})
-        self.assertEqual((await self.reason(aid))["reason"], "no evaluator configured")
+        self.assertEqual((await self.reason(aid))["reason"],
+                         "key cannot be decrypted with the current KEY_ENCRYPTION_KEY")
+        [key] = (await self.page())["keys"]
+        self.assertEqual(key["state"], "unreadable")
+        self.assertEqual(self.fake.calls, [])
+
+    async def test_without_key_storage_answers_wait_and_keys_cannot_be_added(self):
+        await self.add_entry()
+        self.api = self.build(cipher=None)
+        aid = await self.take({FIRST.prompt: GOOD_FIRST})
+        self.assertEqual((await self.reason(aid))["reason"], "key storage not set up (KEY_ENCRYPTION_KEY)")
+        status, body = await self.call("POST", "/admin/evaluators/keys",
+                                       {"provider": FAKE, "label": "another", "fields": {}}, ADMIN)
+        self.assertEqual(status, 409)
+        self.assertIn("KEY_ENCRYPTION_KEY", body["error"])
+        self.assertEqual((await self.page())["key_storage"], {"ready": False, "secret": "KEY_ENCRYPTION_KEY"})
 
     async def test_a_provider_failure_leaves_the_answer_awaiting_and_costs_nothing(self):
         await self.add_entry()
@@ -594,51 +861,111 @@ class AwaitingTest(EvalCase):
         self.assertEqual(call["cost_micros"], call["reserved_micros"])
         self.assertGreater(call["reserved_micros"], 0)
 
+    async def test_the_call_waits_as_long_as_the_settings_allow_for_its_answers(self):
+        self.settings = EvaluationSettings(timeout_base_s=7.0, timeout_per_answer_s=1.5)
+        self.api = self.build()
+        await self.add_entry()
+        await self.take({FIRST.prompt: GOOD_FIRST})
+        [(request, _)] = self.fake.calls
+        self.assertEqual(request.timeout_s, 8.5)
+
+
+OUT_OF_CREDIT = EvaluatorReply("out_of_credit", http_status=402)
+KEY_REFUSED = EvaluatorReply("key_refused", http_status=401)
+
 
 class RoutingTest(EvalCase):
-    async def asyncSetUp(self):
-        await super().asyncSetUp()
-        self.api = self.build({FAKE: self.fake, "anthropic": self.second})
-
-    async def test_the_first_usable_entry_with_budget_marks_it_and_is_recorded(self):
-        await self.add_entry(provider="anthropic", model="claude-haiku-5-5")
+    async def test_the_first_entry_marks_it_and_is_recorded(self):
+        await self.add_entry(SECOND_FAKE, "second-model")
         await self.add_entry()
         aid = await self.take({FIRST.prompt: GOOD_FIRST})
         self.assertEqual((len(self.second.calls), len(self.fake.calls)), (1, 0))
         row = await self.reason(aid)
-        self.assertEqual((row["provider"], row["model"]), ("anthropic", "claude-haiku-5-5"))
-
-    async def test_when_one_runs_out_of_budget_the_next_takes_over(self):
-        await self.add_entry(provider="anthropic", model="claude-haiku-5-5", budget=0)
-        await self.add_entry()
-        await self.take({FIRST.prompt: GOOD_FIRST})
-        self.assertEqual((len(self.second.calls), len(self.fake.calls)), (0, 1))
-
-    async def test_when_none_has_budget_the_answer_awaits(self):
-        await self.add_entry(budget=0.000001)
-        aid = await self.take({FIRST.prompt: GOOD_FIRST})
-        self.assertEqual((await self.written(aid))["evaluation"], "awaiting")
-        self.assertEqual((await self.reason(aid))["reason"], "no budget left")
-
-    async def test_spend_is_the_real_token_cost_and_remaining_is_budget_minus_this_month(self):
-        await self.add_entry(budget=1.0, inp=0.10, out=0.50)
-        self.fake._respond = lambda req, model: reply(marks_json(("Q1", 2, "f")))  # 1,000 in, 200 out
-        await self.take({FIRST.prompt: GOOD_FIRST})
-        [call] = await self.ledger()
-        self.assertEqual(call["cost_micros"], 1_000 * 0.10 + 200 * 0.50)  # 200 micro-dollars
-        [model] = (await self.ok("GET", "/admin/evaluators", ident=ADMIN))["models"]
-        self.assertEqual((model["spent_usd"], model["remaining_usd"]), (0.0002, 0.9998))
+        self.assertEqual((row["provider"], row["model"]), (SECOND_FAKE, "second-model"))
 
     async def test_the_admin_order_decides(self):
-        first = (await self.add_entry(provider="anthropic", model="claude-haiku-5-5"))["models"][0]["id"]
-        second = (await self.add_entry())["models"][1]["id"]
+        first = (await self.add_entry(SECOND_FAKE, "second-model"))["entries"][0]["id"]
+        second = (await self.add_entry())["entries"][1]["id"]
         await self.ok("POST", "/admin/evaluators/order", {"ids": [second, first]}, ADMIN)
         await self.take({FIRST.prompt: GOOD_FIRST})
         self.assertEqual((len(self.second.calls), len(self.fake.calls)), (0, 1))
 
+    async def test_a_credit_refusal_marks_the_key_and_the_next_entry_marks_the_answer(self):
+        await self.add_entry(SECOND_FAKE, "second-model")
+        await self.add_entry()
+        self.second._respond = lambda req, model: OUT_OF_CREDIT
+        aid = await self.take({FIRST.prompt: GOOD_FIRST})
+        self.assertEqual((await self.written(aid))["evaluation"], "marked")
+        self.assertEqual((await self.reason(aid))["provider"], FAKE)
+        refused, marked = await self.ledger()
+        self.assertEqual((refused["outcome"], refused["cost_micros"]), ("out_of_credit", 0))
+        self.assertEqual(marked["outcome"], "ok")
+        key = next(k for k in (await self.page())["keys"] if k["provider"] == SECOND_FAKE)
+        self.assertEqual((key["state"], key["problem"], key["unusable_since"], key["retry_at"]),
+                         ("out_of_credit", "out of credit at provider", START, START + RETRY_UNUSABLE_MS))
+
+    async def test_a_marked_key_is_skipped_until_its_retry_is_due_then_cleared_when_it_works(self):
+        await self.add_entry(SECOND_FAKE, "second-model")
+        await self.add_entry()
+        self.second._respond = lambda req, model: OUT_OF_CREDIT
+        await self.take({FIRST.prompt: GOOD_FIRST})
+        await self.take({FIRST.prompt: GOOD_FIRST}, ident=BOB)
+        self.assertEqual(len(self.second.calls), 1)  # skipped while marked
+        self.second._respond = None                    # the owner topped up
+        self.clock.advance(RETRY_UNUSABLE_MS)
+        aid = await self.take({FIRST.prompt: GOOD_FIRST}, ident=ADMIN)
+        self.assertEqual((await self.reason(aid))["provider"], SECOND_FAKE)
+        key = next(k for k in (await self.page())["keys"] if k["provider"] == SECOND_FAKE)
+        self.assertEqual((key["state"], key["unusable_since"]), ("ready", None))
+
+    async def test_a_refused_key_falls_down_the_list_too_and_alone_leaves_the_answer_waiting(self):
+        await self.add_entry(SECOND_FAKE, "second-model")
+        self.second._respond = lambda req, model: KEY_REFUSED
+        aid = await self.take({FIRST.prompt: GOOD_FIRST})
+        self.assertEqual((await self.written(aid))["evaluation"], "awaiting")
+        self.assertEqual((await self.reason(aid))["reason"], "key refused by provider")
+
+    async def test_refused_calls_do_not_use_up_the_daily_quotas(self):
+        self.settings = EvaluationSettings(user_daily=1, global_daily=1)
+        self.api = self.build()
+        await self.add_entry(SECOND_FAKE, "second-model")
+        await self.add_entry()
+        self.second._respond = lambda req, model: OUT_OF_CREDIT
+        aid = await self.take({FIRST.prompt: GOOD_FIRST})
+        self.assertEqual((await self.written(aid))["evaluation"], "marked")
+        self.assertEqual((await self.page())["quotas"]["calls_today"], 1)
+
+    async def test_at_its_cap_an_entry_is_passed_over_and_no_cap_means_none(self):
+        await self.add_entry(SECOND_FAKE, "second-model", cap=0)
+        await self.add_entry(cap=None)
+        aid = await self.take({FIRST.prompt: GOOD_FIRST})
+        self.assertEqual((len(self.second.calls), len(self.fake.calls)), (0, 1))
+        self.assertEqual((await self.reason(aid))["provider"], FAKE)
+        capped, free = (await self.page())["entries"]
+        self.assertEqual((capped["monthly_cap_usd"], capped["left_of_cap_usd"], capped["usable"], capped["problem"]),
+                         (0.0, 0.0, False, "monthly cap reached"))
+        self.assertEqual((free["monthly_cap_usd"], free["left_of_cap_usd"], free["usable"]), (None, None, True))
+
+    async def test_when_every_entry_is_at_its_cap_the_answer_awaits(self):
+        await self.add_entry(cap=0.000001)
+        aid = await self.take({FIRST.prompt: GOOD_FIRST})
+        self.assertEqual((await self.written(aid))["evaluation"], "awaiting")
+        self.assertEqual((await self.reason(aid))["reason"], "monthly cap reached")
+
+    async def test_spend_is_the_real_token_cost_and_left_of_cap_is_cap_minus_this_month(self):
+        await self.add_entry(cap=1.0, inp=0.10, out=0.50)
+        self.fake._respond = lambda req, model: reply(marks_json(("Q1", 2, "f")))  # 1,000 in, 200 out
+        await self.take({FIRST.prompt: GOOD_FIRST})
+        [call] = await self.ledger()
+        self.assertEqual(call["cost_micros"], 1_000 * 0.10 + 200 * 0.50)  # 200 micro-dollars
+        page = await self.page()
+        [entry] = page["entries"]
+        self.assertEqual((entry["spent_usd"], entry["left_of_cap_usd"]), (0.0002, 0.9998))
+        self.assertEqual(page["keys"][0]["spent_usd"], 0.0002)
+
 
 class QuotaTest(EvalCase):
-    quotas = Quotas(user_daily=1, global_daily=2)
+    settings = EvaluationSettings(user_daily=1, global_daily=2)
 
     async def test_the_per_person_daily_limit_leaves_later_answers_awaiting(self):
         await self.add_entry()
@@ -706,78 +1033,238 @@ class LegacyAttemptTest(EvalCase):
         self.assertEqual(self.fake.calls, [])
 
 
+# -- keys on the admin page ----------------------------------------------------------
+
+SECRET_VALUES = [v["api_key"] for v in KEY_VALUES.values()] + [
+    AWS_VALUES["aws_secret_access_key"], AWS_VALUES["aws_access_key_id"], AZURE_VALUES["client_secret"],
+    "billing-SENTINEL"]
+
+
+class KeyAdminTest(EvalCase):
+    async def test_a_key_is_shown_by_label_provider_hint_and_settings_never_by_value(self):
+        await self.add_key("anthropic", "Personal")
+        await self.add_key("bedrock", "Work AWS", billing_=AWS_VALUES)
+        await self.add_key("azure", "Foundry", billing_=AZURE_VALUES)
+        page = await self.page()
+        text = json.dumps(page)
+        for value in SECRET_VALUES[:-1]:
+            self.assertNotIn(value, text)
+        self.assertNotIn("v1:", text)  # nor any sealed value
+        keys = {k["label"]: k for k in page["keys"]}
+        self.assertEqual((keys["Personal"]["hint"], keys["Personal"]["settings"], keys["Personal"]["billing"]),
+                         ("…INEL", {}, None))
+        self.assertEqual(keys["Work AWS"]["settings"], {"region": "us-east-1"})
+        self.assertEqual(keys["Work AWS"]["billing"], {"settings": {"account_id": "123456789012",
+                                                                    "budget_name": "quiz-ai"}})
+        self.assertEqual(keys["Foundry"]["settings"],
+                         {"endpoint": "https://example-res.services.ai.azure.com/anthropic"})
+        self.assertEqual({k["state"] for k in page["keys"]}, {"ready"})
+        self.assertEqual((keys["Work AWS"]["reads_balance"], keys["Personal"]["reads_balance"]), (True, False))
+
+    async def test_what_is_stored_is_sealed(self):
+        await self.add_key("bedrock", "Work AWS", billing_=AWS_VALUES)
+        row = await self.db.prepare("SELECT * FROM evaluator_keys").first()
+        stored = json.dumps(dict(row))
+        for value in SECRET_VALUES:
+            self.assertNotIn(value, stored)
+        self.assertTrue(row["sealed_key"].startswith("v1:") and row["sealed_billing"].startswith("v1:"))
+
+    async def test_each_field_is_checked_and_no_value_is_echoed(self):
+        cases = [
+            ({"provider": "openai", "label": "x", "fields": {}}, 422, "provider must be one of"),
+            ({"provider": "anthropic", "label": "", "fields": {"api_key": "sk-ant-api03-long-enough"}}, 422,
+             "label must be 1 to 60 characters"),
+            ({"provider": "anthropic", "label": "x", "fields": {"api_key": "has space in-it"}}, 422,
+             "key api key is missing or not valid"),
+            ({"provider": "bedrock", "label": "x", "fields": {"api_key": "long-enough-key", "region": "us-east-1/../x"}},
+             422, "key region is missing or not valid"),
+            ({"provider": "azure", "label": "x", "fields": {"api_key": "long-enough-key", "endpoint": "http://plain"}},
+             422, "key endpoint is missing or not valid"),
+            ({"provider": "anthropic", "label": "x", "fields": {"api_key": "long-enough-key"},
+              "billing": {"anything": "at all"}}, 422, "Anthropic API keys take no billing credential"),
+            ({"provider": "bedrock", "label": "x", "fields": KEY_VALUES["bedrock"],
+              "billing": {**AWS_VALUES, "account_id": "12"}}, 422, "billing aws account id is missing or not valid"),
+        ]
+        for body, status, fragment in cases:
+            with self.subTest(fragment=fragment):
+                got, payload = await self.call("POST", "/admin/evaluators/keys", body, ADMIN)
+                self.assertEqual(got, status, payload)
+                self.assertIn(fragment, payload["error"])
+                for value in ("has space in-it", "long-enough-key", "us-east-1/../x"):
+                    self.assertNotIn(value, payload["error"])
+        await self.add_key("anthropic", "Personal")
+        self.assertEqual((await self.call("POST", "/admin/evaluators/keys", {
+            "provider": "anthropic", "label": "Personal", "fields": KEY_VALUES["anthropic"]}, ADMIN))[0], 409)
+
+    async def test_replacing_a_key_renames_rekeys_and_clears_its_mark(self):
+        key_id = await self.add_key(SECOND_FAKE, "Old name")
+        await self.add_entry(SECOND_FAKE, "second-model", key_id=key_id)
+        self.second._respond = lambda req, model: OUT_OF_CREDIT
+        await self.take({FIRST.prompt: GOOD_FIRST})
+        renamed = await self.ok("PUT", f"/admin/evaluators/keys/{key_id}", {"label": "New name"}, ADMIN)
+        [key] = renamed["keys"]
+        self.assertEqual((key["label"], key["state"]), ("New name", "out_of_credit"))  # a rename keeps the mark
+        rekeyed = await self.ok("PUT", f"/admin/evaluators/keys/{key_id}", {"fields": {}}, ADMIN)
+        self.assertEqual(rekeyed["keys"][0]["state"], "ready")
+        self.assertEqual(rekeyed["entries"][0]["key_label"], "New name")
+        self.assertEqual((await self.call("PUT", f"/admin/evaluators/keys/{key_id}", {}, ADMIN))[0], 422)
+
+    async def test_a_billing_credential_can_be_replaced_or_removed(self):
+        key_id = await self.add_key("bedrock", "Work AWS")
+        self.assertIsNone((await self.page())["keys"][0]["billing"])
+        added = await self.ok("PUT", f"/admin/evaluators/keys/{key_id}", {"billing": AWS_VALUES}, ADMIN)
+        self.assertEqual(added["keys"][0]["billing"]["settings"]["budget_name"], "quiz-ai")
+        removed = await self.ok("PUT", f"/admin/evaluators/keys/{key_id}", {"billing": None}, ADMIN)
+        self.assertIsNone(removed["keys"][0]["billing"])
+        self.assertFalse(removed["keys"][0]["reads_balance"])
+
+    async def test_removing_a_key_removes_its_entries_but_keeps_the_ledger(self):
+        await self.add_entry()
+        await self.take({FIRST.prompt: GOOD_FIRST})
+        [key] = (await self.page())["keys"]
+        page = await self.ok("DELETE", f"/admin/evaluators/keys/{key['id']}", None, ADMIN)
+        self.assertEqual((page["keys"], page["entries"]), ([], []))
+        self.assertEqual(len(await self.ledger()), 1)
+        self.assertEqual((await self.call("DELETE", f"/admin/evaluators/keys/{key['id']}", None, ADMIN))[0], 404)
+
+    async def test_entries_take_a_key_a_model_prices_and_an_optional_cap(self):
+        page = await self.add_entry(cap=2.5)
+        [entry] = page["entries"]
+        self.assertEqual((entry["provider_label"], entry["key_label"], entry["model"], entry["monthly_cap_usd"]),
+                         ("Fake (local)", "fake key", "fake-overlap", 2.5))
+        self.assertEqual((await self.call("POST", "/admin/evaluators", {
+            "key_id": entry["key_id"], "model": "fake-overlap", "monthly_cap_usd": None,
+            "input_price_per_mtok": 0, "output_price_per_mtok": 0}, ADMIN))[0], 409)
+        status, body = await self.call("POST", "/admin/evaluators", {
+            "key_id": "1", "model": "bad model!", "monthly_cap_usd": -1,
+            "input_price_per_mtok": "x", "output_price_per_mtok": 1e9}, ADMIN)
+        self.assertEqual(status, 422)
+        for fragment in ("key_id must be", "model must be a model id", "monthly_cap_usd",
+                         "input_price_per_mtok", "output_price_per_mtok"):
+            self.assertIn(fragment, body["error"])
+        self.assertEqual((await self.call("POST", "/admin/evaluators", {
+            "key_id": 999, "model": "m", "monthly_cap_usd": None,
+            "input_price_per_mtok": 0, "output_price_per_mtok": 0}, ADMIN))[0], 404)
+        updated = await self.ok("PUT", f"/admin/evaluators/{entry['id']}", {
+            "monthly_cap_usd": None, "input_price_per_mtok": 1, "output_price_per_mtok": 2}, ADMIN)
+        self.assertEqual([(e["monthly_cap_usd"], e["input_price_per_mtok"], e["output_price_per_mtok"])
+                          for e in updated["entries"]], [(None, 1.0, 2.0)])
+        self.assertEqual((await self.call("POST", "/admin/evaluators/order", {"ids": [999]}, ADMIN))[0], 422)
+        removed = await self.ok("DELETE", f"/admin/evaluators/{entry['id']}", None, ADMIN)
+        self.assertEqual(removed["entries"], [])
+
+    async def test_the_page_describes_each_provider_and_the_open_defaults(self):
+        page = await self.page()
+        providers = {p["id"]: p for p in page["providers"]}
+        self.assertEqual([f["name"] for f in providers["bedrock"]["key_fields"]], ["api_key", "region"])
+        self.assertEqual(providers["bedrock"]["billing"]["label"], "AWS Budgets, read-only")
+        self.assertIsNone(providers["anthropic"]["billing"])
+        self.assertIn("no API for an account's prepaid balance", providers["anthropic"]["balance_note"])
+        self.assertEqual(page["defaults"], {"monthly_cap_usd": 5.0})
+        self.assertEqual(page["key_storage"], {"ready": True, "secret": "KEY_ENCRYPTION_KEY"})
+        haiku = {(p["provider"], p["model"]): p for p in page["price_presets"]}[("anthropic", "claude-haiku-5-5")]
+        self.assertEqual((haiku["input_price_per_mtok"], haiku["output_price_per_mtok"]), (0.10, 0.50))
+        self.assertIn("read 2026-11-13", haiku["source"])
+
+
+class CheckNowTest(EvalCase):
+    async def test_a_working_key_is_confirmed_and_clears_its_mark(self):
+        await self.add_entry(SECOND_FAKE, "second-model")
+        self.second._respond = lambda req, model: OUT_OF_CREDIT
+        await self.take({FIRST.prompt: GOOD_FIRST})
+        [key] = (await self.page())["keys"]
+        page = await self.ok("POST", f"/admin/evaluators/keys/{key['id']}/check", None, ADMIN)
+        self.assertEqual(page["check"], {"key_id": key["id"], "result": "working", "provider_budget_error": None})
+        self.assertEqual(self.second.probes, ["second-model"])  # the key's own entry's model
+        [key] = page["keys"]
+        self.assertEqual((key["state"], key["check_result"], key["checked_at"]), ("ready", "working", START))
+        probe = (await self.ledger())[-1]
+        self.assertEqual((probe["trigger"], probe["user_email"]), ("check", ADMIN.email))
+
+    async def test_a_credit_refusal_on_a_check_marks_the_key(self):
+        key_id = await self.add_key(SECOND_FAKE)
+        self.second._probe_reply = lambda model: OUT_OF_CREDIT
+        page = await self.ok("POST", f"/admin/evaluators/keys/{key_id}/check", None, ADMIN)
+        self.assertEqual(page["check"]["result"], "out of credit at provider")
+        self.assertEqual(page["keys"][0]["state"], "out_of_credit")
+        self.assertEqual(self.second.probes, ["fake-overlap"])  # no entry yet: the provider's probe model
+
+    async def test_a_check_needs_a_model_where_the_provider_has_no_default(self):
+        key_id = await self.add_key("azure")
+        page = await self.ok("POST", f"/admin/evaluators/keys/{key_id}/check", None, ADMIN)
+        self.assertIn("add an entry for this key first", page["check"]["result"])
+        self.assertEqual(await self.ledger(), [])
+
+    async def test_probes_do_not_count_toward_the_daily_quotas(self):
+        self.settings = EvaluationSettings(user_daily=1, global_daily=1)
+        self.api = self.build()
+        await self.add_entry()
+        [key] = (await self.page())["keys"]
+        for _ in range(3):
+            await self.ok("POST", f"/admin/evaluators/keys/{key['id']}/check", None, ADMIN)
+        aid = await self.take({FIRST.prompt: GOOD_FIRST})
+        self.assertEqual((await self.written(aid))["evaluation"], "marked")
+
+    async def test_the_provider_budget_is_read_and_shown_on_the_key_and_its_entries(self):
+        billing_ = {"read_secret": "billing-SENTINEL", "budget_name": "quiz-ai"}
+        key_id = await self.add_key(BILLED_FAKE, "Cloud", fields={}, billing_=billing_)
+        await self.add_entry(BILLED_FAKE, "cloud-model", key_id=key_id)
+        self.readings.append(BalanceReading(50_000_000, 12_500_000, "USD", 'Fake budget "quiz-ai"'))
+        page = await self.ok("POST", f"/admin/evaluators/keys/{key_id}/check", None, ADMIN)
+        budget = {"limit": 50.0, "spent": 12.5, "remaining": 37.5, "currency": "USD",
+                  "source": 'Fake budget "quiz-ai"', "as_of": START}
+        self.assertEqual(page["keys"][0]["provider_budget"], budget)
+        self.assertEqual(page["entries"][0]["provider_budget"], budget)
+        self.assertNotIn("billing-SENTINEL", json.dumps(page))
+        self.clock.advance(1000)
+        self.readings.append(BillingError("Fake budget refused the request (403)"))
+        page = await self.ok("POST", f"/admin/evaluators/keys/{key_id}/check", None, ADMIN)
+        self.assertEqual(page["check"]["provider_budget_error"], "Fake budget refused the request (403)")
+        self.assertEqual(page["keys"][0]["provider_budget"], budget)  # the last good reading, still dated
+        self.assertEqual(page["keys"][0]["provider_budget_error"], "Fake budget refused the request (403)")
+
+    async def test_a_key_without_a_billing_credential_reads_no_budget(self):
+        key_id = await self.add_key(BILLED_FAKE, "Cloud", fields={})
+        page = await self.ok("POST", f"/admin/evaluators/keys/{key_id}/check", None, ADMIN)
+        self.assertEqual((page["keys"][0]["provider_budget"], page["check"]["provider_budget_error"]), (None, None))
+
+
 # -- admin only, and nothing leaks ------------------------------------------------
 
 ADMIN_ROUTES = [
     ("GET", "/admin/evaluators", None),
-    ("POST", "/admin/evaluators", {"provider": FAKE, "model": "m", "monthly_budget_usd": 1,
+    ("POST", "/admin/evaluators", {"key_id": 1, "model": "m", "monthly_cap_usd": 1,
                                    "input_price_per_mtok": 0, "output_price_per_mtok": 0}),
     ("POST", "/admin/evaluators/order", {"ids": []}),
-    ("PUT", "/admin/evaluators/1", {"monthly_budget_usd": 1, "input_price_per_mtok": 0, "output_price_per_mtok": 0}),
+    ("PUT", "/admin/evaluators/1", {"monthly_cap_usd": 1, "input_price_per_mtok": 0, "output_price_per_mtok": 0}),
     ("DELETE", "/admin/evaluators/1", None),
+    ("POST", "/admin/evaluators/keys", {"provider": FAKE, "label": "mine", "fields": {}}),
+    ("PUT", "/admin/evaluators/keys/1", {"label": "renamed"}),
+    ("DELETE", "/admin/evaluators/keys/1", None),
+    ("POST", "/admin/evaluators/keys/1/check", None),
     ("POST", "/admin/evaluations/rerun", None),
 ]
 
 
 class AdminOnlyTest(EvalCase):
-    async def test_a_solver_gets_403_on_every_evaluator_route(self):
+    async def test_a_solver_gets_403_on_every_evaluator_route_and_changes_nothing(self):
         await self.add_entry()
+        before = await self.page()
         for method, path, body in ADMIN_ROUTES:
             with self.subTest(route=f"{method} {path}"):
                 self.assertEqual(await self.call(method, path, body, ALICE), (403, {"error": "admin only"}))
-        self.assertEqual(len((await self.ok("GET", "/admin/evaluators", ident=ADMIN))["models"]), 1)
+        self.assertEqual(await self.page(), before)
+        self.assertEqual(self.fake.probes, [])
 
     async def test_every_evaluator_route_is_covered(self):
         registered = {(m, p.pattern) for m, p, _ in self.api._routes if "evaluat" in p.pattern}
         probed = {(m, p.pattern) for m, p, _ in self.api._routes
-                  for method, path, _ in ADMIN_ROUTES if m == method and p.match(path[len(""):])}
+                  for method, path, _ in ADMIN_ROUTES if m == method and p.match(path)}
         self.assertEqual(registered - probed, set())
-
-    async def test_the_admin_list_names_secrets_but_never_holds_a_value(self):
-        api = self.build(usable_evaluators(SECRETS.get, RecordingPost(None)))
-        status, overview = await api.handle("GET", P + "/admin/evaluators", None, ADMIN)
-        self.assertEqual(status, 200)
-        text = json.dumps(overview)
-        for value in SECRETS.values():
-            self.assertNotIn(value, text)
-        self.assertEqual({p["id"]: p["usable"] for p in overview["providers"]},
-                         {"anthropic": True, "bedrock": True, "azure": True})
-        self.assertNotIn(FAKE, {p["id"] for p in overview["providers"]})
-
-    async def test_add_update_remove_and_validation(self):
-        added = await self.add_entry(provider=FAKE, model="fake-overlap", budget=2.5)
-        [entry] = added["models"]
-        self.assertEqual((entry["provider_label"], entry["model"], entry["monthly_budget_usd"]),
-                         ("Fake (local)", "fake-overlap", 2.5))
-        self.assertEqual((await self.call("POST", "/admin/evaluators", {
-            "provider": FAKE, "model": "fake-overlap", "monthly_budget_usd": 1,
-            "input_price_per_mtok": 0, "output_price_per_mtok": 0}, ADMIN))[0], 409)
-        status, body = await self.call("POST", "/admin/evaluators", {
-            "provider": "openai", "model": "bad model!", "monthly_budget_usd": -1,
-            "input_price_per_mtok": "x", "output_price_per_mtok": 1e9}, ADMIN)
-        self.assertEqual(status, 422)
-        for fragment in ("provider must be one of", "model must be a model id", "monthly_budget_usd",
-                         "input_price_per_mtok", "output_price_per_mtok"):
-            self.assertIn(fragment, body["error"])
-        updated = await self.ok("PUT", f"/admin/evaluators/{entry['id']}", {
-            "monthly_budget_usd": 7, "input_price_per_mtok": 1, "output_price_per_mtok": 2}, ADMIN)
-        self.assertEqual([(m["monthly_budget_usd"], m["input_price_per_mtok"], m["output_price_per_mtok"])
-                          for m in updated["models"]], [(7.0, 1.0, 2.0)])
-        self.assertEqual((await self.call("POST", "/admin/evaluators/order", {"ids": [999]}, ADMIN))[0], 422)
-        removed = await self.ok("DELETE", f"/admin/evaluators/{entry['id']}", None, ADMIN)
-        self.assertEqual(removed["models"], [])
-        self.assertEqual((await self.call("DELETE", f"/admin/evaluators/{entry['id']}", None, ADMIN))[0], 404)
-
-    async def test_prices_are_prefilled_from_presets_with_their_source(self):
-        presets = (await self.ok("GET", "/admin/evaluators", ident=ADMIN))["price_presets"]
-        haiku = {(p["provider"], p["model"]): p for p in presets}[("anthropic", "claude-haiku-5-5")]
-        self.assertEqual((haiku["input_price_per_mtok"], haiku["output_price_per_mtok"]), (0.10, 0.50))
-        self.assertIn("read 2026-11-13", haiku["source"])
-        self.assertIn(("bedrock", "anthropic.claude-haiku-5-5"), {(p["provider"], p["model"]) for p in presets})
 
 
 class NoLeakTest(EvalCase):
-    async def test_no_solver_response_carries_a_provider_model_budget_or_cost(self):
+    async def test_no_solver_response_carries_a_provider_model_key_cap_or_cost(self):
         await self.add_entry()
         aid = await self.take({FIRST.prompt: GOOD_FIRST})
         self.assertEqual((await self.written(aid))["evaluation"], "marked")
@@ -793,6 +1280,18 @@ class NoLeakTest(EvalCase):
                 self.assertNotIn("fake-overlap", json.dumps(payload))
         for path in ("/public/topics", f"/public/sets/{self.sid}"):
             self.assertEqual(_keys(await self.ok("GET", path, ident=None)) & ADMIN_ONLY_KEYS, set())
+
+    async def test_no_admin_response_or_log_line_carries_a_key(self):
+        responses = []
+        await self.add_key("anthropic", "Personal")
+        key_id = await self.add_key("bedrock", "Work AWS", billing_=AWS_VALUES)
+        responses.append(await self.ok("PUT", f"/admin/evaluators/keys/{key_id}",
+                                       {"fields": KEY_VALUES["bedrock"], "billing": AWS_VALUES}, ADMIN))
+        responses.append(await self.add_entry("anthropic", "claude-haiku-5-5"))
+        responses.append(await self.page())
+        text = json.dumps(responses) + "\n".join(self.logs)
+        for value in SECRET_VALUES[:-1]:
+            self.assertNotIn(value, text)
 
     async def test_logs_hold_only_call_metadata(self):
         await self.add_entry()

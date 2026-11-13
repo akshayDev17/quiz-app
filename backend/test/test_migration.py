@@ -600,16 +600,25 @@ class SubjectiveMarkingMigrationTest(unittest.IsolatedAsyncioTestCase):
         await self.db.prepare(insert).bind(question["id"], "marked", 3).run()
         await self.fails(insert, question["id"], "marked", 1)  # one row per question
 
-    async def test_a_ledger_row_and_an_entry_hold_their_checks(self):
-        await self.fails(
-            "INSERT INTO evaluation_calls (token, provider, model, attempt_id, user_email, trigger, day, month, "
-            "reserved_micros, rubric, created_at) VALUES ('t', 'p', 'm', 'a', 'e', 'cron', 'd', 'm', 0, 'r', 1)"
-        )
-        await self.fails(
-            "INSERT INTO evaluator_models (provider, model, position, monthly_budget_micros, input_price_per_mtok, "
-            "output_price_per_mtok, created_at, updated_at) VALUES ('p', 'm', 0, -1, 0, 0, 1, 1)"
-        )
-
+    async def test_a_ledger_row_a_key_and_an_entry_hold_their_checks(self):
+        ledger = ("INSERT INTO evaluation_calls (token, entry_id, key_id, provider, model, attempt_id, user_email, "
+                  "trigger, day, month, reserved_micros, rubric, created_at) "
+                  "VALUES (?, ?, 1, 'p', 'm', ?, 'e', ?, 'd', 'm', 0, 'r', 1)")
+        await self.fails(ledger, "t1", 1, "a", "cron")
+        await self.fails(ledger, "t2", None, "a", "submit")     # a marking call names its entry
+        await self.fails(ledger, "t3", 1, None, "rerun")        # and its attempt
+        await self.db.prepare(ledger).bind("t4", None, None, "check").run()  # a probe needs neither
+        key = ("INSERT INTO evaluator_keys (provider, label, sealed_key, unusable, created_at, updated_at) "
+               "VALUES ('anthropic', ?, 'v1:x', ?, 1, 1)")
+        await self.fails(key, "", None)
+        await self.fails(key, "k", "broke")
+        await self.db.prepare(key).bind("k", "out_of_credit").run()
+        await self.fails(key, "k", None)                        # labels are unique
+        entry = ("INSERT INTO evaluator_entries (key_id, model, position, monthly_cap_micros, input_price_per_mtok, "
+                 "output_price_per_mtok, created_at, updated_at) VALUES (1, 'm', 0, ?, 0, 0, 1, 1)")
+        await self.fails(entry, -1)
+        await self.db.prepare(entry).bind(None).run()           # no cap is allowed
+        await self.fails(entry, 5)                              # one entry per key and model
 
 if __name__ == "__main__":
     unittest.main()

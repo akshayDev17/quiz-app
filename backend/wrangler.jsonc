@@ -34,14 +34,20 @@
 	// and never lands in the repo or in GitHub (docs/deploy.md §C).
 	//   ADMIN_EMAILS (comma-separated, case-insensitive): read as
 	//     `self.env.ADMIN_EMAILS`; a missing value means no admins.
-	//   The AI evaluators of written answers (ADR 0010), each provider usable only
-	//   when all of its secrets are set: ANTHROPIC_API_KEY; BEDROCK_API_KEY and
-	//   BEDROCK_REGION; AZURE_FOUNDRY_API_KEY and AZURE_FOUNDRY_ENDPOINT.
-	// "vars" holds only these non-secret settings: the daily evaluation limits (model
-	// calls, one per attempt, per UTC day). Change them here and deploy.
+	//   KEY_ENCRYPTION_KEY (32 random bytes, base64): the master key that seals the AI
+	//     evaluator keys the admin enters on the admin page (ADR 0011). Without it no
+	//     key can be stored or used, and written answers wait.
+	// "vars" holds only non-secret settings the owner has not settled yet, each a
+	// placeholder with a default in code (composition.settings_from): the daily
+	// evaluation limits (model calls, one per attempt, per UTC day), the cap prefilled
+	// for a new evaluator entry, and how long submit waits for one call (base plus per
+	// typed answer). Change them here and deploy.
 	"vars": {
 		"EVAL_USER_DAILY_LIMIT": "20",
-		"EVAL_GLOBAL_DAILY_LIMIT": "300"
+		"EVAL_GLOBAL_DAILY_LIMIT": "300",
+		"EVAL_DEFAULT_MONTHLY_CAP_USD": "5",
+		"EVAL_TIMEOUT_BASE_SECONDS": "15",
+		"EVAL_TIMEOUT_PER_ANSWER_SECONDS": "2.5"
 	},
 	// Lets `wrangler dev` simulate an authenticated Access identity, so
 	// CloudflareAccessIdentity can be exercised locally without a login flow.

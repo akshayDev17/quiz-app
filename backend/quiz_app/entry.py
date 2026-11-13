@@ -13,8 +13,8 @@ from workers import Response, WorkerEntrypoint
 
 from .api import decode_body, response_headers
 from .auth import CloudflareAccessIdentity, parse_emails, request_path
-from .composition import build_api, quotas_from
-from .evaluators import usable_evaluators
+from .composition import build_api, settings_from
+from .keycipher import MASTER_KEY_SECRET, master_key
 
 
 def _response(status: int, body: dict | None, extra: dict[str, str] | None = None) -> Response:
@@ -39,13 +39,15 @@ def _setting(env, name: str) -> str | None:
     return str(value) if value is not None else None
 
 
-def _evaluators(env) -> dict:
-    """The evaluator of every provider whose secrets are set (``evaluators.PROVIDERS``:
-    ``ANTHROPIC_API_KEY``; ``BEDROCK_API_KEY`` + ``BEDROCK_REGION``;
-    ``AZURE_FOUNDRY_API_KEY`` + ``AZURE_FOUNDRY_ENDPOINT``). Never the fake."""
-    from .worker_http import worker_post  # Worker-only: needs the js and pyodide modules
+def _cipher(env):
+    """The key cipher under the ``KEY_ENCRYPTION_KEY`` secret, or ``None`` when that secret
+    is missing or is not 32 bytes of base64: then no evaluator key can be stored or used."""
+    key = master_key(_setting(env, MASTER_KEY_SECRET))
+    if key is None:
+        return None
+    from .worker_crypto import WebCryptoCipher  # Worker-only: needs the js and pyodide modules
 
-    return usable_evaluators(lambda name: _setting(env, name), worker_post)
+    return WebCryptoCipher(key)
 
 
 class Default(WorkerEntrypoint):
@@ -55,11 +57,14 @@ class Default(WorkerEntrypoint):
         if method in ("POST", "PUT", "PATCH"):
             body = decode_body(str(await request.text()))
         identity = await CloudflareAccessIdentity(getattr(self, "ctx", None)).identify(request)
+        from .worker_http import worker_send  # Worker-only: needs the js and pyodide modules
+
         api = build_api(
             self.env.DB,
             _admin_emails(self.env),
-            evaluators=_evaluators(self.env),
-            quotas=quotas_from(lambda name: _setting(self.env, name)),
+            cipher=_cipher(self.env),
+            send=worker_send,
+            settings=settings_from(lambda name: _setting(self.env, name)),
         )
         path = request_path(request)
         status, payload = await api.handle(method, path, body, identity)

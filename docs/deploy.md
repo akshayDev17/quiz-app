@@ -121,7 +121,7 @@ Paste the printed `database_id` into `backend/wrangler.jsonc` (replacing
 CI repeats the `migrations apply` before every backend deploy; it is idempotent,
 so later migrations ship by adding a file under `backend/migrations/`.
 
-## C. Secrets: admin emails and AI evaluator keys
+## C. Secrets: admin emails and the evaluator key storage
 
 ```sh
 cd backend
@@ -132,67 +132,86 @@ Enter your email (comma-separated for several; case-insensitive). Wrangler
 creates the Worker if it does not exist yet. It is a secret, not a `vars` entry,
 so admin emails never land in the repo.
 
-### AI evaluator keys (optional until you want written answers marked)
+### The key storage secret (once, before you add any AI evaluator key)
 
 Written answers are marked by an AI evaluator ([ADR 0010](adr/0010-subjective-answers-are-marked-by-an-evaluator.md)).
-Each provider's credential is **its own Worker secret, set by you from your laptop**
-with `wrangler secret put`, the same way as `ADMIN_EMAILS`. **GitHub never holds
-any of them**: no repo or environment secret, no CI step that sets one. CI deploys
-keep them ("Secrets are never deleted by a deployment"). Wrangler prompts for the
-value, so a key never appears in your shell history or on a command line. Set only
-the providers you use:
+Its provider keys are **yours to manage on the admin page**, not Worker secrets
+([ADR 0011](adr/0011-evaluator-keys-are-entered-on-the-admin-page-and-sealed.md)):
+add a key, replace it, add another for the same model, or remove it, with no deploy
+and no command line. The app stores each key only **sealed** (AES-256-GCM) under one
+master key, which is the only secret this needs. It is your manual step: set it once
+from your laptop. **GitHub never holds it**, and no CI step sets it.
 
 ```sh
 cd backend
-# Anthropic API: a key from a dedicated Console workspace (e.g. quiz-app-prod) with a monthly spend limit
-../frontend/node_modules/.bin/wrangler secret put ANTHROPIC_API_KEY
-
-# Amazon Bedrock (Claude in Bedrock, bedrock-mantle endpoint): a Bedrock API key, and the region
-../frontend/node_modules/.bin/wrangler secret put BEDROCK_API_KEY
-../frontend/node_modules/.bin/wrangler secret put BEDROCK_REGION          # e.g. us-east-1
-
-# Azure AI Foundry (Claude in Microsoft Foundry): the deployment's key, and the endpoint
-../frontend/node_modules/.bin/wrangler secret put AZURE_FOUNDRY_API_KEY
-../frontend/node_modules/.bin/wrangler secret put AZURE_FOUNDRY_ENDPOINT  # https://<resource>.services.ai.azure.com/anthropic
+# 32 random bytes, base64: generated and piped straight in, never shown or saved
+openssl rand -base64 32 | ../frontend/node_modules/.bin/wrangler secret put KEY_ENCRYPTION_KEY
 ```
 
-- **Anthropic**: Console → Workspaces → a workspace only this app uses, with a
-  monthly spend limit (the Default workspace cannot have one) and spend alerts;
-  create the key in that workspace. The key goes in the `x-api-key` header only.
-- **Bedrock**: the key is sent as the bearer token in `x-api-key` to
-  `https://bedrock-mantle.<region>.api.aws/anthropic/v1/messages`. Short-term
-  Bedrock tokens last at most 12 hours, which does not suit a Worker secret; use
-  a long-term Bedrock API key with the narrowest permissions AWS allows, an
-  expiry you will rotate before, and an AWS budget alert.
-- **Azure**: from the Foundry portal, Build → Models → your Claude deployment →
-  Details: the Key, and the Target URI (either the `…/anthropic` base or the full
-  `…/anthropic/v1/messages` works). The model you list on the admin page is the
-  deployment name. The key goes in the `api-key` header only.
+CI deploys keep it ("Secrets are never deleted by a deployment"); `wrangler secret
+list` prints names only, and CI warns (never fails) after each deploy when it is
+missing. Without it nothing breaks: the admin page says key storage is not set up,
+no key can be added, and typed answers wait as *awaiting evaluation* (counting
+nothing, never 0).
 
-Then, signed in as an admin, open **`/quiz/admin` → AI evaluators** and add one
-or more `Provider · Model` entries in the order you want them tried, each with a
-monthly budget (prices are prefilled from published rates; check Bedrock's on
-the AWS page). An entry whose provider lacks its secret shows "secret missing"
-and is skipped. The budget there is **the app's own ledger** of tokens it sent,
-priced at the rates you entered, not the provider's billing figure: keep the
-provider-side spend limit as the hard cap.
+**Changing the master key** makes every stored key unreadable: the admin page marks
+each one "cannot be decrypted", and you paste it again (Replace). Do this only if
+you think the master key leaked. A key the app stored is never shown again, by
+design: keep your own copy, or make a new key at the provider.
 
-The daily evaluation limits are the two `vars` in `backend/wrangler.jsonc`
-(`EVAL_USER_DAILY_LIMIT`, default 20 per person; `EVAL_GLOBAL_DAILY_LIMIT`,
-default 300 for the site); change them there and deploy.
+### Adding evaluator keys (on the admin page)
 
-Before any key is set, nothing breaks: typed answers wait as *awaiting
-evaluation* (counting nothing, never 0). Once a key and an entry exist, press
-**Re-run awaiting evaluations** on the same page. To check which secrets exist,
-`wrangler secret list` prints names only. After every deploy, CI warns (never
-fails) when no provider has all of its secrets.
+Signed in as an admin, open **`/quiz/admin` → AI evaluators**:
 
-**Rotating a key**: create the new key at the provider, run the same
-`wrangler secret put NAME` (it replaces the value and redeploys), check that an
-answer is marked, then disable the old key at the provider. **A suspected leak**:
-disable the key at the provider first (written answers then wait, nothing else
-is affected), then set a new one. Never paste a key into a PR, an issue, a
-commit, a chat or a log.
+1. **Add a key**: pick the provider, give it a label (e.g. "Anthropic, personal"),
+   and paste what that provider needs. The page shows only the label, the last four
+   characters and the non-secret settings afterwards.
+   - **Anthropic**: an API key from the Console. Anthropic has no API for an
+     account's prepaid balance, so the page shows this month's spend from each
+     call's tokens, and marks the key **out of credit** when Anthropic refuses a
+     call for credit (marking then moves to the next entry, retries the key after
+     an hour, and **Check now** retries it at once).
+   - **Bedrock**: a Bedrock API key (sent as the bearer token in `x-api-key` to
+     `https://bedrock-mantle.<region>.api.aws/anthropic/v1/messages`) and the region.
+     Short-term Bedrock tokens last at most 12 hours: use a long-term Bedrock API
+     key with the narrowest permissions AWS allows, and an expiry you will rotate
+     before. *Optional, read-only billing:* an IAM key allowed only
+     `budgets:ViewBudget`, your account id and the name of an AWS Budgets budget;
+     **Check now** then shows that budget's own limit, spend and what is left.
+   - **Azure**: from the Foundry portal, Build → Models → your Claude deployment →
+     Details: the Key, and the Target URI (the `…/anthropic` base or the full
+     `…/anthropic/v1/messages`). *Optional, read-only billing:* an app registration
+     (tenant id, client id, client secret) with the **Cost Management Reader** role
+     on the scope (`subscriptions/<id>`, or a resource group in it) and the name of
+     a consumption budget there.
+2. **Add entries**: each is a key and a model (for Azure, the deployment name), in
+   the order marking should try them. Prices are prefilled from published rates
+   (check Bedrock's on the AWS page) and give the app's spend tracking. An optional
+   **monthly cap** per entry stops the app using it once its tracked spend this
+   month reaches the cap; it is shown as "$X left of cap". Leave it empty for no cap.
+3. **Check now** on a key sends the smallest possible request (a few tokens, a
+   fraction of a cent) to confirm the provider takes it, and refreshes its budget
+   reading where it has a billing credential.
+
+Spend shown for an entry is **the app's own tracking** of the tokens it sent,
+priced at the rates you entered; a cloud budget reading is **the provider's own
+figure**. Keep the provider's own spend limit or budget alert as the hard stop.
+
+The numbers you have not settled yet are `vars` in `backend/wrangler.jsonc`, with
+these defaults: `EVAL_USER_DAILY_LIMIT` (20 evaluations per person per day),
+`EVAL_GLOBAL_DAILY_LIMIT` (300 for the site), `EVAL_DEFAULT_MONTHLY_CAP_USD` (5,
+the cap prefilled for a new entry), `EVAL_TIMEOUT_BASE_SECONDS` and
+`EVAL_TIMEOUT_PER_ANSWER_SECONDS` (15 + 2.5 per typed answer: how long submit waits
+for one call). Change them there and deploy.
+
+Once a key and an entry exist, press **Re-run awaiting evaluations** on the same
+page to mark what waited.
+
+**Rotating a key**: make the new key at the provider, **Replace** it on the admin
+page, press **Check now**, then disable the old key at the provider. **A suspected
+leak**: disable the key at the provider first (marking moves down your list, or
+answers wait; nothing else is affected), then Replace or Remove it on the page.
+Never paste a key into a PR, an issue, a commit, a chat or a log.
 
 ## D. Deploy
 
@@ -337,12 +356,14 @@ python3 local_server.py          # http://127.0.0.1:8787/quiz/api/me
 Environment: `PORT`, `DB_PATH`, `DEV_EMAIL` (default `dev@example.com`),
 `ADMIN_EMAILS` (default `DEV_EMAIL`, so `/admin` works).
 
-Written answers locally: the **Fake (local)** evaluator is always available and
-calls nothing (deterministic, free). Open `/admin` → AI evaluators and add
-`Fake (local) · fake-overlap` to have answers marked offline. A real provider is
-usable locally only when its secrets are in the server's environment (same names
-as the Worker's); use a separate dev key with a tiny spend limit, never the
-production key. Tests always use the fake.
+Written answers locally: the **Fake (local)** provider is always available and
+calls nothing (deterministic, free). Open `/admin` → AI evaluators, add a key for
+it (it needs no fields), then a `fake-overlap` entry, to have answers marked
+offline. Keys are sealed with the `cryptography` package (`pip install
+cryptography`; a dev-only dependency, the Worker uses Web Crypto) under
+`KEY_ENCRYPTION_KEY` from the server's environment, or under a key made at start,
+which loses stored keys on restart. For a real provider, use a separate dev key with
+a tiny spend limit, never the production key. Tests always use the fake.
 
 Frontend, pointed at that server:
 
@@ -478,15 +499,19 @@ This confirms Python `None` binds as D1 `NULL`.
 `bind(...)` calls in `backend/quiz_app/d1/authoring.py` and
 `backend/quiz_app/d1/attempts.py` (an untimed attempt binds `deadline_at = None`).
 
-**(h) A written answer is marked through the Worker's `fetch`.** With one
-provider's secrets set (§C) and an entry for it on `/quiz/admin` → AI evaluators,
-take a set with a subjective question, type an answer and submit. The results
-page must show *AI-marked · N/4* with feedback, and the evaluator page must show
-a few cents or less spent. This confirms the `js.fetch` call in
-`backend/quiz_app/worker_http.py` (outbound `fetch` from a Python Worker,
-through the FFI, with an `AbortSignal.timeout`), which no local test can reach.
+**(h) A key is sealed with Web Crypto and a written answer is marked through the
+Worker's `fetch`.** With `KEY_ENCRYPTION_KEY` set (§C), add a key and an entry on
+`/quiz/admin` → AI evaluators and press **Check now**: it must read *working*. Then
+take a set with a subjective question, type an answer and submit. The results page
+must show *AI-marked · N/4* with feedback, and the evaluator page a few cents or
+less spent. This confirms `backend/quiz_app/worker_crypto.py` (AES-GCM through
+`crypto.subtle`) and the `js.fetch` call in `backend/quiz_app/worker_http.py`
+(outbound `fetch` from a Python Worker, through the FFI, with an
+`AbortSignal.timeout`) on Cloudflare itself; both were checked locally in workerd.
 
-*If not:* the answer stays *awaiting evaluation* and the admin page lists the
-reason. `provider error` with no request reaching the provider points at
-`worker_http.py`; the Worker's logs hold one `evaluation_call` line per call
+*If not:* "key storage not set up" means the secret is missing or is not 32 bytes
+of base64; "cannot be decrypted" means it changed since the key was stored. An
+answer that stays *awaiting evaluation* has its reason on the admin page:
+`provider error` with no request reaching the provider points at `worker_http.py`;
+the Worker's logs hold one `evaluation_call` line per call
 (status, request id, model, tokens, latency, never the prompt or the key).

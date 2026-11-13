@@ -16,3 +16,4 @@ or *Open questions*).
 | 0008 | The plugin ships a public Google OAuth client | 2026-10-25 | Accepted |
 | 0009 | The signed-out View is a fixed Access Bypass list; the Worker still owns refusal | 2026-11-12 | Accepted |
 | 0010 | Subjective answers are marked by an AI evaluator, out of 4 and never below 0 | 2026-11-13 | Accepted |
+| 0011 | Evaluator keys are entered on the admin page and sealed; money shown is real or the app's own tracking | 2026-11-14 | Accepted |

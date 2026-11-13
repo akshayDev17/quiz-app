@@ -19,7 +19,8 @@ from collections.abc import Callable
 from .models import AWAITING, MARKED, SUBJECTIVE, Attempt, QuestionResult, QuizSetInfo, ReviewQuestion, TextMark, User
 from .scoring import ScoringPolicyFactory
 from .services.attempts import AttemptSession, ResultsView
-from .services.evaluation import EvaluatorsOverview
+from .keycipher import MASTER_KEY_SECRET
+from .services.evaluator_admin import EvaluatorsOverview
 from .validation import QuestionImport
 
 
@@ -346,31 +347,82 @@ def _usd(micros: int) -> float:
     return round(micros / 1_000_000, 6)
 
 
+def _balance(balance, at) -> dict | None:
+    if balance is None:
+        return None
+    return {
+        "limit": _usd(balance.limit_micros), "spent": _usd(balance.spent_micros),
+        "remaining": _usd(balance.remaining_micros), "currency": balance.currency,
+        "source": balance.source, "as_of": at,
+    }
+
+
 def admin_evaluators(o: EvaluatorsOverview) -> dict:
-    """The admin's evaluator page. Secret *names* and whether each is present, never a value.
-    Spend is the app's own ledger for ``month`` (UTC), not the provider's billing figure."""
+    """The admin's evaluator page. A key appears as its provider, label, last four
+    characters, non-secret settings and status: never a key value, a sealed value, or a
+    billing secret. ``spent_usd`` is the app's own tracking for ``month`` (UTC), not the
+    provider's bill; ``provider_budget`` is the provider's own reading, where it has one."""
     return {
         "month": o.month,
+        "key_storage": {"ready": o.key_storage_ready, "secret": MASTER_KEY_SECRET},
         "providers": [
-            {"id": p.id, "label": p.label, "secrets": list(p.secrets), "usable": p.usable}
+            {
+                "id": p.id,
+                "label": p.label,
+                "key_fields": [f.describe() for f in p.key_fields],
+                "billing": (
+                    {"label": p.billing_label, "fields": [f.describe() for f in p.billing_fields]}
+                    if p.billing_fields else None
+                ),
+                "balance_note": p.balance_note,
+            }
             for p in o.providers
         ],
-        "models": [
+        "keys": [
+            {
+                "id": k.key.id,
+                "provider": k.key.provider,
+                "provider_label": k.provider_label,
+                "label": k.key.label,
+                "hint": k.key.hint,
+                "settings": dict(k.key.settings),
+                "billing": {"settings": dict(k.key.billing_settings or {})} if k.key.sealed_billing else None,
+                "state": k.state,
+                "problem": k.problem,
+                "unusable_since": k.key.unusable_at if k.key.unusable else None,
+                "retry_at": k.retry_at,
+                "checked_at": k.key.checked_at,
+                "check_result": k.key.check_result,
+                "reads_balance": k.reads_balance,
+                "provider_budget": _balance(k.key.balance, k.key.balance_at),
+                "provider_budget_error": k.key.balance_error,
+                "spent_usd": _usd(k.spent_micros),
+                "entries": k.entries,
+                "created_at": k.key.created_at,
+            }
+            for k in o.keys
+        ],
+        "entries": [
             {
                 "id": s.entry.id,
+                "key_id": s.entry.key_id,
+                "key_label": s.entry.key_label,
                 "provider": s.entry.provider,
-                "provider_label": s.label,
+                "provider_label": s.provider_label,
                 "model": s.entry.model,
                 "position": s.entry.position,
                 "usable": s.usable,
-                "monthly_budget_usd": _usd(s.entry.monthly_budget_micros),
+                "problem": s.problem,
+                "monthly_cap_usd": None if s.entry.monthly_cap_micros is None else _usd(s.entry.monthly_cap_micros),
                 "spent_usd": _usd(s.spent_micros),
-                "remaining_usd": _usd(s.remaining_micros),
+                "left_of_cap_usd": None if s.left_of_cap_micros is None else _usd(s.left_of_cap_micros),
+                "provider_budget": _balance(s.balance, s.balance_at),
                 "input_price_per_mtok": s.entry.input_price_per_mtok,
                 "output_price_per_mtok": s.entry.output_price_per_mtok,
             }
             for s in o.entries
         ],
+        "defaults": {"monthly_cap_usd": o.settings.default_cap_usd},
         "price_presets": [
             {"provider": p.provider, "model": p.model, "input_price_per_mtok": p.input_per_mtok,
              "output_price_per_mtok": p.output_per_mtok, "source": p.source}
@@ -378,8 +430,8 @@ def admin_evaluators(o: EvaluatorsOverview) -> dict:
         ],
         "queue": {"awaiting": o.awaiting, "flagged": o.flagged, "awaiting_reasons": o.awaiting_reasons},
         "quotas": {
-            "per_user_daily": o.quotas.user_daily,
-            "global_daily": o.quotas.global_daily,
+            "per_user_daily": o.settings.user_daily,
+            "global_daily": o.settings.global_daily,
             "calls_today": o.calls_today,
         },
     }

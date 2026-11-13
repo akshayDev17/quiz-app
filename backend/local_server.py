@@ -12,12 +12,14 @@ Environment:
   DEV_EMAIL      the signed-in user (default dev@example.com)
   ADMIN_EMAILS   comma-separated admins (default: DEV_EMAIL, so you can use /admin)
 
-Written answers are marked by the evaluators the admin lists at /quiz/admin/evaluators.
-Locally the ``Fake (local)`` provider is always there (deterministic, free, no network):
-add a "Fake (local) · fake-overlap" entry to mark answers offline. A real provider is
-listed as usable only when its secrets are in this process's environment (the same names
-as the Worker's, e.g. ANTHROPIC_API_KEY), and it is called over urllib. Use a separate dev
-key with its own small spend limit, never the production one.
+Written answers are marked by the entries the admin lists at /quiz/admin/evaluators, each
+a key and a model. Locally the ``Fake (local)`` provider is always there (deterministic,
+free, no network): add a fake key, then a "fake-overlap" entry, to mark answers offline.
+Keys are sealed with AES-256-GCM through the ``cryptography`` package under
+KEY_ENCRYPTION_KEY from this process's environment (32 bytes, base64). Without it a
+random key is made at start, so keys you add only last until the server restarts. Real
+providers are called over urllib: use a separate dev key with its own small spend
+limit, never the production one.
 """
 
 from __future__ import annotations
@@ -34,9 +36,11 @@ from urllib.parse import urlsplit
 
 from quiz_app.api import decode_body, response_headers
 from quiz_app.auth import DevIdentity, normalize_email, parse_emails
-from quiz_app.composition import build_api, quotas_from
+from quiz_app.composition import build_api, settings_from
 from quiz_app.d1.sqlite_binding import SqliteD1
-from quiz_app.evaluators import FAKE, FakeEvaluator, urllib_post, usable_evaluators
+from quiz_app.evaluators import PROVIDERS, FakeEvaluator, fake_provider
+from quiz_app.keycipher import MASTER_KEY_SECRET, master_key
+from quiz_app.transport import urllib_send
 
 HERE = Path(__file__).resolve().parent
 DB_PATH = Path(os.environ.get("DB_PATH", HERE / "quiz.db"))
@@ -59,8 +63,21 @@ def open_db(path: Path) -> SqliteD1:
     return db
 
 
-EVALUATORS = {FAKE: FakeEvaluator(), **usable_evaluators(os.environ.get, urllib_post)}
-API = build_api(open_db(DB_PATH), ADMIN_EMAILS, evaluators=EVALUATORS, quotas=quotas_from(os.environ.get))
+def local_cipher():
+    """AES-256-GCM via ``cryptography`` (a dev-only dependency), under KEY_ENCRYPTION_KEY or,
+    without it, a key made now; ``None`` when the package is missing."""
+    try:
+        from quiz_app.keycipher import CryptographyCipher
+
+        return CryptographyCipher(master_key(os.environ.get(MASTER_KEY_SECRET)) or os.urandom(32))
+    except ImportError:
+        return None
+
+
+CIPHER = local_cipher()
+PROVIDERS_HERE = {**PROVIDERS, "fake": fake_provider(FakeEvaluator())}
+API = build_api(open_db(DB_PATH), ADMIN_EMAILS, cipher=CIPHER, providers=PROVIDERS_HERE, send=urllib_send,
+                settings=settings_from(os.environ.get))
 IDENTITY = DevIdentity(DEV_EMAIL)
 LOCK = threading.Lock()
 
@@ -119,5 +136,9 @@ if __name__ == "__main__":
     print(f"quiz backend listening on http://127.0.0.1:{port}/quiz/api")
     print(f"  db       : {DB_PATH}")
     print(f"  identity : {DEV_EMAIL}" + (" (admin)" if DEV_EMAIL in ADMIN_EMAILS else ""))
-    print(f"  providers: {', '.join(sorted(EVALUATORS))}")
+    print(f"  providers: {', '.join(sorted(PROVIDERS_HERE))}")
+    keys = ("off: pip install cryptography" if CIPHER is None
+            else "sealed under KEY_ENCRYPTION_KEY" if master_key(os.environ.get(MASTER_KEY_SECRET))
+            else "sealed under a key made at start (lost on restart)")
+    print(f"  keys     : {keys}")
     ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()

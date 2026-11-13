@@ -483,6 +483,10 @@ SIGNED_IN_PROBES = [
     ("POST", "/admin/evaluators/order"),
     ("PUT", "/admin/evaluators/1"),
     ("DELETE", "/admin/evaluators/1"),
+    ("POST", "/admin/evaluators/keys"),
+    ("PUT", "/admin/evaluators/keys/1"),
+    ("DELETE", "/admin/evaluators/keys/1"),
+    ("POST", "/admin/evaluators/keys/1/check"),
     ("POST", "/admin/evaluations/rerun"),
 ]
 
