@@ -30,10 +30,19 @@
 			"database_id": "b58fdf0b-bf8e-4613-a136-8089c68aed77"
 		}
 	],
-	// No "vars" block on purpose. ADMIN_EMAILS (comma-separated, case-insensitive)
-	// is a Worker secret, set with `wrangler secret put ADMIN_EMAILS`, so admin
-	// emails never land in the repo. The Worker reads it as
-	// `self.env.ADMIN_EMAILS` and treats a missing value as empty.
+	// Secrets, never "vars": each is set by the owner with `wrangler secret put NAME`
+	// and never lands in the repo or in GitHub (docs/deploy.md §C).
+	//   ADMIN_EMAILS (comma-separated, case-insensitive): read as
+	//     `self.env.ADMIN_EMAILS`; a missing value means no admins.
+	//   The AI evaluators of written answers (ADR 0010), each provider usable only
+	//   when all of its secrets are set: ANTHROPIC_API_KEY; BEDROCK_API_KEY and
+	//   BEDROCK_REGION; AZURE_FOUNDRY_API_KEY and AZURE_FOUNDRY_ENDPOINT.
+	// "vars" holds only these non-secret settings: the daily evaluation limits (model
+	// calls, one per attempt, per UTC day). Change them here and deploy.
+	"vars": {
+		"EVAL_USER_DAILY_LIMIT": "20",
+		"EVAL_GLOBAL_DAILY_LIMIT": "300"
+	},
 	// Lets `wrangler dev` simulate an authenticated Access identity, so
 	// CloudflareAccessIdentity can be exercised locally without a login flow.
 	// The entrypoint reads `ctx.access.getIdentity().email`; this block is what

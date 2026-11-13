@@ -21,13 +21,14 @@ export type TopicsResponse = { topics: Topics<SetCard> };
 
 export type SetIntro = { id: number; topic: string; subtopic: string | null; name: string; description: string | null;
   time_limit_minutes: number | null; question_count: number;
-  subjective_count: number;  // of question_count, how many are subjective (never marked)
+  subjective_count: number;  // of question_count, how many are subjective (marked 0–4 by the AI evaluator)
   max_attempts: number | null; attempts_used: number; open_attempt_id: string | null };
 
 /**
- * A choice question is answered by ticking options and marked; a subjective one is answered by
- * typing into a text box and never marked (no points, no -2 when blank). Every subjective
- * question carries an authored model answer, shown on review when the set reveals answers.
+ * A choice question is answered by ticking options and marked +2 / −1 / −2 blank; a subjective one
+ * is answered by typing into a text box and marked 0–4 by the AI evaluator against its authored
+ * model answer, never below 0 (a blank one scores 0). The model answer is shown on review when the
+ * set reveals answers.
  */
 export type QuestionKind = 'choice' | 'subjective';
 /** A subjective answer is at most this many characters (the backend's MAX_TEXT_ANSWER). */
@@ -46,7 +47,9 @@ export type AttemptSession = {
 
 export type Results = {
   attempt: { id: string; status: 'submitted' | 'expired'; started_at: number; finished_at: number;
-             score: number; max_score: number };
+             score: number; max_score: number;
+             /** Written answers still awaiting the evaluator: until 0 the score is provisional. */
+             awaiting_count: number };
   // negative_marking for every attempt started now; the other two only on older attempts.
   set: { id: number | null; name: string; topic: string;
          scoring_policy: 'negative_marking' | 'all_or_nothing' | 'partial'; reveal_answers: boolean };
@@ -58,16 +61,27 @@ export type ChoiceResult = ResultBase & {
   kind: 'choice'; points: number; awarded_points: number; is_correct: boolean;
   options: { id: number; body: string; selected: boolean; correct: boolean | null }[];  // correct null when !reveal_answers
 };
-/** Never marked: no points of any kind. The solver's own text always; the model answer only when revealed. */
+/**
+ * How a written answer stands: `blank` (0), `awaiting` the evaluator (counts nothing yet),
+ * `marked` by the evaluator, or `flagged` for review (0). `null`, with no points, only on an
+ * attempt started before written answers were marked. Never who or what marked it.
+ */
+export type WrittenEvaluation = 'blank' | 'awaiting' | 'marked' | 'flagged';
+/** The solver's own text always; the model answer only when revealed. */
 export type SubjectiveResult = ResultBase & {
-  kind: 'subjective'; points: null; awarded_points: null; is_correct: null; options: [];
+  kind: 'subjective'; is_correct: null; options: [];
+  points: number | null;                                            // out of; null when not marked
+  awarded_points: number | null;                                    // null while awaiting, or not marked
+  evaluation: WrittenEvaluation | null;
+  feedback: string | null;                                          // the evaluator's, when marked
   text_answer: string | null;                                       // null when left blank
   model_answer: string | null;                                      // null when !reveal_answers
 };
 
 export type History = { attempts: { id: string; set_id: number | null; name: string; topic: string;
   status: 'in_progress' | 'submitted' | 'expired'; started_at: number; finished_at: number | null;
-  score: number | null; max_score: number | null }[] };            // newest first
+  score: number | null; max_score: number | null;
+  awaiting_count: number }[] };                                    // newest first
 
 /** Who may see a published set: public = anyone may View it and solvers may take it; private = admins only. */
 export type Visibility = 'public' | 'private';
@@ -90,7 +104,9 @@ export type AdminSetDetail = {
 export type AdminQuestion =
   | { type: 'choice'; prompt: string; explanation: string | null; points: number;
       options: { body: string; correct: boolean }[] }
-  | { type: 'subjective'; prompt: string; explanation: string | null; model_answer: string };
+  | { type: 'subjective'; prompt: string; explanation: string | null; model_answer: string;
+      /** The authored rubric: the essential points the evaluator checks. Absent when none. */
+      key_points?: string[] };
 
 // Small route responses the contract table gives inline.
 export type SubmitResult = { attempt_id: string; status: AttemptSession['attempt']['status'] };
@@ -111,3 +127,26 @@ export type PublicSet = {
                model_answer: string | null;                                    // subjective only; null when !reveal_answers
                options: { id: number; body: string; correct: boolean | null }[] }[];  // correct null when !reveal_answers; [] for subjective
 };
+
+// The AI evaluators of written answers: admin only (GET/POST/PUT/DELETE /quiz/api/admin/evaluators…).
+export type EvaluatorProvider = { id: string; label: string;
+  /** Worker secret names this provider needs; values are never sent. */
+  secrets: string[]; usable: boolean };
+export type EvaluatorModel = { id: number; provider: string; provider_label: string; model: string; position: number;
+  /** false when its provider's secrets are missing: it is skipped. */
+  usable: boolean;
+  /** The app's own tracked spend for `month`, not the provider's billing figure. */
+  monthly_budget_usd: number; spent_usd: number; remaining_usd: number;
+  input_price_per_mtok: number; output_price_per_mtok: number };
+export type PricePreset = { provider: string; model: string; input_price_per_mtok: number;
+  output_price_per_mtok: number; source: string };
+export type AdminEvaluators = {
+  month: string;                        // UTC 'YYYY-MM' the spend is for
+  providers: EvaluatorProvider[];
+  models: EvaluatorModel[];             // in routing order: the first usable one with budget left marks
+  price_presets: PricePreset[];
+  queue: { awaiting: number; flagged: number; awaiting_reasons: Record<string, number> };
+  quotas: { per_user_daily: number; global_daily: number; calls_today: number };
+};
+export type EvaluatorFields = { monthly_budget_usd: number; input_price_per_mtok: number; output_price_per_mtok: number };
+export type RerunResult = { attempts_tried: number; still_awaiting: number };

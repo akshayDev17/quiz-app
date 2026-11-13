@@ -33,12 +33,40 @@ function optionMark(o: Option, reveal: boolean): { cls: string; tag: string } {
   return { cls: '', tag: '' };
 }
 
+/** The badge a written answer carries, by how it stands (see `WrittenEvaluation`). */
+function writtenMark(q: SubjectiveResult): { cls: string; text: string } {
+  const outOf = q.points === null ? '' : `/${formatScore(q.points)}`;
+  const got = q.awarded_points ?? 0;
+  switch (q.evaluation) {
+    case 'marked': {
+      const cls = q.points !== null && got >= q.points ? 'ok' : got > 0 ? 'part' : 'bad';
+      return { cls, text: `AI-marked · ${formatScore(got)}${outOf}` };
+    }
+    case 'awaiting':
+      return { cls: 'wait', text: `Awaiting evaluation · –${outOf}` };
+    case 'flagged':
+      return { cls: 'bad', text: `Flagged for review · 0${outOf}` };
+    case 'blank':
+      return { cls: 'blank', text: `Blank · 0${outOf}` };
+    default:
+      return { cls: 'blank', text: 'Not marked' };  // taken before written answers were marked
+  }
+}
+
+/** What the solver is told about an answer the evaluator has not marked. */
+const WRITTEN_NOTE: Partial<Record<NonNullable<SubjectiveResult['evaluation']>, string>> = {
+  awaiting: 'Waiting for the AI evaluator. It adds to your score once marked; until then it counts nothing.',
+  flagged: 'The AI evaluator could not mark this answer, so it scores 0 and is flagged for review.',
+};
+
 /**
- * A subjective question: never marked, so "Not marked" in place of Correct/Incorrect and no
- * points. The solver's text shows exactly as typed (plain, not Markdown); the model answer and
- * explanation follow the set's reveal_answers.
+ * A written (subjective) question: its marks out of 4 from the AI evaluator, never below 0, with
+ * the evaluator's short feedback once marked. The solver's text shows exactly as typed (plain, not
+ * Markdown), and so does the feedback; the model answer and explanation follow reveal_answers.
  */
 function WrittenCard({ q, index, reveal }: { q: SubjectiveResult; index: number; reveal: boolean }) {
+  const mark = writtenMark(q);
+  const note = q.evaluation ? WRITTEN_NOTE[q.evaluation] : undefined;
   return (
     <div className="card rq">
       <div className="rq-head">
@@ -46,12 +74,19 @@ function WrittenCard({ q, index, reveal }: { q: SubjectiveResult; index: number;
         <h3>
           <Markdown text={q.prompt} />
         </h3>
-        <span className="mark blank">Not marked</span>
+        <span className={`mark ${mark.cls}`}>{mark.text}</span>
       </div>
       <div className="answer-block">
         <span className="mc lab">Your answer</span>
         {q.text_answer ? <div className="typed">{q.text_answer}</div> : <div className="none">Left blank</div>}
       </div>
+      {q.feedback && (
+        <div className="answer-block feedback">
+          <span className="mc lab">Feedback · AI evaluator</span>
+          <div className="typed">{q.feedback}</div>
+        </div>
+      )}
+      {note && <p className="written-note">{note}</p>}
       {reveal && q.model_answer && <ModelAnswer text={q.model_answer} />}
       {reveal && q.explanation && (
         <div className="expl">
@@ -133,10 +168,11 @@ function ResultsView() {
     );
   }, [attemptId, router]);
 
-  // Only marked questions: a blank one costs −2. A blank subjective question costs nothing.
+  // Choice questions only: a blank one costs −2. A blank written one scores 0 and is shown on its card.
   const unanswered = results
     ? results.questions.filter((q) => q.kind !== 'subjective' && !q.options.some((o) => o.selected)).length
     : 0;
+  const awaiting = results?.attempt.awaiting_count ?? 0;
 
   return (
     <div className="frame">
@@ -151,6 +187,12 @@ function ResultsView() {
           {results.attempt.status === 'expired' && (
             <div className="banner">Time’s up — your saved answers were submitted automatically</div>
           )}
+          {awaiting > 0 && (
+            <p className="written-note provisional">
+              {awaiting === 1 ? 'One written answer is' : `${awaiting} written answers are`} still waiting for the
+              AI evaluator, so this score is provisional. Written answers only add marks, never take them away.
+            </p>
+          )}
           <div className="stats">
             {isMarked(results.attempt.max_score) ? (
               <>
@@ -160,7 +202,7 @@ function ResultsView() {
                     <span className="nw">{formatScore(results.attempt.score)}</span>{' '}
                     <span className="nw">/ {formatScore(results.attempt.max_score)}</span>
                   </span>
-                  <span className="k">Score</span>
+                  <span className="k">{awaiting > 0 ? 'Score so far' : 'Score'}</span>
                 </div>
                 <div>
                   <span className="v">{formatScore(percent(results.attempt.score, results.attempt.max_score))}%</span>

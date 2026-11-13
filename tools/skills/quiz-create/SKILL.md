@@ -1,6 +1,6 @@
 ---
 name: quiz-create
-description: Author a quiz-set JSON for the quiz app — from prose or code material — varied difficulty, hidden multi-correct counts, plausible distractors, questions solvable cold by the intended audience — then self-audit, run a fresh critic pass, and validate before upload. Use when asked to create, write, or author a quiz or quiz set.
+description: Author a quiz-set JSON for the quiz app — from prose or code material — varied difficulty, hidden multi-correct counts, plausible distractors, about one written (AI-marked) question in five, questions solvable cold by the intended audience — then self-audit, run a fresh critic pass, and validate before upload. Use when asked to create, write, or author a quiz or quiz set.
 ---
 
 # quiz-create — author a quiz set, then check it
@@ -24,11 +24,15 @@ or **code** (a repo, a folder, or one flow/sub-flow within it — follow
    - *Who must be able to solve it?* Options in "The audience"; default
      `domain`.
    - *How many questions?* Default 10.
+   - *How many written answers?* Do not ask: by default about one question in
+     five is written (subjective, AI-marked), rounded, at least 1 — 2 in a
+     10-question set, 1 in a 5-question set. Use another share, or none, only
+     when the invocation asks for it.
    - *Time pressure?* Seconds per question — default 45 (range 30–45), or
      "untimed". Set `time_limit_minutes = ceil(count × seconds / 60)`.
    Skip any question the invocation already answered; if the user says "doesn't
    matter", take the defaults.
-   Completion: destination, material kind, audience, count, and time limit known.
+   Completion: destination, material kind, audience, count, written share, and time limit known.
 2. **Read the source material.**
    - Prose: extract the ideas worth quizzing — the concepts a reader must
      retain — not the document's own examples or layout.
@@ -36,8 +40,9 @@ or **code** (a repo, a folder, or one flow/sub-flow within it — follow
    Completion: the ideas (or the flow) to quiz are identified.
 3. **Write the set** to the chosen destination, and alongside it the
    justification sidecar — `<basename>.justification.md`, one entry per question
-   as in "The justification sidecar". Completion: a `.json` file exists there
-   with the asked count, and the sidecar has one entry per question.
+   as in "The justification sidecar". Mix the written questions in by rule 13.
+   Completion: a `.json` file exists there with the asked count and written
+   share, and the sidecar has one entry per question.
 4. **Self-audit — the craft gate.** Run every rule's check in "The rules"
    (prose) or `CODE-MATERIAL.md` (code) against every question; rewrite each
    violation. The validator in step 6 checks only the schema, never the craft —
@@ -48,8 +53,13 @@ or **code** (a repo, a folder, or one flow/sub-flow within it — follow
    the source material, the governing rules ("The rules" for prose,
    `CODE-MATERIAL.md` for code), the quiz JSON, and the justification sidecar.
    It judges each question: does its justification hold — not source-locked (or
-   load-bearing, for code) and self-explanatory? It returns a per-question
-   verdict (pass, or fail with a one-line reason) and must not edit. Rewrite
+   load-bearing, for code) and self-explanatory? For a written question it also
+   checks the three things the AI evaluator depends on: the prompt bounds the
+   answer (how much, and of what), the model answer alone fully answers it, and
+   the key points are the model answer's essentials with nothing extra, so a
+   level-4 answer is one that makes every key point ("Written questions"). It
+   returns a per-question verdict (pass, or fail with a one-line reason) and
+   must not edit. Rewrite
    only the failing questions and their sidecar entries, then re-run the critic.
    Stop early when a pass comes back clean; if a question is still failing after
    2 critic rounds, stop and hand that question to the user for a call — do not
@@ -57,10 +67,12 @@ or **code** (a repo, a folder, or one flow/sub-flow within it — follow
    Completion: a clean critic pass, or 2 rounds run and any stragglers reported.
 6. **Validate** the mechanics: `python3 <scripts>/validate.py <file>`.
    Resolve `<scripts>` as the `scripts/` directory beside this SKILL.md — in Claude Code that is `${CLAUDE_PLUGIN_ROOT}/skills/quiz-create/scripts`, never a path relative to the project you happen to be in.
-   Completion: it prints `OK — N question(s) …`. If it prints `invalid: …`,
-   fix everything listed and re-run.
-7. **Hand the file over**: report the path, the audience, and the settings
-   (difficulty, time limit, scoring). Done.
+   Completion: it prints `OK — N question(s), W written …` and no `warning:`
+   line. If it prints `invalid: …`, fix everything listed and re-run; a
+   `warning:` (a written question without key points, or written questions
+   bunched at the end with shuffle off) is house style, so fix it too.
+7. **Hand the file over**: report the path, the audience, the settings
+   (difficulty, time limit, scoring), and how many questions are written. Done.
 
 ## The audience
 
@@ -102,7 +114,7 @@ reworded to *why is this hop/answer load-bearing?* — see `CODE-MATERIAL.md`.
 ## The rules — each rule is also its check (prose)
 
 Prose material. For code, follow `CODE-MATERIAL.md` instead of rules 1–8;
-rules 9–12 (right-size, scoring, justification, order) apply to both.
+rules 9–13 (right-size, scoring, justification, order, written mix) apply to both.
 
 1. **Quiz the idea, not the document.** Test definitions, mechanisms,
    distinctions, tradeoffs. Name concepts by what they mean, never by where the
@@ -138,14 +150,18 @@ rules 9–12 (right-size, scoring, justification, order) apply to both.
 8. **Teach in the explanation.** Why the right answer is right, and why each
    wrong option is wrong (or what it actually is).
    Check: the explanation covers the right answer and every wrong option.
-9. **Right-size.** The asked count (default 10; 8–12 if no count was asked).
-   Check: the count matches.
-10. **Score fair.** Every quiz is marked +2 per correct option ticked, −1 per
-    wrong one, −2 for a blank question, so a question's worth is 2 × its
-    correct options. Keep wrong options plausible, not traps that only punish.
-    A subjective question is never marked (no points, no −2 when blank), so it
-    adds nothing to the score or the maximum.
-    Check: no question has a wrong option that is wrong only on a technicality.
+9. **Right-size.** The asked count (default 10; 8–12 if no count was asked),
+   about one in five of them written unless the invocation set another share.
+   Check: the count matches, and so does the written share.
+10. **Score fair.** Every choice question is marked +2 per correct option ticked,
+    −1 per wrong one, −2 for a blank question, so its worth is 2 × its correct
+    options. Keep wrong options plausible, not traps that only punish. A written
+    question is worth 4: the AI evaluator marks the typed answer 0–4 against its
+    model answer and key points, with partial credit, and it never goes below 0
+    (blank or wrong scores 0). Both count toward the score and the maximum.
+    Check: no question has a wrong option that is wrong only on a technicality,
+    and every written question can be marked fairly from its model answer and
+    key points alone.
 11. **Justify every question.** Each question has its two-line sidecar entry,
     and the "not source-locked" line is true — a question only the source's
     author could justify fails here.
@@ -161,6 +177,14 @@ rules 9–12 (right-size, scoring, justification, order) apply to both.
     `"shuffle_questions": false` (cross-question references) in its JSON.
     Check: every option and explanation reads correctly in any option order,
     and every question in any question order — or the matching switch is false.
+13. **Sprinkle the written questions in.** With `shuffle_questions` on (the
+    default), every attempt serves the questions in a fresh order, so placement
+    in the file does not matter. With it off, place the written questions spread
+    through the set — for 2 in 10, around positions 4 and 8 — never bunched at
+    the end. Pick for them the ideas best tested by explaining (a mechanism, a
+    tradeoff, a "why"), and keep the rest choice questions.
+    Check: the written share holds; with shuffle off, no run of written
+    questions sits at the end.
 
 ## The shape
 
@@ -179,7 +203,8 @@ validation on upload.
   "questions": [
     {"prompt": "…", "explanation": "…", "points": 1,
      "options": [{"body": "…", "correct": true}, {"body": "…", "correct": false}]},
-    {"type": "subjective", "prompt": "…", "model_answer": "…", "explanation": "…"}
+    {"type": "subjective", "prompt": "…", "model_answer": "…",
+     "key_points": ["…", "…"], "explanation": "…"}
   ]
 }
 ```
@@ -201,25 +226,40 @@ validation on upload.
     marking), at least 2 `options`, at least 1 option with `correct: true`. `explanation`
     optional. No `model_answer`.
   - **subjective**: the solver types the answer into a text box (up to 10,000 characters).
-    Non-empty `prompt` and a required, non-empty `model_answer`; `explanation` optional.
-    No `options` and no `points`: it is never marked, so it counts toward neither the
-    score nor the maximum, and a blank one costs nothing. `model_answer` is Markdown, shown
-    on results and View when `reveal_answers` is true.
+    Non-empty `prompt` and a required, non-empty `model_answer`; `key_points` optional
+    for the upload (1–6 short texts, each at most 300 characters) but always written by
+    this skill; `explanation` optional. No `options` and no `points`: it is always worth
+    4, marked 0–4 by the AI evaluator against the model answer and key points, never
+    below 0. `model_answer` is Markdown, shown on results and View when `reveal_answers`
+    is true; the key points are the evaluator's rubric, never shown to solvers.
 
-### Subjective questions
+### Written questions
 
-Add one only when the invocation asks for written answers, or an idea is best tested by
-having the solver explain it (a mechanism, a tradeoff, a "why"). The prose rules still
-apply to the prompt: quiz the idea, solvable cold, a fresh scenario, no exact figure as
-the answer. Rules 5 and 7 (traps, hidden correct count) are about options, so they do not
-apply.
+About one question in five is written (rule 9), chosen from the ideas best tested by
+having the solver explain them. The prose rules still apply to the prompt: quiz the idea,
+solvable cold, a fresh scenario, no exact figure as the answer. Rules 5 and 7 (traps,
+hidden correct count) are about options, so they do not apply.
 
-- **Ask for a bounded answer.** Say how much is wanted ("In two or three sentences: …"),
-  so the solver and the model answer aim at the same size.
+The AI evaluator marks a typed answer on five levels, and the level is the mark: **4**
+every essential point present and correct; **3** the main point right, one secondary point
+missing or loose; **2** some essentials right, an important one missing or one real error;
+**1** a correct fragment only; **0** wrong, irrelevant, contradicting the main point, or
+blank. It credits correct answers in other words or by another valid route, ignores
+spelling and length, and gives nothing for hedging. Write each question so that scale is
+easy to apply:
+
+- **Ask for a bounded answer.** Say how much is wanted, and of what ("In two or three
+  sentences: why …, and what it costs"), so the solver, the model answer and the key
+  points aim at the same size. One question, not two hidden in one.
 - **The model answer is the answer a strong solver would write**, complete enough to
-  compare a submitted answer against: every point a full answer must make, in plain
-  prose, nothing the prompt did not ask for. It is the reference a later comparison of
-  typed answers would use, so never leave it a stub ("see explanation").
+  mark against: every point a full answer must make, in plain prose, nothing the prompt
+  did not ask for. Never a stub ("see explanation").
+- **Key points: 2 to 4 of them, the model answer's essentials.** Each is one checkable
+  claim in plain words ("Each model learns its own vector space"), not a keyword or a
+  topic ("vector spaces"). Together they are exactly a level-4 answer: drop one and the
+  answer is a 3 or a 2. No point the prompt did not ask for, no example dressed as an
+  essential, no two points that say the same thing.
 - **The explanation**, if any, says why that answer is right or names the common wrong
   answer; it does not repeat the model answer.
-- Check: the prompt bounds the answer; the model answer alone fully answers the prompt.
+- Check: the prompt bounds the answer; the model answer alone fully answers it; the key
+  points are its essentials, each one checkable, and making all of them earns 4.

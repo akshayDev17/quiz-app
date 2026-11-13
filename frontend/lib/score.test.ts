@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { formatScore, isMarked, MARKING_RULE, maxMarks, percent, scoreLine, writeIntroRules } from './score.ts';
+import { formatScore, isMarked, MARKING_RULE, maxMarks, percent, scoreLine, writeIntroRules, WRITTEN_RULE } from './score.ts';
 
 test('formatScore trims trailing zeros and caps at 2 decimals', () => {
   assert.equal(formatScore(4), '4');
@@ -41,21 +41,28 @@ test('scoreLine reads score / max_score for a marked attempt, below zero too', (
   assert.equal(scoreLine(0, 4), '0 / 4');
 });
 
-test('scoreLine reads Not marked, never 0 / 0, when nothing in the set is marked', () => {
+test('scoreLine reads Not marked, never 0 / 0, when nothing in the attempt is marked', () => {
   assert.equal(scoreLine(0, 0), 'Not marked');
 });
 
-test('the intro of an all-subjective set drops the choice-only copy and says nothing is marked', () => {
-  const rules = writeIntroRules(2, 2);
-  assert.deepEqual(rules, { questions: '2 questions, each answered in writing.', marking: 'Written answers are not marked.' });
-  const text = rules.questions + rules.marking;
-  assert.doesNotMatch(text, /more than one correct answer|−2|\+2|−1/);
+test('scoreLine says how many written answers still await the evaluator', () => {
+  assert.equal(scoreLine(12, 20, 1), '12 / 20 · 1 awaiting');
+  assert.equal(scoreLine(12, 20, 0), '12 / 20');
 });
 
-test('the intro of a mixed set keeps the marking rule and adds that written questions are not marked', () => {
+test('the intro of an all-subjective set drops the choice-only copy and gives the written rule', () => {
+  const rules = writeIntroRules(2, 2);
+  assert.deepEqual(rules, { questions: '2 questions, each answered in writing.', marking: WRITTEN_RULE });
+  const text = rules.questions + rules.marking;
+  assert.doesNotMatch(text, /more than one correct answer|−2|\+2|−1/);
+  assert.match(text, /out of 4/);
+  assert.match(text, /never less/);
+});
+
+test('the intro of a mixed set gives the choice rule, then the written rule', () => {
   assert.deepEqual(writeIntroRules(4, 1), {
     questions: '4 questions. Some have more than one correct answer.',
-    marking: `${MARKING_RULE} Written questions are not marked, so leaving one blank costs nothing.`,
+    marking: `${MARKING_RULE} ${WRITTEN_RULE}`,
   });
 });
 

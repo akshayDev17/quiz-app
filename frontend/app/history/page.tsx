@@ -79,7 +79,7 @@ export default function HistoryPage() {
                   <td className="mc">{STATUS_LABEL[a.status]}</td>
                   <td className="num">
                     {a.score !== null && a.max_score !== null
-                      ? scoreLine(a.score, a.max_score)
+                      ? scoreLine(a.score, a.max_score, a.awaiting_count)
                       : '—'}
                   </td>
                 </tr>

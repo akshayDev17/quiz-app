@@ -23,9 +23,10 @@ published to.
 ## What it does
 
 - **`quiz-create`** — writes a quiz-set JSON in the house style (varied difficulty,
-  plausible distractors, hidden multi-correct counts) and self-validates it against
-  the *same* validator the server runs, so a set that passes locally cannot be
-  rejected on upload.
+  plausible distractors, hidden multi-correct counts, and about one written question
+  in five, each with a model answer and the key points the app's AI evaluator marks it
+  against, out of 4 and never below 0) and self-validates it against the *same*
+  validator the server runs, so a set that passes locally cannot be rejected on upload.
 - **`quiz-upload`** — posts it to `/quiz/api/admin/sets` and optionally publishes.
   Handles the Cloudflare Access one-time-PIN login by itself: drives the browser,
   reads the code out of the mailbox, caches the session cookie for ~24 h.
@@ -43,6 +44,14 @@ claude plugin install quiz-tools@quiz-app --scope user
 Brings both skills **and** the Gmail MCP server the upload flow reads its login code
 with. Try it without installing: `claude --plugin-dir ./quiz-app/tools`.
 
+**Getting a new version** (the badge above is the current one): refresh the
+marketplace, then update the plugin, and start a new session so the skills reload:
+
+```sh
+claude plugin marketplace update quiz-app
+claude plugin update quiz-tools@quiz-app
+```
+
 ## Install (DSH)
 
 ```sh
@@ -50,7 +59,8 @@ dsh plugin --profile web add file:"$PWD/tools"
 ```
 
 Restart `dsh web` to load the skills. On this harness the Gmail MCP is declared in
-the DSH profile rather than by the plugin.
+the DSH profile rather than by the plugin. The plugin is read from your checkout, so
+a new version arrives with `git pull` in it and a `dsh web` restart.
 
 ## First run
 

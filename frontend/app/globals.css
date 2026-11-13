@@ -273,6 +273,12 @@ pre code, pre code.hljs { display: block; overflow: visible; background: none; p
 .rq-head h3 { font-size: 1.125rem; font-weight: 400; line-height: 1.4; flex: 1; }
 .mark { font-family: var(--mono); font-size: .6875rem; letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; }
 .mark.ok { color: var(--ok); } .mark.bad { color: var(--danger); } .mark.blank { color: var(--muted); }
+/* written answers: partial credit, and waiting for the AI evaluator */
+.mark.part { color: var(--warn); } .mark.wait { color: var(--muted); font-style: italic; }
+.answer-block.feedback { border-left-color: var(--accent); background: color-mix(in oklab, var(--accent) 6%, var(--card)); }
+.answer-block.feedback .lab { color: var(--accent); }
+.written-note { font-size: .9375rem; color: var(--muted); margin-top: var(--s2); }
+.written-note.provisional { margin: 0 0 var(--s4); padding-left: var(--s3); border-left: 2px solid var(--warn); }
 .ropt { display: flex; gap: var(--s3); padding: var(--s2) var(--s3); border-left: 2px solid var(--rule); margin-bottom: 4px; font-size: 1rem; }
 .ropt.hit { border-left-color: var(--ok); background: color-mix(in oklab, var(--ok) 7%, var(--card)); }
 .ropt.wrong { border-left-color: var(--danger); background: color-mix(in oklab, var(--danger) 6%, var(--card)); }
@@ -310,6 +316,39 @@ pre code, pre code.hljs { display: block; overflow: visible; background: none; p
 .vis-private { display: block; color: var(--accent); }
 .iconbtn.danger:hover { border-color: var(--danger); background: color-mix(in oklab, var(--danger) 7%, transparent); }
 
+/* admin — AI evaluators: ordered entries as cards, so a phone never scrolls sideways */
+.ev-lede { color: var(--body); margin-bottom: var(--s3); }
+.ev-note { font-size: .9375rem; color: var(--muted); margin-bottom: var(--s4); }
+.ev-note code, .ev-secrets code { font-family: var(--mono); font-size: .8125rem; overflow-wrap: anywhere; }
+.ev-list { list-style: none; display: flex; flex-direction: column; gap: var(--s3); }
+.ev-entry { padding: var(--s4) var(--s5); }
+.ev-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s2) var(--s3); }
+.ev-head .ev-n { font-family: var(--mono); font-size: .6875rem; color: var(--accent); }
+.ev-head .ev-label { font-weight: 600; flex: 1 1 14rem; min-width: 0; overflow-wrap: anywhere; line-height: 1.35; }
+.chip.ev-ok { border-color: var(--ok); color: var(--ok); }
+.chip.ev-miss { border-color: var(--warn); color: var(--warn); }
+.ev-sub { font-size: .875rem; color: var(--muted); margin-top: var(--s1); overflow-wrap: anywhere; }
+.ev-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s3); }
+.ev-grid.ev-grid-2 { grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); }
+.ev-grid .field { margin-top: var(--s3); min-width: 0; gap: var(--s1); }
+.ev-grid .field input, .ev-grid .field select { width: 100%; min-width: 0; padding: .5rem .6rem; }
+.ev-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); margin-top: var(--s4); }
+.ev-actions .ev-fill { flex: 1; }
+.ev-actions .btn { padding: .45rem .9rem; }
+.btn.ghost.ev-remove { color: var(--danger); border-color: var(--danger); }
+.btn.ghost.ev-remove:hover { background: var(--danger); color: var(--card); }
+.ev-providers { list-style: none; display: flex; flex-direction: column; gap: var(--s2); margin-bottom: var(--s3); }
+.ev-providers li { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s2) var(--s3); }
+.ev-secrets { font-size: .875rem; color: var(--muted); display: inline-flex; flex-wrap: wrap; gap: var(--s2); }
+.ev-reasons { list-style: none; font-size: .9375rem; color: var(--muted); margin-bottom: var(--s3); }
+@media (max-width: 40rem) {
+  .ev-entry { padding: var(--s4); }
+  .ev-grid, .ev-grid.ev-grid-2 { grid-template-columns: minmax(0, 1fr); }
+  .ev-grid .field input, .ev-grid .field select { font-size: 16px; }
+}
+/* the editor: a written question's key points sit under its model answer */
+.editor-page .ed-field textarea + .lab { margin-top: .6rem; }
+
 /* admin — import row */
 .import { display: flex; align-items: center; justify-content: space-between; gap: var(--s4);
           flex-wrap: wrap; padding: var(--s4) var(--s5); margin-bottom: var(--s5); }
@@ -323,6 +362,7 @@ pre code, pre code.hljs { display: block; overflow: visible; background: none; p
 .import-btn:hover { background: var(--accent); border-color: var(--accent); }
 .import-btn:active { transform: scale(.96); }
 .import-btn svg { width: .95rem; height: .95rem; }
+a.import-btn { text-decoration: none; }
 /* admin — edit set, "utility" reading: the OS UI face, tinted panels instead of
    white, sentence-case labels, save pinned in a toolbar at the top. Every rule
    is scoped to .editor-page so the rest of the site keeps its own voice. Three

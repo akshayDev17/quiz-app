@@ -10,8 +10,9 @@ export default function ConfirmDialog({
   /** Labels of the unanswered choice questions, e.g. `["Q4", "Q11"]`: each costs −2. */
   unanswered: string[];
   /**
-   * Labels of the subjective questions left blank. They are never marked, so they cost
-   * nothing and are not counted as unanswered; they are named so none is skipped by mistake.
+   * Labels of the subjective questions left blank. A blank written answer scores 0 (written
+   * answers are never negative), so it is not counted as unanswered; they are named so none is
+   * skipped by mistake.
    */
   blankWritten?: string[];
   onConfirm: () => void;
@@ -32,7 +33,7 @@ export default function ConfirmDialog({
           {blankWritten.length > 0 && (
             <>
               {' '}Written {blankWritten.length === 1 ? 'answer' : 'answers'} left blank ({blankWritten.join(', ')}):
-              not marked, so {blankWritten.length === 1 ? 'it costs' : 'they cost'} nothing.
+              {blankWritten.length === 1 ? ' it scores' : ' they score'} 0, but never cost marks.
             </>
           )}
           <br />

@@ -48,6 +48,7 @@ test('no exported page carries a theme boot script or theme tokens of its own', 
 // Every page prerenders its masthead (the pages that read the query string have
 // it as their Suspense fallback), so site-shell finds the site path slot in each.
 const MASTHEAD_PAGES = ['index.html', 'set.html', 'play.html', 'results.html', 'history.html', 'admin.html', 'admin/edit.html',
+  'admin/evaluators.html',
   'view.html', 'signin.html'];
 
 test('every page\'s masthead renders the plain <site-theme-picker hide-label> element', () => {

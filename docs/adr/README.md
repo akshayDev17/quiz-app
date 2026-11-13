@@ -15,3 +15,4 @@ or *Open questions*).
 | 0007 | Delete unlinks and never closes an attempt | 2026-10-24 | Accepted |
 | 0008 | The plugin ships a public Google OAuth client | 2026-10-25 | Accepted |
 | 0009 | The signed-out View is a fixed Access Bypass list; the Worker still owns refusal | 2026-11-12 | Accepted |
+| 0010 | Subjective answers are marked by an AI evaluator, out of 4 and never below 0 | 2026-11-13 | Accepted |

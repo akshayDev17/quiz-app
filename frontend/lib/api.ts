@@ -1,4 +1,5 @@
 import type {
+  AdminEvaluators,
   AdminSetDetail,
   AdminSets,
   AttemptSession,
@@ -7,6 +8,8 @@ import type {
   Me,
   PublicSet,
   PublicTopicsResponse,
+  EvaluatorFields,
+  RerunResult,
   Results,
   SetIntro,
   SetStatusResult,
@@ -195,6 +198,19 @@ export const getAdminSet = (setId: number) => request<AdminSetDetail>(`/admin/se
 /** Replace the set's props and questions in place. */
 export const updateAdminSet = (setId: number, body: unknown) =>
   send<ImportResult>('PUT', `/admin/sets/${id(setId)}`, body);
+
+/** The AI evaluators of written answers (admin only): each call returns the whole page's state. */
+export const adminEvaluators = () => request<AdminEvaluators>('/admin/evaluators');
+export const adminAddEvaluator = (body: { provider: string; model: string } & EvaluatorFields) =>
+  send<AdminEvaluators>('POST', '/admin/evaluators', body);
+export const adminUpdateEvaluator = (modelId: number, body: EvaluatorFields) =>
+  send<AdminEvaluators>('PUT', `/admin/evaluators/${id(modelId)}`, body);
+export const adminRemoveEvaluator = (modelId: number) =>
+  send<AdminEvaluators>('DELETE', `/admin/evaluators/${id(modelId)}`);
+export const adminOrderEvaluators = (ids: number[]) =>
+  send<AdminEvaluators>('POST', '/admin/evaluators/order', { ids });
+/** Mark written answers still awaiting evaluation, a few attempts per call, quotas aside. */
+export const adminRerunEvaluations = () => send<RerunResult>('POST', '/admin/evaluations/rerun');
 
 /**
  * End the session.

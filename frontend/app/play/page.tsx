@@ -375,7 +375,7 @@ function Play() {
               {question.kind === 'subjective' ? (
                 <>
                   <label className="mc hint" htmlFor={`answer-${question.id}`}>
-                    Write your answer · not marked
+                    Write your answer · AI-marked out of 4, never below 0
                   </label>
                   <textarea
                     key={question.id}

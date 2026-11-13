@@ -19,8 +19,8 @@ export function isAnswered(q: Question, picks: Picks, texts: Texts): boolean {
  * The blanks the submit confirmation names, as labels in display order ("Q4").
  *
  * `unanswered` holds only choice questions: each costs −2 when left blank. A blank subjective
- * question costs nothing, since it is never marked, so it goes in `blankWritten` instead and is
- * never counted as unanswered.
+ * question scores 0 and never costs marks (written answers are never negative), so it goes in
+ * `blankWritten` instead and is never counted as unanswered.
  */
 export function blanks(questions: Question[], picks: Picks, texts: Texts): { unanswered: string[]; blankWritten: string[] } {
   const unanswered: string[] = [];
