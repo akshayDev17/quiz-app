@@ -57,7 +57,8 @@ export default function EvaluatorsPage() {
   const [state, setState] = useState<AdminEvaluators | null>(null);
   const [edits, setEdits] = useState<Record<number, Fields>>({});
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  /** What the last re-run did, shown beside its button. */
+  const [rerunNote, setRerunNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [expired, setExpired] = useState(false);
   const [provider, setProvider] = useState('');
@@ -87,21 +88,25 @@ export default function EvaluatorsPage() {
       .catch(fail);
   }, [show, fail]);
 
-  /** Runs one action; one that returns the page's state replaces it. */
-  async function act(action: () => Promise<AdminEvaluators | string>) {
+  /** Runs one action and shows the page's state it returns. */
+  async function act(action: () => Promise<AdminEvaluators>) {
     setBusy(true);
     setError(null);
-    setNotice(null);
+    setRerunNote(null);
     try {
-      const got = await action();
-      if (typeof got === 'string') {
-        setNotice(got);
-        show(await adminEvaluators());
-      } else show(got);
+      show(await action());
     } catch (err) {
       fail(err);
     }
     setBusy(false);
+  }
+
+  function rerun() {
+    act(async () => {
+      const r = await adminRerunEvaluations();
+      setRerunNote(`Re-ran ${r.attempts_tried} ${r.attempts_tried === 1 ? 'attempt' : 'attempts'}; ${r.still_awaiting} still awaiting.`);
+      return adminEvaluators();
+    });
   }
 
   /** Picking a model the backend has published prices for fills them in. */
@@ -162,7 +167,6 @@ export default function EvaluatorsPage() {
             {state ? ` in ${state.month} (UTC)` : ''}, priced at the rates set here. They are not the provider’s
             billing figure: keep a monthly spend limit at the provider as the hard backstop.
           </p>
-          {notice && <p className="mc" style={{ marginBottom: 'var(--s4)' }}>{notice}</p>}
           {!state && !error && <p className="mc">Loading…</p>}
 
           {state && (
@@ -184,7 +188,7 @@ export default function EvaluatorsPage() {
                         <span className="ev-n">{i + 1}</span>
                         <b className="ev-label">{evaluatorLabel(m)}</b>
                         <span className={`chip ${m.usable ? 'ev-ok' : 'ev-miss'}`}>
-                          {m.usable ? 'secret set' : 'secret missing · skipped'}
+                          {m.usable ? 'usable' : 'secret missing · skipped'}
                         </span>
                       </div>
                       <p className="ev-sub">
@@ -317,13 +321,10 @@ export default function EvaluatorsPage() {
                 </ul>
               )}
               <div className="ev-actions">
-                <button className="btn" disabled={busy || state.queue.awaiting === 0}
-                        onClick={() => act(async () => {
-                          const r = await adminRerunEvaluations();
-                          return `Re-ran ${r.attempts_tried} ${r.attempts_tried === 1 ? 'attempt' : 'attempts'}; ${r.still_awaiting} still awaiting.`;
-                        })}>
+                <button className="btn" disabled={busy || state.queue.awaiting === 0} onClick={rerun}>
                   Re-run awaiting evaluations
                 </button>
+                {rerunNote && <span className="mc" role="status">{rerunNote}</span>}
               </div>
               <p className="ev-note">
                 A re-run marks up to 5 attempts per click, oldest first. It skips the daily limits

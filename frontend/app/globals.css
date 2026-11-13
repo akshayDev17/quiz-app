@@ -279,6 +279,13 @@ pre code, pre code.hljs { display: block; overflow: visible; background: none; p
 .answer-block.feedback .lab { color: var(--accent); }
 .written-note { font-size: .9375rem; color: var(--muted); margin-top: var(--s2); }
 .written-note.provisional { margin: 0 0 var(--s4); padding-left: var(--s3); border-left: 2px solid var(--warn); }
+/* On a phone a result's badge ("AI-marked · 3/4", "Incorrect · −1/6") takes its own line under
+   the prompt, aligned with it, instead of squeezing the prompt into a narrow column. After the
+   .rq-head rule above, which it overrides. */
+@media (max-width: 680px) {
+  .rq-head { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: var(--s3); row-gap: var(--s1); }
+  .rq-head .mark { grid-column: 2; white-space: normal; }
+}
 .ropt { display: flex; gap: var(--s3); padding: var(--s2) var(--s3); border-left: 2px solid var(--rule); margin-bottom: 4px; font-size: 1rem; }
 .ropt.hit { border-left-color: var(--ok); background: color-mix(in oklab, var(--ok) 7%, var(--card)); }
 .ropt.wrong { border-left-color: var(--danger); background: color-mix(in oklab, var(--danger) 6%, var(--card)); }
@@ -335,6 +342,9 @@ pre code, pre code.hljs { display: block; overflow: visible; background: none; p
 .ev-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); margin-top: var(--s4); }
 .ev-actions .ev-fill { flex: 1; }
 .ev-actions .btn { padding: .45rem .9rem; }
+.ev-actions + .ev-note { margin-top: var(--s3); }
+/* the model field suggests the published ids; Chrome's heavy datalist arrow would clash with the select's chevron */
+.ev-grid input[list]::-webkit-calendar-picker-indicator { display: none !important; }
 .btn.ghost.ev-remove { color: var(--danger); border-color: var(--danger); }
 .btn.ghost.ev-remove:hover { background: var(--danger); color: var(--card); }
 .ev-providers { list-style: none; display: flex; flex-direction: column; gap: var(--s2); margin-bottom: var(--s3); }
