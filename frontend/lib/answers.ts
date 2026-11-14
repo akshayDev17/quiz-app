@@ -1,4 +1,4 @@
-import { MAX_TEXT_ANSWER, type AttemptSession } from './types.ts';
+import { MAX_TEXT_ANSWER, type AttemptSession, type ChoiceResult, type SubjectiveResult } from './types.ts';
 
 type Question = Pick<AttemptSession['questions'][number], 'id' | 'kind'>;
 /** Ticked option ids per question id. */
@@ -19,8 +19,8 @@ export function isAnswered(q: Question, picks: Picks, texts: Texts): boolean {
  * The blanks the submit confirmation names, as labels in display order ("Q4").
  *
  * `unanswered` holds only choice questions: each costs −2 when left blank. A blank subjective
- * question costs nothing, since it is never marked, so it goes in `blankWritten` instead and is
- * never counted as unanswered.
+ * question scores 0 and never costs marks (written answers are never negative), so it goes in
+ * `blankWritten` instead and is never counted as unanswered.
  */
 export function blanks(questions: Question[], picks: Picks, texts: Texts): { unanswered: string[]; blankWritten: string[] } {
   const unanswered: string[] = [];
@@ -30,6 +30,22 @@ export function blanks(questions: Question[], picks: Picks, texts: Texts): { una
     (q.kind === 'subjective' ? blankWritten : unanswered).push(`Q${i + 1}`);
   });
   return { unanswered, blankWritten };
+}
+
+/** A submitted question as far as whether it was answered: its ticks, or its typed text. */
+type ResultAnswer =
+  | { kind: 'choice'; options: Pick<ChoiceResult['options'][number], 'selected'>[] }
+  | Pick<SubjectiveResult, 'kind' | 'text_answer'>;
+
+/**
+ * How many questions of a submitted attempt were left blank, for the results header: a choice
+ * question with nothing ticked (it cost −2) and a written one with no text (it scored 0, never
+ * less). The server sends a blank written answer's text as null; whitespace counts as blank too.
+ */
+export function countUnanswered(questions: ResultAnswer[]): number {
+  return questions.filter((q) =>
+    q.kind === 'subjective' ? (q.text_answer ?? '').trim() === '' : !q.options.some((o) => o.selected),
+  ).length;
 }
 
 /** Input types that take typed text; a checkbox or button does not. */
@@ -51,11 +67,19 @@ export function isTypingTarget(target: EventTarget | null): boolean {
   return !NON_TEXT_INPUTS.has(typeof el.type === 'string' ? el.type.toLowerCase() : 'text');
 }
 
-/** Within this many characters of the limit, the text box shows how many are used. */
-export const COUNTER_FROM = MAX_TEXT_ANSWER - 1_000;
+/**
+ * The most characters a written question takes: the server's limit for it (10x its model answer,
+ * 300 to 10,000; the server refuses a longer save), or 10,000 from a server that sends none.
+ */
+export function textLimit(q: Pick<AttemptSession['questions'][number], 'max_text_length'>): number {
+  return q.max_text_length ?? MAX_TEXT_ANSWER;
+}
 
-/** "9,512 / 10,000" once a typed answer nears the limit; empty before that. */
-export function textCounter(length: number): string {
-  if (length < COUNTER_FROM) return '';
-  return `${length.toLocaleString('en-US')} / ${MAX_TEXT_ANSWER.toLocaleString('en-US')}`;
+/**
+ * The count under a text box, always shown: "120 / 820 characters". An answer saved before the
+ * limit existed may be longer; it is kept as it is, but a changed one must fit, so it says so.
+ */
+export function textCounter(length: number, limit: number): { text: string; over: boolean } {
+  const text = `${length.toLocaleString('en-US')} / ${limit.toLocaleString('en-US')} characters`;
+  return length > limit ? { text: `${text} · shorten it to save a change`, over: true } : { text, over: false };
 }

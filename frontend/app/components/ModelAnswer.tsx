@@ -2,7 +2,7 @@ import Markdown from './Markdown';
 
 /**
  * A subjective question's authored model answer, on results and on View: Markdown, in the
- * green that marks the answer key. Never a score: subjective questions are not marked.
+ * green that marks the answer key. It is what the AI evaluator marks a written answer against.
  */
 export default function ModelAnswer({ text }: { text: string }) {
   return (

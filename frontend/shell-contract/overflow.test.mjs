@@ -50,46 +50,56 @@ const questions = [
   { id: 12, kind: 'choice', prompt: 'An HNSW index returns fewer true neighbours after you lower `efSearch`. Why?',
     options: [{ id: 121, body: 'The search keeps a shorter candidate list per layer' }, { id: 122, body: 'The graph is rebuilt with fewer links' }] },
 ];
-// A subjective question: typed into a text box, never marked, with an authored model answer.
+// A subjective question: typed into a text box, marked 0–4 by the AI evaluator against its model answer.
 // The typed answer and the model answer carry a long unbroken URL and a fenced block.
 const LONG_TYPED = 'Each model learns its own space, see https://github.com/facebookresearch/faiss/wiki/MetricType-and-distances#metric_inner_product_and_cosine_similarity_explained\n\nSo re-embed.';
-const written = { id: 13, kind: 'subjective', prompt: 'In two or three sentences: why does swapping the embedding model force a full re-index, even at the same dimension?', options: [] };
+const written = { id: 13, kind: 'subjective', prompt: 'In two or three sentences: why does swapping the embedding model force a full re-index, even at the same dimension?', options: [],
+  max_text_length: 2_000 };
 const MODEL_ANSWER = 'Each model learns its own vector space, so old and new vectors are not comparable:\n\n```python\nindex.reset(); index.add(np.stack([new_model.encode(chunk) for chunk in all_chunks_in_the_corpus_without_exception]))\n```';
 const sessionOf = (id, qs, extra = {}) => ({
   attempt: { id, set_id: 2, status: 'in_progress', started_at: NOW - 13 * 60_000, deadline_at: NOW + 7 * 60_000, paused_at: null },
   server_now: NOW, set: { name: setIntro.name, topic: setIntro.topic, subtopic: setIntro.subtopic },
-  questions: qs, selections: {}, texts: {}, ...extra,
+  questions: qs.map((q) => ({ max_text_length: null, ...q })), selections: {}, texts: {}, ...extra,
 });
 const attemptSession = sessionOf('a2', [...questions, written], { selections: { 11: [111] } });
 /** The same paper opened on its subjective question, with a long typed answer in the box. */
 const writtenSession = sessionOf('a3', [written, ...questions], { texts: { 13: LONG_TYPED } });
-// Negative marking, below zero: the first question is +2 −1, the second left blank at −2.
+// The evaluator's feedback is plain text and can carry a long unbroken token too.
+const FEEDBACK = 'You explain that each model has its own vector space; you do not say why the same dimension is no help (see https://example.com/a-very-long-unbroken-reference-to-vector-space-compatibility).';
+const writtenResult = (id, prompt, extra) => ({ id, kind: 'subjective', prompt, points: 4, awarded_points: null, is_correct: null,
+  explanation: 'Same dimension is a storage coincidence, not compatibility.', options: [], evaluation: 'awaiting', feedback: null,
+  text_answer: LONG_TYPED, model_answer: MODEL_ANSWER, ...extra });
+// Negative marking, below zero: the first question is +2 −1, the second left blank at −2; then a written
+// answer in each state: AI-marked with feedback, awaiting evaluation (so the score is provisional), flagged.
 const results = {
-  attempt: { id: 'a1', status: 'submitted', started_at: NOW - 2 * HOUR, finished_at: NOW - HOUR, score: -1, max_score: 4 },
+  attempt: { id: 'a1', status: 'submitted', started_at: NOW - 2 * HOUR, finished_at: NOW - HOUR, score: 2, max_score: 16,
+             awaiting_count: 1 },
   set: { id: 2, name: setIntro.name, topic: setIntro.topic, scoring_policy: 'negative_marking', reveal_answers: true },
   questions: questions.map((q, i) => ({ id: q.id, kind: 'choice', prompt: q.prompt, points: 2, awarded_points: i ? -2 : 1, is_correct: false,
     explanation: 'Normalising both vectors makes the denominator 1, so cosine similarity reduces to the inner product.',
     options: q.options.map((o, j) => ({ id: o.id, body: o.body, selected: !i && (j === 0 || j === 2), correct: j === 0 })) })).concat([
-    { id: written.id, kind: 'subjective', prompt: written.prompt, points: null, awarded_points: null, is_correct: null,
-      explanation: 'Same dimension is a storage coincidence, not compatibility.', options: [],
-      text_answer: LONG_TYPED, model_answer: MODEL_ANSWER },
+    writtenResult(written.id, written.prompt, { evaluation: 'marked', awarded_points: 3, feedback: FEEDBACK }),
+    writtenResult(14, 'In one sentence: what does normalising embeddings to unit length buy you?', {}),
+    writtenResult(15, 'Why can an approximate index miss a true nearest neighbour?', { evaluation: 'flagged', awarded_points: 0 }),
   ]),
 };
-// A set of only subjective questions: nothing in it is marked, so its attempt scores 0 out of 0.
+// An all-written set taken before written answers were marked: nothing in it is marked, so 0 out of 0.
 const unmarkedResults = {
-  attempt: { id: 'a4', status: 'submitted', started_at: NOW - 3 * HOUR, finished_at: NOW - 3 * HOUR + 10 * 60_000, score: 0, max_score: 0 },
+  attempt: { id: 'a4', status: 'submitted', started_at: NOW - 3 * HOUR, finished_at: NOW - 3 * HOUR + 10 * 60_000, score: 0, max_score: 0,
+             awaiting_count: 0 },
   set: { id: 5, name: 'Embeddings and vector space · Set 3', topic: setIntro.topic, scoring_policy: 'negative_marking', reveal_answers: true },
-  questions: results.questions.filter((q) => q.kind === 'subjective'),
+  questions: [writtenResult(written.id, written.prompt, { points: null, evaluation: null })],
 };
 const history = { attempts: [
   { id: 'a2', set_id: 2, name: 'Embeddings and vector space · Set 1', topic: 'Retrieval-augmented generation', status: 'in_progress',
-    started_at: NOW - 13 * 60_000, finished_at: null, score: null, max_score: null },
+    started_at: NOW - 13 * 60_000, finished_at: null, score: null, max_score: null, awaiting_count: 0 },
   { id: 'a1', set_id: 2, name: 'Embeddings and vector space · Set 1', topic: 'Retrieval-augmented generation', status: 'submitted',
-    started_at: NOW - 2 * HOUR, finished_at: NOW - HOUR, score: 9.5, max_score: 12 },
+    started_at: NOW - 2 * HOUR, finished_at: NOW - HOUR, score: 9.5, max_score: 12, awaiting_count: 0 },
   { id: 'a4', set_id: 5, name: unmarkedResults.set.name, topic: unmarkedResults.set.topic, status: 'submitted',
-    started_at: unmarkedResults.attempt.started_at, finished_at: unmarkedResults.attempt.finished_at, score: 0, max_score: 0 },
+    started_at: unmarkedResults.attempt.started_at, finished_at: unmarkedResults.attempt.finished_at, score: 0, max_score: 0,
+    awaiting_count: 0 },
   { id: 'a0', set_id: 4, name: 'Consensus and replication · Set 1', topic: 'Distributed systems', status: 'expired',
-    started_at: NOW - 30 * HOUR, finished_at: NOW - 29 * HOUR, score: -13.5, max_score: 24 },
+    started_at: NOW - 30 * HOUR, finished_at: NOW - 29 * HOUR, score: -13.5, max_score: 24, awaiting_count: 2 },
 ] };
 const adminSets = { sets: [
   { id: 2, topic: 'Retrieval-augmented generation', name: 'Embeddings and vector space · Set 1', status: 'published', visibility: 'private', question_count: 12, attempt_count: 14 },
@@ -103,8 +113,63 @@ const adminSet = {
   visibility: 'public',
   questions: questions.map((q) => ({ type: 'choice', prompt: q.prompt, explanation: null, points: 1,
     options: q.options.map((o, j) => ({ body: o.body, correct: j === 0 })) })).concat([
-    { type: 'subjective', prompt: written.prompt, explanation: null, model_answer: MODEL_ANSWER },
+    { type: 'subjective', prompt: written.prompt, explanation: null, model_answer: MODEL_ANSWER,
+      key_points: ['Each embedding model learns its own vector space', 'Old and new vectors cannot be compared, whatever their dimension'] },
   ]),
+};
+// The admin's evaluators: keys in each state (one out of credit, one with a cloud budget), long
+// labels, ids and endpoints, entries with and without a cap, and the published presets.
+const SOURCE = 'Anthropic list price, platform.claude.com/docs/en/about-claude/pricing, read 2026-11-13 (Claude Haiku 5.5: prompts up to 100k tokens).';
+const field = (name, label, secret, placeholder = '', help = '') => ({ name, label, secret, placeholder, help });
+const budgetReading = { limit: 50, spent: 12.5, remaining: 37.5, currency: 'USD',
+  source: 'AWS Budgets "quiz-app-evaluator-monthly-budget" (monthly)', as_of: 1794580000000 };
+const evaluatorKey = (id, provider, provider_label, label, extra = {}) => ({ id, provider, provider_label, label, hint: '…a1b2',
+  settings: {}, billing: null, state: 'ready', problem: null, unusable_since: null, retry_at: null, checked_at: null,
+  check_result: null, reads_balance: false, provider_budget: null, provider_budget_error: null, spent_usd: 0.0123,
+  entries: 1, created_at: 1794570000000, ...extra });
+const evaluatorEntry = (id, key, model, extra = {}) => ({ id, key_id: key.id, key_label: key.label, provider: key.provider,
+  provider_label: key.provider_label, model, position: id - 1, usable: true, problem: null, monthly_cap_usd: 5,
+  spent_usd: 0.0123, left_of_cap_usd: 4.9877, provider_budget: null, input_price_per_mtok: 0.1, output_price_per_mtok: 0.5, ...extra });
+const personal = evaluatorKey(1, 'anthropic', 'Anthropic API', 'Anthropic, personal default workspace', {
+  state: 'out_of_credit', problem: 'out of credit at provider', unusable_since: 1794580000000, retry_at: 1794583600000,
+  checked_at: 1794580000000, check_result: 'out of credit at provider' });
+const work = evaluatorKey(2, 'bedrock', 'Amazon Bedrock', 'Work AWS account', {
+  settings: { region: 'ap-southeast-2' }, billing: { settings: { account_id: '123456789012', budget_name: 'quiz-app-evaluator-monthly-budget' } },
+  reads_balance: true, provider_budget: budgetReading });
+const foundry = evaluatorKey(3, 'azure', 'Azure AI Foundry', 'Foundry', {
+  settings: { endpoint: 'https://my-very-long-resource-name-for-the-quiz-app.services.ai.azure.com/anthropic' },
+  provider_budget_error: 'Microsoft Entra refused the billing credential (401 invalid_client)', entries: 1 });
+const adminEvaluators = {
+  month: '2026-11',
+  key_storage: { ready: true, secret: 'KEY_ENCRYPTION_KEY' },
+  providers: [
+    { id: 'anthropic', label: 'Anthropic API', key_fields: [field('api_key', 'API key', true, 'paste the key')], billing: null,
+      balance_note: "Anthropic has no API for an account's prepaid balance. The page shows this month's spend from each call's tokens, and marks the key out of credit when Anthropic refuses a call for credit." },
+    { id: 'bedrock', label: 'Amazon Bedrock',
+      key_fields: [field('api_key', 'Bedrock API key', true, 'paste the key'), field('region', 'Region', false, 'us-east-1')],
+      billing: { label: 'AWS Budgets, read-only', fields: [
+        field('aws_access_key_id', 'Access key ID', true, 'AKIA…', 'An IAM user or role key allowed only budgets:ViewBudget.'),
+        field('aws_secret_access_key', 'Secret access key', true, 'paste the secret'),
+        field('account_id', 'AWS account ID', false, '123456789012'), field('budget_name', 'Budget name', false, 'quiz-ai')] },
+      balance_note: 'With a read-only AWS Budgets credential, the page shows the budget’s own figures.' },
+    { id: 'azure', label: 'Azure AI Foundry',
+      key_fields: [field('api_key', 'API key', true, 'paste the key'),
+        field('endpoint', 'Endpoint', false, 'https://<resource>.services.ai.azure.com/anthropic')],
+      billing: { label: 'Azure Cost Management, read-only', fields: [field('tenant_id', 'Tenant ID', false), field('client_id', 'Client ID', false),
+        field('client_secret', 'Client secret', true), field('scope', 'Scope', false), field('budget_name', 'Budget name', false)] },
+      balance_note: 'With a read-only Azure budget credential, the page shows the budget’s own figures.' },
+  ],
+  keys: [personal, work, foundry],
+  entries: [
+    evaluatorEntry(1, personal, 'claude-haiku-5-5', { usable: false, problem: 'out of credit at provider' }),
+    evaluatorEntry(2, work, 'anthropic.claude-sonnet-5-5', { monthly_cap_usd: null, left_of_cap_usd: null, spent_usd: 0,
+      provider_budget: budgetReading, input_price_per_mtok: 2, output_price_per_mtok: 10 }),
+    evaluatorEntry(3, foundry, 'my-claude-haiku-deployment-for-the-quiz-app-evaluation', { monthly_cap_usd: 12.5, left_of_cap_usd: 12.5 }),
+  ],
+  defaults: { monthly_cap_usd: 5 },
+  price_presets: [{ provider: 'anthropic', model: 'claude-haiku-5-5', input_price_per_mtok: 0.1, output_price_per_mtok: 0.5, source: SOURCE }],
+  queue: { awaiting: 3, flagged: 1, awaiting_reasons: { 'out of credit at provider': 2, 'daily limit per person reached': 1 } },
+  quotas: { per_user_daily: 20, global_daily: 300, calls_today: 17 },
 };
 
 // What a signed-out visitor reads: the cards without anyone's attempts, and one set for View.
@@ -125,7 +190,7 @@ const publicSet = {
 const API = {
   '/me': me, '/topics': topics, '/sets/2': setIntro, '/attempts/a2': attemptSession, '/attempts/a3': writtenSession, '/attempts/a1/results': results,
   '/attempts/a4/results': unmarkedResults,
-  '/attempts': history, '/admin/sets': adminSets, '/admin/sets/2': adminSet,
+  '/attempts': history, '/admin/sets': adminSets, '/admin/sets/2': adminSet, '/admin/evaluators': adminEvaluators,
   '/public/topics': publicTopics, '/public/sets/2': publicSet,
 };
 
@@ -140,6 +205,7 @@ const PAGES = {
   '/quiz/history': { ready: '.table td' },
   '/quiz/admin': { ready: '.table td' },
   '/quiz/admin/edit?id=2': { ready: 'textarea' },
+  '/quiz/admin/evaluators': { ready: '.ev-entry' },
   // Signed out: Access redirects every protected API call to its sign-in.
   '/quiz?signed-out': { ready: '.shead', signedOut: true },
   '/quiz/view?id=2': { ready: '.answer-block.model', signedOut: true },
@@ -247,7 +313,8 @@ test('a set with nothing marked reads Not marked wherever its score shows: resul
   await page.goto(`${s.base}/quiz/history`, { waitUntil: 'load' });
   await page.waitForSelector('.table td');
   const scores = await page.locator('.table tbody tr td:last-child').allTextContents();
-  assert.deepEqual(scores, ['—', '9.5 / 12', 'Not marked', '−13.5 / 24'], 'history: the unmarked attempt reads Not marked');
+  assert.deepEqual(scores, ['—', '9.5 / 12', 'Not marked', '−13.5 / 24 · 2 awaiting'],
+    'history: the unmarked attempt reads Not marked, a provisional one says how many answers await');
 
   await context.close();
 });

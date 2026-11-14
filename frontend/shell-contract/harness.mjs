@@ -32,6 +32,7 @@ export const PAGES = {
   '/quiz/history': 'history.html',
   '/quiz/admin': 'admin.html',
   '/quiz/admin/edit': 'admin/edit.html',
+  '/quiz/admin/evaluators': 'admin/evaluators.html',
   '/quiz/view?id=x': 'view.html',
   '/quiz/signin': 'signin.html',
 };
@@ -45,6 +46,7 @@ export const TAILS = {
   'history.html': [{ label: 'History' }],
   'admin.html': [{ label: 'Admin' }],
   'admin/edit.html': [{ label: 'Admin', href: '/quiz/admin' }, { label: 'Edit set' }],
+  'admin/evaluators.html': [{ label: 'Admin', href: '/quiz/admin' }, { label: 'AI evaluators' }],
   'view.html': [{ label: 'View' }],
   'signin.html': [{ label: 'Sign in' }],
 };

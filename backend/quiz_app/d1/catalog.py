@@ -43,7 +43,7 @@ class D1PaperSource(PaperSource):
         # LEFT JOIN: a subjective question has no options and must still be copied.
         rows = (await self._db.prepare(
             "SELECT q.id AS question_id, q.prompt, q.explanation, q.points, q.kind, q.model_answer, "
-            "o.id AS option_id, o.body, o.is_correct "
+            "q.key_points, o.id AS option_id, o.body, o.is_correct "
             "FROM questions q LEFT JOIN options o ON o.question_id = q.id "
             "WHERE q.set_id = ? ORDER BY q.position, o.position"
         ).bind(set_id).all()).results

@@ -1,4 +1,5 @@
-"""D1-backed attempts: the attempt row, its paper, what the solver ticked or typed, the grade.
+"""D1-backed attempts: the attempt row, its paper, what the solver ticked or typed, the grade,
+and the standing of each subjective question (``attempt_text_marks``).
 
 The paper (``attempt_questions``/``attempt_options``) is written once, at start, and
 is the only thing the solver, the grader and the review ever read. Nothing here
@@ -9,7 +10,9 @@ without touching an attempt.
 from __future__ import annotations
 
 from ..models import (
+    AWAITING,
     CHOICE,
+    SUBJECTIVE,
     Attempt,
     GradeResult,
     OptionForSolver,
@@ -17,14 +20,16 @@ from ..models import (
     QuestionKey,
     QuestionResult,
     ReviewQuestion,
+    TextMark,
+    text_answer_limit,
 )
 from ..ports import AttemptRepository
-from ._rows import review_questions
+from ._rows import key_points_to_json, review_questions
 
 _COLUMNS = (
     "id, set_id, user_email, topic_name, subtopic_name, difficulty, style, seq, title, "
     "scoring_policy, reveal_answers, started_at, deadline_at, finished_at, status, "
-    "score, max_score, paused_at"
+    "score, max_score, paused_at, subjective_marks"
 )
 _SELECT = f"SELECT {_COLUMNS} FROM attempts"
 
@@ -49,6 +54,7 @@ def _attempt(row: dict) -> Attempt:
         score=row["score"],
         max_score=row["max_score"],
         paused_at=row["paused_at"],
+        subjective_marks=row["subjective_marks"],
     )
 
 
@@ -56,7 +62,7 @@ def _attempt(row: dict) -> Attempt:
 # subjective question (no options) is still a row, with NULL option columns.
 _PAPER = (
     "SELECT aq.id AS question_id, aq.position AS question_position, aq.prompt, "
-    "aq.explanation, aq.points, aq.kind, aq.model_answer, "
+    "aq.explanation, aq.points, aq.kind, aq.model_answer, aq.key_points, "
     "ao.id AS option_id, ao.body, ao.is_correct "
     "FROM attempt_questions aq LEFT JOIN attempt_options ao ON ao.attempt_question_id = aq.id "
     "WHERE aq.attempt_id = ? ORDER BY aq.position, ao.position"
@@ -70,12 +76,12 @@ class D1AttemptRepository(AttemptRepository):
     async def create(self, attempt: Attempt, paper: list[ReviewQuestion]) -> Attempt:
         statements = [self._db.prepare(
             f"INSERT INTO attempts ({_COLUMNS}) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'in_progress', NULL, NULL, NULL)"
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'in_progress', NULL, NULL, NULL, ?)"
         ).bind(
             attempt.id, attempt.set_id, attempt.user_email, attempt.topic_name,
             attempt.subtopic_name, attempt.difficulty, attempt.style, attempt.seq,
             attempt.title, attempt.scoring_policy, int(attempt.reveal_answers),
-            attempt.started_at, attempt.deadline_at,
+            attempt.started_at, attempt.deadline_at, attempt.subjective_marks,
         )]
         # Options find their question by (attempt_id, position): the question row was
         # inserted earlier in this same batch, so no id has to be read back.
@@ -83,10 +89,11 @@ class D1AttemptRepository(AttemptRepository):
             statements.append(self._db.prepare(
                 "INSERT INTO attempt_questions "
                 "(attempt_id, source_question_id, position, prompt, explanation, points, "
-                "kind, model_answer) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+                "kind, model_answer, key_points) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
             ).bind(
                 attempt.id, question.id, position, question.prompt,
                 question.explanation, question.points, question.kind, question.model_answer,
+                key_points_to_json(question.key_points),
             ))
             for option_position, option in enumerate(question.options):
                 statements.append(self._db.prepare(
@@ -132,9 +139,11 @@ class D1AttemptRepository(AttemptRepository):
 
     async def paper(self, attempt_id: str) -> list[QuestionForSolver]:
         # Deliberately selects neither is_correct, explanation nor model_answer: the
-        # solver-facing read cannot leak what it never fetched.
+        # solver-facing read cannot leak what it never fetched. Only the model answer's
+        # length is read, in characters, for the written answer's limit.
         rows = (await self._db.prepare(
-            "SELECT aq.id AS question_id, aq.prompt, aq.kind, ao.id AS option_id, ao.body "
+            "SELECT aq.id AS question_id, aq.prompt, aq.kind, length(aq.model_answer) AS model_answer_length, "
+            "ao.id AS option_id, ao.body "
             "FROM attempt_questions aq LEFT JOIN attempt_options ao ON ao.attempt_question_id = aq.id "
             "WHERE aq.attempt_id = ? ORDER BY aq.position, ao.position"
         ).bind(attempt_id).all()).results
@@ -147,7 +156,12 @@ class D1AttemptRepository(AttemptRepository):
             if row["option_id"] is not None:
                 options[qid].append(OptionForSolver(row["option_id"], row["body"]))
         return [
-            QuestionForSolver(qid, head["prompt"], tuple(options[qid]), kind=head["kind"])
+            QuestionForSolver(
+                qid, head["prompt"], tuple(options[qid]), kind=head["kind"],
+                max_text_length=(
+                    text_answer_limit(head["model_answer_length"] or 0) if head["kind"] == SUBJECTIVE else None
+                ),
+            )
             for qid, head in heads.items()
         ]
 
@@ -259,8 +273,16 @@ class D1AttemptRepository(AttemptRepository):
             "paused_at = NULL WHERE id = ? AND paused_at IS NOT NULL"
         ).bind(now_ms, attempt_id).run()
 
-    async def finish(self, attempt_id: str, status: str, finished_at: int, grade: GradeResult) -> bool:
-        # One batch (one transaction): the results, then the status flip. Every statement is
+    async def finish(
+        self,
+        attempt_id: str,
+        status: str,
+        finished_at: int,
+        grade: GradeResult,
+        text_marks: tuple[tuple[int, str, float], ...] = (),
+    ) -> bool:
+        # One batch (one transaction): the results and the subjective rows (question id,
+        # 'blank' or 'awaiting', max marks), then the status flip. Every statement is
         # guarded on the attempt still being in_progress, so a second finisher writes nothing,
         # and a failure anywhere leaves the attempt open with no results.
         #
@@ -279,6 +301,14 @@ class D1AttemptRepository(AttemptRepository):
         statements = [
             insert.bind(attempt_id, r.question_id, r.awarded_points, int(r.is_correct), attempt_id)
             for r in grade.results
+        ]
+        mark = self._db.prepare(
+            "INSERT INTO attempt_text_marks (attempt_id, attempt_question_id, status, max_marks) "
+            f"SELECT ?, ?, ?, ? WHERE {still_open}"
+        )
+        statements += [
+            mark.bind(attempt_id, question_id, mark_status, max_marks, attempt_id)
+            for question_id, mark_status, max_marks in text_marks
         ]
         statements.append(self._db.prepare(
             "UPDATE attempts SET status = ?, finished_at = ?, score = ?, max_score = ? "
@@ -301,6 +331,30 @@ class D1AttemptRepository(AttemptRepository):
             )
             for row in rows
         }
+
+    async def text_marks(self, attempt_id: str) -> dict[int, TextMark]:
+        rows = (await self._db.prepare(
+            "SELECT attempt_question_id, status, awarded, max_marks, level, feedback, reason, "
+            "provider, model FROM attempt_text_marks WHERE attempt_id = ?"
+        ).bind(attempt_id).all()).results
+        return {
+            row["attempt_question_id"]: TextMark(
+                question_id=row["attempt_question_id"], status=row["status"],
+                awarded=row["awarded"], max_marks=row["max_marks"], level=row["level"],
+                feedback=row["feedback"], reason=row["reason"], provider=row["provider"],
+                model=row["model"],
+            )
+            for row in rows
+        }
+
+    async def awaiting_by_attempt(self, email: str) -> dict[str, int]:
+        """How many written answers of each of the person's attempts still await evaluation."""
+        rows = (await self._db.prepare(
+            "SELECT m.attempt_id, COUNT(*) AS n FROM attempt_text_marks m "
+            "JOIN attempts a ON a.id = m.attempt_id "
+            "WHERE a.user_email = ? AND m.status = ? GROUP BY m.attempt_id"
+        ).bind(email, AWAITING).all()).results
+        return {row["attempt_id"]: row["n"] for row in rows}
 
     async def for_user(self, email: str) -> list[Attempt]:
         rows = (await self._db.prepare(

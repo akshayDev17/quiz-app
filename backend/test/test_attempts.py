@@ -538,7 +538,7 @@ class HistoryTest(AttemptCase):
         a2 = await self.start(set_id=other)
         await self.start(BOB)
         self.clock.advance(LIMIT_MS)
-        history = await self.svc.history(ALICE)
+        history, _ = await self.svc.history(ALICE)
         self.assertEqual([a.id for a in history], [a2, a1])
         self.assertEqual([a.set_id for a in history], [other, self.sid])
         self.assertEqual({a.status for a in history}, {"expired"})
@@ -593,7 +593,7 @@ class ArchivedSetTest(AttemptCase):
         aid = await self.start()
         await self.svc.submit(ALICE, aid)
         await self.archive()
-        history = await self.svc.history(ALICE)
+        history, _ = await self.svc.history(ALICE)
         self.assertEqual([(a.id, a.set_id) for a in history], [(aid, self.sid)])
 
     async def test_cannot_start_on_archived_set(self):

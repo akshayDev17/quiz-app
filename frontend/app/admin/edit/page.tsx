@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useRef, useState } from 'react';
 import { getAdminSet, getMe, isSessionExpired, signOut, updateAdminSet } from '../../../lib/api';
-import { MARKING_SHORT, maxMarks } from '../../../lib/score';
+import { MARKING_SHORT, maxMarks, WRITTEN_MARKS } from '../../../lib/score';
 import { clearReauthFlag } from '../../../lib/session';
 import type { AdminQuestion, Me, QuestionKind, Visibility } from '../../../lib/types';
 import Masthead, { type Crumb } from '../../components/Masthead';
@@ -18,12 +18,14 @@ type QDraft = {
   kind: QuestionKind;
   prompt: string;
   explanation: string;
-  /** Choice questions only; a subjective question is not marked, so it takes no points. */
+  /** Choice questions only; a subjective question is marked out of 4 by the evaluator, so it takes no points. */
   points: number;
   /** Kept while a question is switched to subjective, so switching back restores them. */
   options: QOption[];
-  /** Subjective questions only: required, shown on review and on View. */
+  /** Subjective questions only: required, shown on review and on View, and marked against. */
   model_answer: string;
+  /** Subjective questions only: the rubric's essential points, one per line (blank = none). */
+  key_points: string;
   /** Marked for deletion. Stays on screen (blurred, undoable) until Save. */
   removed: boolean;
 };
@@ -54,7 +56,7 @@ const VISIBILITY_CHOICES: { value: Visibility; label: string; hint: string }[] =
 /** The two question types, as the editor offers them. */
 const KIND_CHOICES: { value: QuestionKind; label: string; hint: string }[] = [
   { value: 'choice', label: 'Choice', hint: 'Tick options · marked' },
-  { value: 'subjective', label: 'Written', hint: 'Typed answer · not marked' },
+  { value: 'subjective', label: 'Written', hint: `Typed answer · AI-marked out of ${WRITTEN_MARKS}` },
 ];
 
 const message = (err: unknown) => (err instanceof Error ? err.message : 'Something went wrong');
@@ -69,14 +71,21 @@ const blankQuestion = (): QDraft => ({
   points: 1,
   options: blankOptions(),
   model_answer: '',
+  key_points: '',
   removed: false,
 });
+
+/** The key points as the editor's text box holds them, one per line, and back. */
+const keyPointLines = (text: string) => text.split('\n').map((line) => line.trim()).filter(Boolean);
 
 /** A question as the server sent it, as the editor holds it. */
 function draftOf(q: AdminQuestion): QDraft {
   const common = { prompt: q.prompt, explanation: q.explanation ?? '', removed: false };
   if (q.type === 'subjective') {
-    return { ...common, kind: 'subjective', points: 1, options: blankOptions(), model_answer: q.model_answer };
+    return {
+      ...common, kind: 'subjective', points: 1, options: blankOptions(), model_answer: q.model_answer,
+      key_points: (q.key_points ?? []).join('\n'),
+    };
   }
   return {
     ...common,
@@ -84,13 +93,17 @@ function draftOf(q: AdminQuestion): QDraft {
     points: q.points,
     options: q.options.map((o) => ({ body: o.body, correct: o.correct })),
     model_answer: '',
+    key_points: '',
   };
 }
 
 /** A question in its import shape: a subjective one carries no options and no points. */
 function payloadOf(q: QDraft) {
   const common = { prompt: q.prompt, explanation: q.explanation.trim() || null };
-  if (q.kind === 'subjective') return { type: 'subjective', ...common, model_answer: q.model_answer };
+  if (q.kind === 'subjective') {
+    const points = keyPointLines(q.key_points);
+    return { type: 'subjective', ...common, model_answer: q.model_answer, ...(points.length ? { key_points: points } : {}) };
+  }
   return {
     type: 'choice',
     ...common,
@@ -176,7 +189,7 @@ function Editor() {
   const live = questions.filter((q) => !q.removed);
   const removedCount = questions.length - live.length;
   const totalMarks = live.reduce(
-    (sum, q) => sum + (q.kind === 'subjective' ? 0 : maxMarks(q.options.filter((o) => o.correct).length)),
+    (sum, q) => sum + (q.kind === 'subjective' ? WRITTEN_MARKS : maxMarks(q.options.filter((o) => o.correct).length)),
     0,
   );
   const totalPages = Math.max(1, Math.ceil(questions.length / perPage));
@@ -407,7 +420,7 @@ function Editor() {
                       <b>Question {qi + 1}</b>
                       <span className="meta">
                         {q.kind === 'subjective'
-                          ? 'Written · not marked'
+                          ? `Written · AI-marked out of ${WRITTEN_MARKS}`
                           : `${correct} of ${q.options.length} correct · up to ${maxMarks(correct)} marks`}
                       </span>
                       {!q.removed && (
@@ -451,6 +464,12 @@ function Editor() {
                           </label>
                           <textarea id={`ed-model-${qi}`} rows={4} value={q.model_answer}
                                     onChange={(e) => setQuestion(qi, { model_answer: e.target.value })} />
+                          <label className="lab" htmlFor={`ed-points-${qi}`}>
+                            Key points (optional · one per line, up to 6 · what the AI evaluator checks)
+                          </label>
+                          <textarea id={`ed-points-${qi}`} rows={3} value={q.key_points}
+                                    placeholder="Each line one essential point a full answer makes"
+                                    onChange={(e) => setQuestion(qi, { key_points: e.target.value })} />
                         </div>
                       ) : (
                         <div className="ed-field">

@@ -189,6 +189,14 @@ export default function AdminPage() {
             />
           </div>
 
+          <div className="import card">
+            <div className="import-left">
+              <h3 className="import-title">AI evaluators</h3>
+              <span className="import-sub">Keys, models, caps and order for marking written answers.</span>
+            </div>
+            <Link className="import-btn" href="/admin/evaluators">Manage</Link>
+          </div>
+
           <div className="shead">
             <h2>Sets</h2>
           </div>

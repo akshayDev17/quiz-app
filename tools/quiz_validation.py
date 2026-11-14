@@ -11,6 +11,10 @@ an in-place edit: the set already owns its topic, so only the body is checked.
 ``visibility`` is optional: an import without it is ``public``; an edit without it
 keeps the set's current visibility (``None``), so an editor that does not know the
 field can never flip a private set to public.
+
+A subjective question is marked by the evaluator out of ``models.SUBJECTIVE_MARKS``
+(ADR 0010), so it takes no ``points``; its optional ``key_points`` are the authored
+rubric the evaluator checks the answer against.
 """
 
 from __future__ import annotations
@@ -31,9 +35,12 @@ SET_SCORING_POLICIES = ("all_or_nothing", "partial")
 DIFFICULTIES = ("easy", "medium", "hard")
 STYLES = ("standard", "scenario")
 VISIBILITIES = ("public", "private")
-#: A question's ``type``: ``choice`` (the default) is ticked and marked; ``subjective`` is typed
-#: into a text box, never marked, and carries a required ``model_answer``.
+#: A question's ``type``: ``choice`` (the default) is ticked and marked +2/−1/−2; ``subjective``
+#: is typed into a text box, marked 0–4 by the evaluator, and carries a required ``model_answer``.
 QUESTION_TYPES = ("choice", "subjective")
+#: ``key_points``: at most this many, each one essential point of a full answer.
+MAX_KEY_POINTS = 6
+MAX_KEY_POINT_CHARS = 300
 _SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 
@@ -45,6 +52,7 @@ class QuestionImport:
     options: tuple[tuple[str, bool], ...] = ()  # (body, correct); empty for subjective
     kind: str = "choice"                        # "choice" | "subjective"
     model_answer: str | None = None             # subjective only
+    key_points: tuple[str, ...] = ()            # subjective only; may be empty
 
 
 @dataclass(frozen=True)
@@ -209,8 +217,9 @@ def _parse_question(raw, number: int, errors: list[str]) -> QuestionImport | Non
     explanation = _optional_text(raw.get("explanation"), f"{where}: explanation", errors)
 
     if kind == "subjective":
-        # Never marked: no options and no points (a number would imply marks). The model
-        # answer is what review and View show, and what a later comparison would use.
+        # Marked by the evaluator out of a fixed 4 (ADR 0010): no options, and no points,
+        # which would suggest an author-chosen weight. The model answer is what review and
+        # View show and what the evaluator marks against, with the key points if given.
         raw_model = raw.get("model_answer")
         model_answer = _optional_text(raw_model, f"{where}: model_answer", errors)
         if model_answer is None and (raw_model is None or isinstance(raw_model, str)):
@@ -219,13 +228,19 @@ def _parse_question(raw, number: int, errors: list[str]) -> QuestionImport | Non
         if "options" in raw:
             errors.append(f"{where}: a subjective question has no options")
         if "points" in raw:
-            errors.append(f"{where}: a subjective question is not marked, so it takes no points")
+            errors.append(f"{where}: a subjective question is marked out of 4 by the evaluator, so it takes no points")
+        key_points = _parse_key_points(raw.get("key_points"), where, errors)
         if len(errors) > before:
             return None
-        return QuestionImport(prompt=prompt, explanation=explanation, kind="subjective", model_answer=model_answer)
+        return QuestionImport(
+            prompt=prompt, explanation=explanation, kind="subjective",
+            model_answer=model_answer, key_points=key_points,
+        )
 
     if "model_answer" in raw:
         errors.append(f"{where}: model_answer is only for subjective questions")
+    if "key_points" in raw:
+        errors.append(f"{where}: key_points are only for subjective questions")
     points = raw.get("points", 1)
     if not (_is_number(points) and points > 0):
         errors.append(f"{where}: points must be a positive number")
@@ -250,3 +265,22 @@ def _parse_question(raw, number: int, errors: list[str]) -> QuestionImport | Non
     if len(errors) > before:
         return None
     return QuestionImport(prompt=prompt, explanation=explanation, points=points, options=tuple(options))
+
+
+def _parse_key_points(raw, where: str, errors: list[str]) -> tuple[str, ...]:
+    """Optional: a list of 1–6 non-empty strings, each at most 300 characters. Absent or
+    ``null`` is no key points; the evaluator then takes the essentials from the model answer."""
+    if raw is None:
+        return ()
+    if not isinstance(raw, list) or not 1 <= len(raw) <= MAX_KEY_POINTS:
+        errors.append(f"{where}: key_points must be a list of 1 to {MAX_KEY_POINTS} short texts")
+        return ()
+    points: list[str] = []
+    for index, point in enumerate(raw, start=1):
+        if not isinstance(point, str) or not point.strip():
+            errors.append(f"{where}: key point {index} must be non-empty text")
+        elif len(point.strip()) > MAX_KEY_POINT_CHARS:
+            errors.append(f"{where}: key point {index} is over {MAX_KEY_POINT_CHARS} characters")
+        else:
+            points.append(point.strip())
+    return tuple(points)

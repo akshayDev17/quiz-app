@@ -222,7 +222,7 @@ class DeleteTest(PaperCase):
         name = (await self.repo.get(aid)).name
         await self.authoring.delete(ADMIN, self.sid)
 
-        body = serializers.history(await self.svc.history(ALICE))
+        body = serializers.history(*await self.svc.history(ALICE))
         self.assertEqual([(a["id"], a["set_id"], a["name"]) for a in body["attempts"]],
                          [(aid, None, name)])
 
@@ -231,7 +231,7 @@ class DeleteTest(PaperCase):
         before = (await self.repo.get(aid)).name
         await self.authoring.update(ADMIN, self.sid, sample_import(title="Renamed later"))
 
-        body = serializers.history(await self.svc.history(ALICE))
+        body = serializers.history(*await self.svc.history(ALICE))
         self.assertEqual(body["attempts"][0]["name"], before)
         self.assertEqual((await self.repo.get(aid)).name, before)
 

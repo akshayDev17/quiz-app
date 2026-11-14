@@ -20,6 +20,8 @@ from .models import User
 from .services.attempts import AttemptService
 from .services.authoring import AuthoringService
 from .services.catalog import PublicCatalogService
+from .services.evaluation import EvaluationService
+from .services.evaluator_admin import EvaluatorAdmin
 from .services.users import UserService
 
 PREFIX = "/quiz/api"
@@ -136,11 +138,15 @@ class Api:
         authoring: AuthoringService,
         attempts: AttemptService,
         public: PublicCatalogService,
+        evaluation: EvaluationService,
+        evaluators: EvaluatorAdmin,
     ):
         self._users = users
         self._authoring = authoring
         self._attempts = attempts
         self._public = public
+        self._evaluation = evaluation
+        self._evaluators = evaluators
         sid, aid, qid = r"(\d{1,15})", r"([^/]{1,64})", r"(\d{1,15})"
         #: GET only, relative to /public. Handlers take no user.
         self._public_routes: list[tuple[re.Pattern[str], Handler]] = [
@@ -174,6 +180,17 @@ class Api:
                 ("POST", f"/admin/sets/{sid}/visibility", self._admin_visibility),
                 ("POST", f"/admin/sets/{sid}/clone", self._admin_clone),
                 ("DELETE", f"/admin/sets/{sid}", self._admin_delete),
+                # The AI evaluators of written answers: admins only, checked in the services.
+                ("GET", "/admin/evaluators", self._admin_evaluators),
+                ("POST", "/admin/evaluators", self._admin_add_entry),
+                ("POST", "/admin/evaluators/order", self._admin_order_entries),
+                ("PUT", f"/admin/evaluators/{sid}", self._admin_update_entry),
+                ("DELETE", f"/admin/evaluators/{sid}", self._admin_remove_entry),
+                ("POST", "/admin/evaluators/keys", self._admin_add_key),
+                ("PUT", f"/admin/evaluators/keys/{sid}", self._admin_update_key),
+                ("DELETE", f"/admin/evaluators/keys/{sid}", self._admin_remove_key),
+                ("POST", f"/admin/evaluators/keys/{sid}/check", self._admin_check_key),
+                ("POST", "/admin/evaluations/rerun", self._admin_rerun),
             ]
         ]
 
@@ -246,7 +263,7 @@ class Api:
         return (201 if session.created else 200), serializers.attempt_session(session)
 
     async def _history(self, user: User, body: object) -> Response:
-        return 200, serializers.history(await self._attempts.history(user.email))
+        return 200, serializers.history(*await self._attempts.history(user.email))
 
     async def _attempt(self, user: User, body: object, attempt_id: str) -> Response:
         return 200, serializers.attempt_session(await self._attempts.session(user.email, attempt_id))
@@ -260,7 +277,8 @@ class Api:
         return 204, None
 
     async def _submit(self, user: User, body: object, attempt_id: str) -> Response:
-        attempt = await self._attempts.submit(user.email, attempt_id)
+        # Admins are exempt from the per-person daily evaluation limit.
+        attempt = await self._attempts.submit(user.email, attempt_id, quota_exempt=user.can_edit_sets)
         return 200, {"attempt_id": attempt.id, "status": attempt.status}
 
     async def _results(self, user: User, body: object, attempt_id: str) -> Response:
@@ -315,3 +333,48 @@ class Api:
     async def _admin_delete(self, user: User, body: object, set_id: str) -> Response:
         await self._authoring.delete(user, int(set_id))
         return 204, None
+
+    # -- admin: evaluators ---------------------------------------------------
+
+    async def _page(self, user: User, status: int = 200, **extra) -> Response:
+        return status, {**serializers.admin_evaluators(await self._evaluators.overview(user)), **extra}
+
+    async def _admin_evaluators(self, user: User, body: object) -> Response:
+        return await self._page(user)
+
+    async def _admin_add_entry(self, user: User, body: object) -> Response:
+        await self._evaluators.add_entry(user, body)
+        return await self._page(user, 201)
+
+    async def _admin_update_entry(self, user: User, body: object, entry_id: str) -> Response:
+        await self._evaluators.update_entry(user, int(entry_id), body)
+        return await self._page(user)
+
+    async def _admin_remove_entry(self, user: User, body: object, entry_id: str) -> Response:
+        await self._evaluators.remove_entry(user, int(entry_id))
+        return await self._page(user)
+
+    async def _admin_order_entries(self, user: User, body: object) -> Response:
+        await self._evaluators.reorder(user, body)
+        return await self._page(user)
+
+    async def _admin_add_key(self, user: User, body: object) -> Response:
+        await self._evaluators.add_key(user, body)
+        return await self._page(user, 201)
+
+    async def _admin_update_key(self, user: User, body: object, key_id: str) -> Response:
+        await self._evaluators.update_key(user, int(key_id), body)
+        return await self._page(user)
+
+    async def _admin_remove_key(self, user: User, body: object, key_id: str) -> Response:
+        await self._evaluators.remove_key(user, int(key_id))
+        return await self._page(user)
+
+    async def _admin_check_key(self, user: User, body: object, key_id: str) -> Response:
+        result = await self._evaluators.check(user, int(key_id))
+        return await self._page(user, check={"key_id": int(key_id), "result": result.result,
+                                             "provider_budget_error": result.balance_error})
+
+    async def _admin_rerun(self, user: User, body: object) -> Response:
+        tried, awaiting = await self._evaluation.rerun(user)
+        return 200, {"attempts_tried": tried, "still_awaiting": awaiting}

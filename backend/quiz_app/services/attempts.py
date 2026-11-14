@@ -1,8 +1,14 @@
 """Attempts: start or resume, autosave, submit, lazy expiry, pause and grading.
 
-A choice question is answered by ticking options and is marked. A subjective one is
-answered by typing and is never marked: it has no key, so grading skips it, and it
-adds nothing to the score or the maximum, blank or not.
+A choice question is answered by ticking options and is marked +2/−1/−2 at close. A
+subjective one is answered by typing and is marked by the evaluator (ADR 0010): every
+attempt started now freezes ``SUBJECTIVE_MARKS`` per subjective question onto itself, the
+close adds that to the maximum for each one and records it as blank (0, final) or awaiting,
+and ``submit`` asks the evaluation service to mark what awaits. Only ``submit`` ever leads
+to a model call; a read that expires an attempt closes it and records its answers as
+awaiting, and the next submit of that attempt (or an admin re-run) marks them. An attempt
+started before marking existed (``subjective_marks`` ``None``) leaves its written answers
+outside its score and maximum, as it always did.
 
 The server clock decides time. Reads expire a due attempt (at ``deadline_at``);
 ``save`` alone applies the grace window, via ``Attempt.accepts_writes``.
@@ -19,21 +25,25 @@ an open one still resumes and submits, and finished results and history stay.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from uuid import uuid4
 
 from ..clock import Clock
 from ..errors import Conflict, Invalid, NotFound
 from ..grading import grade
 from ..models import (
+    AWAITING,
+    BLANK,
     CHOICE,
     MAX_TEXT_ANSWER,
     SUBJECTIVE,
+    SUBJECTIVE_MARKS,
     Attempt,
     QuestionForSolver,
     QuestionResult,
     QuizSetInfo,
     ReviewQuestion,
+    TextMark,
 )
 from ..ports import AttemptRepository, PaperSource, QuizCatalog
 from ..scoring import MARKING, ScoringPolicyFactory
@@ -58,6 +68,7 @@ class ResultsView:
     selections: dict[int, frozenset[int]]
     texts: dict[int, str]
     results: dict[int, QuestionResult]
+    marks: dict[int, TextMark]   # subjective questions of a marked attempt; {} otherwise
 
 
 class AttemptService:
@@ -68,12 +79,16 @@ class AttemptService:
         attempts: AttemptRepository,
         clock: Clock,
         grace_ms: int = GRACE_MS,
+        evaluation=None,
     ):
+        """``evaluation`` is the ``EvaluationService`` that marks written answers on submit;
+        without one (some unit tests) they simply stay awaiting."""
         self._catalog = catalog
         self._papers = papers
         self._attempts = attempts
         self._clock = clock
         self._grace_ms = grace_ms
+        self._evaluation = evaluation
 
     async def start_or_resume(self, email: str, set_id: int, include_private: bool = False) -> AttemptSession:
         now = self._clock.now_ms()
@@ -115,6 +130,8 @@ class AttemptService:
             status="in_progress",
             score=None,
             max_score=None,
+            # Frozen like the scoring policy: a later change of the constant re-marks nothing.
+            subjective_marks=SUBJECTIVE_MARKS,
         )
         # The paper is written in the order this attempt will be served, so display
         # order is decided once, here, and never re-derived.
@@ -146,16 +163,23 @@ class AttemptService:
         await self._check_answers(attempt_id, {}, {question_id: text})
         await self._attempts.replace_text(attempt_id, question_id, _stored_text(text), now)
 
-    async def submit(self, email: str, attempt_id: str) -> Attempt:
+    async def submit(self, email: str, attempt_id: str, quota_exempt: bool = False) -> Attempt:
+        """Close the attempt if it is open, then mark whatever written answers it still has
+        awaiting. Safe to repeat: a closed attempt stays closed, and answers already marked
+        or held by another request are never sent again. ``quota_exempt`` (admins) skips the
+        per-person daily limit."""
         attempt = await self._owned(email, attempt_id)
-        if not attempt.is_open:
-            return attempt
-        now = self._clock.now_ms()
-        if attempt.is_due(now):
-            await self._expire(attempt)
-        else:
-            await self._finish(attempt, "submitted", now)
-        return await self._attempts.get(attempt_id)
+        if attempt.is_open:
+            now = self._clock.now_ms()
+            if attempt.is_due(now):
+                await self._expire(attempt)
+            else:
+                await self._finish(attempt, "submitted", now)
+            attempt = await self._attempts.get(attempt_id)
+        if self._evaluation is not None:
+            await self._evaluation.evaluate(attempt, "submit", quota_exempt)
+            attempt = await self._attempts.get(attempt_id)
+        return attempt
 
     async def results(self, email: str, attempt_id: str) -> ResultsView:
         attempt = await self._read(email, attempt_id)
@@ -167,6 +191,7 @@ class AttemptService:
             selections=await self._attempts.selections(attempt.id),
             texts=await self._attempts.texts(attempt.id),
             results=await self._attempts.results(attempt.id),
+            marks=await self._attempts.text_marks(attempt.id),
         )
 
     async def pause(
@@ -255,9 +280,11 @@ class AttemptService:
         used = await self._attempts.count_finished(set_id, email)
         return info, used, open_attempt.id if open_attempt else None
 
-    async def history(self, email: str) -> list[Attempt]:
+    async def history(self, email: str) -> tuple[list[Attempt], dict[str, int]]:
+        """The person's attempts, newest first, and how many written answers of each still
+        await evaluation (absent when none)."""
         await self.expire_due_for(email)
-        return await self._attempts.for_user(email)
+        return await self._attempts.for_user(email), await self._attempts.awaiting_by_attempt(email)
 
     async def _owned(self, email: str, attempt_id: str) -> Attempt:
         """The caller's attempt; anyone else's is indistinguishable from a missing one."""
@@ -295,8 +322,9 @@ class AttemptService:
                 raise Invalid("question is not in this quiz")
             if question.kind != SUBJECTIVE:
                 raise Invalid("only a subjective question takes a text answer")
-            if len(text) > MAX_TEXT_ANSWER:
-                raise Invalid(f"a text answer is at most {MAX_TEXT_ANSWER:,} characters")
+            limit = question.max_text_length or MAX_TEXT_ANSWER
+            if len(text) > limit:
+                raise Invalid(f"this answer is at most {limit:,} characters")
 
     async def _session(self, attempt: Attempt, created: bool) -> AttemptSession:
         return AttemptSession(
@@ -312,14 +340,24 @@ class AttemptService:
         await self._finish(attempt, "expired", attempt.deadline_at)
 
     async def _finish(self, attempt: Attempt, status: str, finished_at: int) -> None:
-        # The key holds choice questions only, so a subjective question gets no result
-        # row and adds nothing to the score or the maximum, blank or not.
+        # The key holds choice questions only, so the grader never sees a subjective one and
+        # every choice score is exactly what it was before written answers were marked.
         graded = grade(
             await self._attempts.answer_key(attempt.id),
             await self._attempts.selections(attempt.id),
             ScoringPolicyFactory.for_name(attempt.scoring_policy),
         )
-        await self._attempts.finish(attempt.id, status, finished_at, graded)
+        marks: tuple[tuple[int, str, float], ...] = ()
+        if attempt.subjective_marks is not None:
+            # Each subjective question adds its marks to the maximum. A blank one is 0 and
+            # final; a typed one awaits the evaluator and counts nothing until marked.
+            typed = await self._attempts.texts(attempt.id)
+            subjective = [q.id for q in await self._attempts.paper(attempt.id) if q.kind == SUBJECTIVE]
+            marks = tuple(
+                (qid, AWAITING if qid in typed else BLANK, attempt.subjective_marks) for qid in subjective
+            )
+            graded = replace(graded, max_score=graded.max_score + attempt.subjective_marks * len(subjective))
+        await self._attempts.finish(attempt.id, status, finished_at, graded, marks)
 
 
 def _stored_text(text: str) -> str | None:

@@ -40,7 +40,17 @@ def main() -> None:
 
     nq = len(parsed.questions)
     no = sum(len(q.options) for q in parsed.questions)
-    print(f"OK — {nq} question(s), {no} option(s) total")
+    written = [i for i, q in enumerate(parsed.questions, start=1) if q.kind == "subjective"]
+    print(f"OK — {nq} question(s), {len(written)} written, {no} option(s) total")
+    # House style, not schema: the upload accepts these, the skill's rules do not.
+    for number in written:
+        if not parsed.questions[number - 1].key_points:
+            print(f"warning: question {number} is written but has no key_points for the AI evaluator")
+    if written and not parsed.shuffle_questions:
+        last = written[-1]
+        if written == list(range(nq - len(written) + 1, nq + 1)) and len(written) < nq:
+            print(f"warning: with shuffle_questions false, the written questions are bunched at the end "
+                  f"(questions {written[0]}–{last}); spread them through the set")
 
 
 if __name__ == "__main__":

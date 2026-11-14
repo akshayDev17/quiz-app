@@ -26,6 +26,15 @@ count — until the solver submits or the clock runs out.
   options marked correct. Every quiz is marked the same way: +2 for each correct
   option ticked, −1 for each wrong one, −2 for a question left blank, so a score
   can go below zero.
+- **Written answers are AI-marked, never negative.** A subjective question is
+  typed into a text box and marked out of 4 by an AI evaluator against its model
+  answer, with partial credit and short feedback; blank or wrong scores 0, never
+  less ([ADR 0010](docs/adr/0010-subjective-answers-are-marked-by-an-evaluator.md)).
+  The admin adds the keys (Anthropic API, Amazon Bedrock, Azure AI Foundry) on the
+  admin page, where they are stored sealed and never shown again, and orders the
+  key · model entries marking tries, each with an optional monthly cap
+  ([ADR 0011](docs/adr/0011-evaluator-keys-are-entered-on-the-admin-page-and-sealed.md),
+  [deploy §C](docs/deploy.md)).
 - **The server owns the clock.** The deadline is fixed at start, the browser's
   countdown only displays it, and closing the tab cannot buy time.
 - **Pausing freezes the clock.** A paused attempt keeps its time, its answers, and

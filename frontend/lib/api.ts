@@ -1,4 +1,5 @@
 import type {
+  AdminEvaluators,
   AdminSetDetail,
   AdminSets,
   AttemptSession,
@@ -7,6 +8,10 @@ import type {
   Me,
   PublicSet,
   PublicTopicsResponse,
+  EntryFields,
+  KeyUpdate,
+  NewKey,
+  RerunResult,
   Results,
   SetIntro,
   SetStatusResult,
@@ -195,6 +200,27 @@ export const getAdminSet = (setId: number) => request<AdminSetDetail>(`/admin/se
 /** Replace the set's props and questions in place. */
 export const updateAdminSet = (setId: number, body: unknown) =>
   send<ImportResult>('PUT', `/admin/sets/${id(setId)}`, body);
+
+/** The AI evaluators of written answers (admin only): each call returns the whole page's state. */
+export const adminEvaluators = () => request<AdminEvaluators>('/admin/evaluators');
+export const adminAddEntry = (body: { key_id: number; model: string } & EntryFields) =>
+  send<AdminEvaluators>('POST', '/admin/evaluators', body);
+export const adminUpdateEntry = (entryId: number, body: EntryFields) =>
+  send<AdminEvaluators>('PUT', `/admin/evaluators/${id(entryId)}`, body);
+export const adminRemoveEntry = (entryId: number) =>
+  send<AdminEvaluators>('DELETE', `/admin/evaluators/${id(entryId)}`);
+export const adminOrderEntries = (ids: number[]) =>
+  send<AdminEvaluators>('POST', '/admin/evaluators/order', { ids });
+/** Keys are write-only: these send a key's values, and no reply ever carries one back. */
+export const adminAddKey = (body: NewKey) => send<AdminEvaluators>('POST', '/admin/evaluators/keys', body);
+export const adminUpdateKey = (keyId: number, body: KeyUpdate) =>
+  send<AdminEvaluators>('PUT', `/admin/evaluators/keys/${id(keyId)}`, body);
+export const adminRemoveKey = (keyId: number) => send<AdminEvaluators>('DELETE', `/admin/evaluators/keys/${id(keyId)}`);
+/** The smallest billable request with the key, and a fresh budget reading where the provider has one. */
+export const adminCheckKey = (keyId: number) =>
+  send<AdminEvaluators>('POST', `/admin/evaluators/keys/${id(keyId)}/check`);
+/** Mark written answers still awaiting evaluation, a few attempts per call, quotas aside. */
+export const adminRerunEvaluations = () => send<RerunResult>('POST', '/admin/evaluations/rerun');
 
 /**
  * End the session.
