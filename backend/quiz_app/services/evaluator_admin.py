@@ -71,7 +71,9 @@ class PricePreset:
     source: str
 
 
-_ANTHROPIC_SOURCE = (
+_ANTHROPIC_SOURCE = "Anthropic list price, platform.claude.com/docs/en/about-claude/pricing, read 2026-11-13."
+#: Only Haiku 5.5 is priced by prompt size: its rates hold up to 100k tokens ($0.50 / $2.50 above).
+_HAIKU_SOURCE = (
     "Anthropic list price, platform.claude.com/docs/en/about-claude/pricing, read 2026-11-13 "
     "(Claude Haiku 5.5: prompts up to 100k tokens)."
 )
@@ -86,18 +88,16 @@ _BEDROCK_SOURCE = (
     "than global ones (platform.claude.com pricing, read 2026-11-13). Check the AWS page."
 )
 
-PRICE_PRESETS: tuple[PricePreset, ...] = tuple(
-    PricePreset(provider, prefix + model, inp, out, source)
-    for provider, prefix, source in (
-        ("anthropic", "", _ANTHROPIC_SOURCE),
-        ("bedrock", "anthropic.", _BEDROCK_SOURCE),
-        ("azure", "", _FOUNDRY_SOURCE),
-    )
-    for model, inp, out in (
-        ("claude-haiku-5-5", 0.10, 0.50),
-        ("claude-sonnet-5-5", 2.0, 10.0),
-        ("claude-opus-5-5", 4.0, 20.0),
-    )
+PRICE_PRESETS: tuple[PricePreset, ...] = (
+    PricePreset("anthropic", "claude-haiku-5-5", 0.10, 0.50, _HAIKU_SOURCE),
+    PricePreset("anthropic", "claude-sonnet-5-5", 2.0, 10.0, _ANTHROPIC_SOURCE),
+    PricePreset("anthropic", "claude-opus-5-5", 4.0, 20.0, _ANTHROPIC_SOURCE),
+    PricePreset("bedrock", "anthropic.claude-haiku-5-5", 0.10, 0.50, _BEDROCK_SOURCE),
+    PricePreset("bedrock", "anthropic.claude-sonnet-5-5", 2.0, 10.0, _BEDROCK_SOURCE),
+    PricePreset("bedrock", "anthropic.claude-opus-5-5", 4.0, 20.0, _BEDROCK_SOURCE),
+    PricePreset("azure", "claude-haiku-5-5", 0.10, 0.50, _FOUNDRY_SOURCE),
+    PricePreset("azure", "claude-sonnet-5-5", 2.0, 10.0, _FOUNDRY_SOURCE),
+    PricePreset("azure", "claude-opus-5-5", 4.0, 20.0, _FOUNDRY_SOURCE),
 )
 FAKE_PRESET = PricePreset(FAKE, "fake-overlap", 0.0, 0.0, "Local stand-in; costs nothing.")
 

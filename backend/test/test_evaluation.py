@@ -1214,6 +1214,20 @@ class KeyAdminTest(EvalCase):
         self.assertEqual((haiku["input_price_per_mtok"], haiku["output_price_per_mtok"]), (0.10, 0.50))
         self.assertIn("read 2026-11-13", haiku["source"])
 
+    async def test_each_model_s_price_note_is_its_own_and_only_haiku_has_the_100k_caveat(self):
+        presets = {(p["provider"], p["model"]): p for p in (await self.page())["price_presets"]}
+        caveat = "(Claude Haiku 5.5: prompts up to 100k tokens)"
+        prices = {"claude-haiku-5-5": (0.10, 0.50), "claude-sonnet-5-5": (2.0, 10.0), "claude-opus-5-5": (4.0, 20.0)}
+        for model, price in prices.items():
+            with self.subTest(model=model):
+                preset = presets[("anthropic", model)]
+                self.assertEqual((preset["input_price_per_mtok"], preset["output_price_per_mtok"]), price)
+                self.assertIn("Anthropic list price", preset["source"])
+                self.assertEqual(caveat in preset["source"], model == "claude-haiku-5-5")
+        for provider, model in presets:
+            if provider != "anthropic":
+                self.assertNotIn("100k", presets[(provider, model)]["source"])
+
 
 class CheckNowTest(EvalCase):
     async def test_a_working_key_is_confirmed_and_clears_its_mark(self):
