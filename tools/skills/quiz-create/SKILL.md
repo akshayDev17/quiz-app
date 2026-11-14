@@ -244,7 +244,7 @@ hidden correct count) are about options, so they do not apply.
 The AI evaluator marks a typed answer strictly, on five levels, and the level is the mark:
 **4** every essential point stated precisely and correctly, and nothing wrong anywhere;
 **3** the main point right, one secondary point missing; **2** some essentials right, an
-important one missing or one real error; **1** one essential point stated specifically, the
+important one missing; **1** one essential point stated specifically, the
 main point missing; **0** wrong, irrelevant, contradicting the main point, vague or generic,
 or blank. It credits correct answers in other words or by another valid route, ignores
 spelling and length, gives nothing for hedging or an imprecise term, and takes at least a

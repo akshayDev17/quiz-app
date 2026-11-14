@@ -46,8 +46,8 @@ answer "To reduce collisions." drops from 2 to 1.
 |---|---|---|
 | 4 | 4 | Correct, complete and precise: every essential point stated precisely and correctly; nothing in the answer wrong, including anything beyond the essential points. |
 | 3 | 3 | Mostly correct: the main point right and every essential point credited except one secondary point, which is missing. |
-| 2 | 2 | Partly correct: some essentials credited, but an important one missing, or the credited points beside one substantive error. |
-| 1 | 1 | Minimal: one essential point stated specifically and correctly; the main point missing or wrong. |
+| 2 | 2 | Partly correct: some essentials credited, but an important one missing. |
+| 1 | 1 | Minimal: one essential point stated specifically and correctly; the main point missing. |
 | 0 | 0 | No credit: wrong, irrelevant, contradicting the main point, restating the question, "I don't know", only instructions, or vague or generic (true, but naming no essential point specifically). |
 
 Rules the evaluator applies: a point is credited only when stated specifically, precisely

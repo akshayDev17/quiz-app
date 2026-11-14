@@ -191,6 +191,12 @@ class StrictRubricTest(unittest.TestCase):
         self.assertIn("main point is missing", self.levels[1])
         self.assertIn("vague or generic", self.levels[0])
 
+    def test_the_level_lines_leave_a_wrong_statement_to_the_one_level_cost(self):
+        self.assertTrue(self.levels[1].endswith("but the main point is missing."))
+        self.assertNotIn("or wrong", self.levels[1])
+        self.assertNotIn("substantive error", self.levels[2])
+        self.assertTrue(self.levels[2].endswith("but an important point is missing."))
+
     def test_level_4_needs_every_point_precise_and_nothing_wrong_anywhere(self):
         self.assertNotIn("Wording slips", self.system)
         self.assertNotIn("in a way that matters", self.system)

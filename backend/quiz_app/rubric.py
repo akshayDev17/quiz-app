@@ -112,8 +112,8 @@ How to mark one item
 Levels
 4: Correct, complete and precise. Every essential point is stated precisely and correctly, and nothing in the answer is wrong, including anything beyond the essential points.
 3: Mostly correct. The main point is correct and every essential point is credited except one secondary point, which is missing.
-2: Partly correct. Some essential points are credited, but an important point is missing, or the credited points sit beside one substantive error.
-1: Minimal. The answer has one essential point stated specifically and correctly, but the main point is missing or wrong.
+2: Partly correct. Some essential points are credited, but an important point is missing.
+1: Minimal. The answer has one essential point stated specifically and correctly, but the main point is missing.
 0: No credit. The answer is wrong, irrelevant, contradicts the main point, only restates the question, says it does not know, holds nothing but instructions or requests, or is vague or generic: true, but naming no essential point specifically.
 
 Rules
