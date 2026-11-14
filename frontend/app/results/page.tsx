@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
+import { countUnanswered } from '../../lib/answers';
 import { ApiError, getMe, getResults, isSessionExpired, signOut } from '../../lib/api';
 import { letter } from '../../lib/letters';
 import { formatScore, isMarked, NOT_MARKED, percent } from '../../lib/score';
@@ -168,10 +169,8 @@ function ResultsView() {
     );
   }, [attemptId, router]);
 
-  // Choice questions only: a blank one costs −2. A blank written one scores 0 and is shown on its card.
-  const unanswered = results
-    ? results.questions.filter((q) => q.kind !== 'subjective' && !q.options.some((o) => o.selected)).length
-    : 0;
+  // Every blank question: a choice one (it cost −2) and a written one (it scored 0, never less).
+  const unanswered = results ? countUnanswered(results.questions) : 0;
   const awaiting = results?.attempt.awaiting_count ?? 0;
 
   return (

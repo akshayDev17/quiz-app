@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { blanks, COUNTER_FROM, isAnswered, isTypingTarget, textCounter } from './answers.ts';
+import { blanks, countUnanswered, COUNTER_FROM, isAnswered, isTypingTarget, textCounter } from './answers.ts';
 
 const choice = (id: number) => ({ id, kind: 'choice' as const });
 const written = (id: number) => ({ id, kind: 'subjective' as const });
@@ -31,6 +31,18 @@ test('a blank subjective question is never counted as unanswered', () => {
 
 test('nothing blank, nothing listed', () => {
   assert.deepEqual(blanks([choice(1), written(2)], { 1: [3] }, { 2: 'Done' }), { unanswered: [], blankWritten: [] });
+});
+
+test('the results header counts every blank question, written ones included', () => {
+  const picked = (...selected: boolean[]) => ({ kind: 'choice' as const, options: selected.map((s) => ({ selected: s })) });
+  const typed = (text_answer: string | null) => ({ kind: 'subjective' as const, text_answer });
+  // the reproduced attempt: choice Q1, Q3, Q5 answered, written Q2 and Q4 left blank
+  assert.equal(countUnanswered([picked(true, false), typed(null), picked(true, false), typed(null), picked(true)]), 2);
+  assert.equal(countUnanswered([picked(false, false), typed(null), typed('An answer'), picked(false, true)]), 2);
+  // whitespace is blank, as the server stores it
+  assert.equal(countUnanswered([typed('  \n ')]), 1);
+  assert.equal(countUnanswered([picked(true), typed('Done')]), 0);
+  assert.equal(countUnanswered([]), 0);
 });
 
 test('shortcuts stand down where the solver types, not on an option checkbox', () => {

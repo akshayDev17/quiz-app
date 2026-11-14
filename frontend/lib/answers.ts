@@ -1,4 +1,4 @@
-import { MAX_TEXT_ANSWER, type AttemptSession } from './types.ts';
+import { MAX_TEXT_ANSWER, type AttemptSession, type ChoiceResult, type SubjectiveResult } from './types.ts';
 
 type Question = Pick<AttemptSession['questions'][number], 'id' | 'kind'>;
 /** Ticked option ids per question id. */
@@ -30,6 +30,22 @@ export function blanks(questions: Question[], picks: Picks, texts: Texts): { una
     (q.kind === 'subjective' ? blankWritten : unanswered).push(`Q${i + 1}`);
   });
   return { unanswered, blankWritten };
+}
+
+/** A submitted question as far as whether it was answered: its ticks, or its typed text. */
+type ResultAnswer =
+  | { kind: 'choice'; options: Pick<ChoiceResult['options'][number], 'selected'>[] }
+  | Pick<SubjectiveResult, 'kind' | 'text_answer'>;
+
+/**
+ * How many questions of a submitted attempt were left blank, for the results header: a choice
+ * question with nothing ticked (it cost −2) and a written one with no text (it scored 0, never
+ * less). The server sends a blank written answer's text as null; whitespace counts as blank too.
+ */
+export function countUnanswered(questions: ResultAnswer[]): number {
+  return questions.filter((q) =>
+    q.kind === 'subjective' ? (q.text_answer ?? '').trim() === '' : !q.options.some((o) => o.selected),
+  ).length;
 }
 
 /** Input types that take typed text; a checkbox or button does not. */
