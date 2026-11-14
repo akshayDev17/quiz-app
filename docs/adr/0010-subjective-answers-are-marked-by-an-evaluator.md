@@ -102,6 +102,29 @@ page always submits after the buzzer) or by an admin re-run. Nothing is retried
 automatically; a claim whose request was cut off is taken over only by an admin re-run after
 10 minutes.
 
+### How long a written answer may be
+
+Added 2026-11-14. The owner: "why dont we impose a character limit on the subjective answers
+if that is the main spend worry? i guess 5x or 10x of the actual answer being compared with
+should be good enough in my opinion." The student's answer is most of what a call sends, and
+the model answer is the length a full-marks answer needs, so each written question takes at
+most **ten times its model answer's length** in characters, never fewer than **300** (a
+one-line model answer still leaves room to explain) and never more than **10,000**
+(`MAX_TEXT_ANSWER`, which the database column checks too): `models.text_answer_limit`. It
+is worked out from the model answer frozen on the attempt's paper (ADR 0005), so editing a
+set never changes an open attempt's limits.
+
+The server is the authority. Every save (an autosave, or the answers a pause carries) is
+checked against the question's limit and a longer one is refused with 422 "this answer is
+at most N characters", the over-limit refusal there already was. The session sends each
+written question's `max_text_length`; the play page's text box and its counter ("120 / 820
+characters", always shown) only mirror it. Answers saved before the limit existed are kept
+and marked as they are: nothing is cut, submit does not check them again, and only a changed
+answer must fit (the counter says so when a kept one is longer).
+
+Between the floor and the ceiling, the limit gives away the model answer's length to within
+ten characters: how long the expected answer is, never what it says.
+
 ### Who evaluates, and within what limits
 
 One port, `Evaluator.evaluate(request, model) -> EvaluatorReply` (as identity is, ADR

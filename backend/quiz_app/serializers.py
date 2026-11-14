@@ -138,6 +138,9 @@ def attempt_session(session: AttemptSession) -> dict:
                 "kind": q.kind,
                 "prompt": q.prompt,
                 "options": [{"id": o.id, "body": o.body} for o in q.options],  # [] for subjective
+                # The most characters a written answer may hold (null for choice): the server's
+                # limit, which the page's text box mirrors.
+                "max_text_length": q.max_text_length,
             }
             for q in session.questions
         ],

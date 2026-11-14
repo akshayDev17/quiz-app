@@ -12,6 +12,7 @@ from __future__ import annotations
 from ..models import (
     AWAITING,
     CHOICE,
+    SUBJECTIVE,
     Attempt,
     GradeResult,
     OptionForSolver,
@@ -20,6 +21,7 @@ from ..models import (
     QuestionResult,
     ReviewQuestion,
     TextMark,
+    text_answer_limit,
 )
 from ..ports import AttemptRepository
 from ._rows import key_points_to_json, review_questions
@@ -137,9 +139,11 @@ class D1AttemptRepository(AttemptRepository):
 
     async def paper(self, attempt_id: str) -> list[QuestionForSolver]:
         # Deliberately selects neither is_correct, explanation nor model_answer: the
-        # solver-facing read cannot leak what it never fetched.
+        # solver-facing read cannot leak what it never fetched. Only the model answer's
+        # length is read, in characters, for the written answer's limit.
         rows = (await self._db.prepare(
-            "SELECT aq.id AS question_id, aq.prompt, aq.kind, ao.id AS option_id, ao.body "
+            "SELECT aq.id AS question_id, aq.prompt, aq.kind, length(aq.model_answer) AS model_answer_length, "
+            "ao.id AS option_id, ao.body "
             "FROM attempt_questions aq LEFT JOIN attempt_options ao ON ao.attempt_question_id = aq.id "
             "WHERE aq.attempt_id = ? ORDER BY aq.position, ao.position"
         ).bind(attempt_id).all()).results
@@ -152,7 +156,12 @@ class D1AttemptRepository(AttemptRepository):
             if row["option_id"] is not None:
                 options[qid].append(OptionForSolver(row["option_id"], row["body"]))
         return [
-            QuestionForSolver(qid, head["prompt"], tuple(options[qid]), kind=head["kind"])
+            QuestionForSolver(
+                qid, head["prompt"], tuple(options[qid]), kind=head["kind"],
+                max_text_length=(
+                    text_answer_limit(head["model_answer_length"] or 0) if head["kind"] == SUBJECTIVE else None
+                ),
+            )
             for qid, head in heads.items()
         ]
 

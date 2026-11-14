@@ -186,6 +186,7 @@ textarea.written:focus { border-color: var(--accent); outline: none;
        box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 18%, transparent); }
 textarea.written:disabled { opacity: .55; cursor: not-allowed; }
 .count { text-align: right; margin-top: var(--s1); font-variant-numeric: tabular-nums; }
+.count.over { color: var(--danger); }
 /* A typed answer and a model answer on review: the solver's text exactly as typed (plain,
    wrapped), the model answer as Markdown in the "correct" green that marks the key. */
 .answer-block { margin-top: var(--s2); padding: var(--s2) var(--s3); border-left: 2px solid var(--rule-2); }

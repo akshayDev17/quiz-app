@@ -67,11 +67,19 @@ export function isTypingTarget(target: EventTarget | null): boolean {
   return !NON_TEXT_INPUTS.has(typeof el.type === 'string' ? el.type.toLowerCase() : 'text');
 }
 
-/** Within this many characters of the limit, the text box shows how many are used. */
-export const COUNTER_FROM = MAX_TEXT_ANSWER - 1_000;
+/**
+ * The most characters a written question takes: the server's limit for it (10x its model answer,
+ * 300 to 10,000; the server refuses a longer save), or 10,000 from a server that sends none.
+ */
+export function textLimit(q: Pick<AttemptSession['questions'][number], 'max_text_length'>): number {
+  return q.max_text_length ?? MAX_TEXT_ANSWER;
+}
 
-/** "9,512 / 10,000" once a typed answer nears the limit; empty before that. */
-export function textCounter(length: number): string {
-  if (length < COUNTER_FROM) return '';
-  return `${length.toLocaleString('en-US')} / ${MAX_TEXT_ANSWER.toLocaleString('en-US')}`;
+/**
+ * The count under a text box, always shown: "120 / 820 characters". An answer saved before the
+ * limit existed may be longer; it is kept as it is, but a changed one must fit, so it says so.
+ */
+export function textCounter(length: number, limit: number): { text: string; over: boolean } {
+  const text = `${length.toLocaleString('en-US')} / ${limit.toLocaleString('en-US')} characters`;
+  return length > limit ? { text: `${text} · shorten it to save a change`, over: true } : { text, over: false };
 }

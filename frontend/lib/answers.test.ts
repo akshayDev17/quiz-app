@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { blanks, countUnanswered, COUNTER_FROM, isAnswered, isTypingTarget, textCounter } from './answers.ts';
+import { blanks, countUnanswered, isAnswered, isTypingTarget, textCounter, textLimit } from './answers.ts';
+import { MAX_TEXT_ANSWER } from './types.ts';
 
 const choice = (id: number) => ({ id, kind: 'choice' as const });
 const written = (id: number) => ({ id, kind: 'subjective' as const });
@@ -59,9 +60,19 @@ test('shortcuts stand down where the solver types, not on an option checkbox', (
   assert.equal(isTypingTarget(null), false);
 });
 
-test('the character counter appears only near the 10,000 limit', () => {
-  assert.equal(textCounter(0), '');
-  assert.equal(textCounter(COUNTER_FROM - 1), '');
-  assert.equal(textCounter(COUNTER_FROM), '9,000 / 10,000');
-  assert.equal(textCounter(10_000), '10,000 / 10,000');
+test('a written question is limited to what the server says, 10,000 when it says nothing', () => {
+  assert.equal(textLimit({ max_text_length: 820 }), 820);
+  assert.equal(textLimit({ max_text_length: 300 }), 300);
+  assert.equal(textLimit({ max_text_length: null }), MAX_TEXT_ANSWER);
+  assert.equal(textLimit({} as { max_text_length: number | null }), MAX_TEXT_ANSWER);
+});
+
+test('the counter always shows how much of the question\'s limit is used', () => {
+  assert.deepEqual(textCounter(0, 820), { text: '0 / 820 characters', over: false });
+  assert.deepEqual(textCounter(820, 820), { text: '820 / 820 characters', over: false });
+  assert.deepEqual(textCounter(9_512, 10_000), { text: '9,512 / 10,000 characters', over: false });
+});
+
+test('an answer saved before its limit may be longer: kept, but a change must fit', () => {
+  assert.deepEqual(textCounter(2_280, 820), { text: '2,280 / 820 characters · shorten it to save a change', over: true });
 });

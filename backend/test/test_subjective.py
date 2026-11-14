@@ -24,6 +24,7 @@ from quiz_app.composition import build_api
 from quiz_app.d1.attempts import D1AttemptRepository
 from quiz_app.d1.authoring import D1QuizAuthoring
 from quiz_app.errors import Invalid
+from quiz_app.models import text_answer_limit
 from quiz_app.validation import QuestionImport, QuizValidator
 
 ADMIN = Identity("admin@example.com")
@@ -37,6 +38,9 @@ WRITTEN = QuestionImport(
     explanation="Same dimension is a storage coincidence, not compatibility.",
     model_answer="Each model learns its own vector space, so old and new vectors are not comparable.",
 )
+
+#: 10x the 82 characters of WRITTEN's model answer: the most a solver may type for it.
+WRITTEN_LIMIT = 820
 
 #: sample_import's three choice questions have 3, 2 and 1 correct options: +2 each.
 CHOICE_MAX = 2 * (3 + 2 + 1)
@@ -195,6 +199,19 @@ def written_json(**overrides) -> dict:
     }
 
 
+class AnswerLimitTest(unittest.TestCase):
+    """A written answer may be ten times as long as its model answer, but never shorter than
+    300 characters (a terse model answer still leaves room to explain) nor longer than 10,000."""
+
+    def test_ten_times_the_model_answer_between_a_floor_and_a_ceiling(self):
+        self.assertEqual(len(WRITTEN.model_answer) * 10, WRITTEN_LIMIT)
+        for length, limit in (
+            (0, 300), (8, 300), (30, 300), (31, 310), (82, 820), (999, 9_990), (1_000, 10_000), (4_000, 10_000),
+        ):
+            with self.subTest(model_answer_length=length):
+                self.assertEqual(text_answer_limit(length), limit)
+
+
 class ImportTest(SubjectiveCase):
     async def test_an_uploaded_subjective_question_is_served_and_awaits_evaluation(self):
         payload = sample_import(difficulty="easy")
@@ -300,6 +317,19 @@ class ServedTest(SubjectiveCase):
         self.assertNotIn(WRITTEN.model_answer, wire)
         self.assertNotIn(WRITTEN.explanation, wire)
 
+    async def test_each_written_question_is_served_with_its_own_limit(self):
+        session = await self.start()
+        limits = {q["kind"]: q["max_text_length"] for q in session["questions"]}
+        self.assertEqual(limits, {"choice": None, "subjective": WRITTEN_LIMIT})
+
+    async def test_the_limit_has_a_floor_for_a_terse_model_answer_and_a_ceiling_for_a_long_one(self):
+        for difficulty, model_answer, limit in (("easy", "Because.", 300), ("hard", "A long model answer. " * 60, 10_000)):
+            with self.subTest(limit=limit):
+                written = dataclasses.replace(WRITTEN, model_answer=model_answer.strip())
+                imp = dataclasses.replace(QuizValidator.parse(sample_import(difficulty=difficulty)), questions=(written,))
+                [question] = (await self.start(await self.publish(imp)))["questions"]
+                self.assertEqual(question["max_text_length"], limit)
+
     async def test_the_question_is_copied_onto_the_paper(self):
         aid = (await self.start())["attempt"]["id"]
         rows = (await self.db.prepare(
@@ -353,11 +383,40 @@ class TextAnswerTest(SubjectiveCase):
         count = await self.db.prepare("SELECT COUNT(*) AS n FROM attempt_text_answers").first()
         self.assertEqual(count["n"], 0)
 
-    async def test_text_is_capped_at_10000_characters(self):
-        self.assertEqual((await self.type(self.aid, self.qid, "é" * 10_000))[0], 204)
-        status, body = await self.type(self.aid, self.qid, "x" * 10_001)
-        self.assertEqual((status, body), (422, {"error": "a text answer is at most 10,000 characters"}))
-        self.assertEqual(await self.texts(), {str(self.qid): "é" * 10_000})
+    async def test_text_is_capped_at_the_question_s_limit_in_characters(self):
+        self.assertEqual((await self.type(self.aid, self.qid, "é" * WRITTEN_LIMIT))[0], 204)
+        status, body = await self.type(self.aid, self.qid, "x" * (WRITTEN_LIMIT + 1))
+        self.assertEqual((status, body), (422, {"error": "this answer is at most 820 characters"}))
+        self.assertEqual(await self.texts(), {str(self.qid): "é" * WRITTEN_LIMIT})
+
+    async def test_text_never_goes_past_10000_characters_however_long_the_model_answer(self):
+        written = dataclasses.replace(WRITTEN, model_answer=("A long model answer. " * 60).strip())
+        imp = dataclasses.replace(QuizValidator.parse(sample_import(difficulty="hard")), questions=(written,))
+        session = await self.start(await self.publish(imp))
+        aid, [question] = session["attempt"]["id"], session["questions"]
+        self.assertEqual((await self.type(aid, question["id"], "é" * 10_000))[0], 204)
+        status, body = await self.type(aid, question["id"], "x" * 10_001)
+        self.assertEqual((status, body), (422, {"error": "this answer is at most 10,000 characters"}))
+
+    async def test_a_pause_carrying_text_over_the_limit_is_refused_and_does_not_pause(self):
+        body = {"answers": [{"question_id": self.qid, "text": "x" * (WRITTEN_LIMIT + 1)}]}
+        self.assertEqual(await self.call("POST", f"/attempts/{self.aid}/pause", body),
+                         (422, {"error": "this answer is at most 820 characters"}))
+        session = await self.ok("GET", f"/attempts/{self.aid}")
+        self.assertEqual((session["attempt"]["paused_at"], session["texts"]), (None, {}))
+
+    async def test_an_answer_saved_before_the_limit_is_kept_and_goes_to_marking_as_it_is(self):
+        # Saved under the old 10,000-character rule, longer than this question's limit now.
+        earlier = "Typed before answers were limited by their model answer. " * 40
+        self.assertGreater(len(earlier), WRITTEN_LIMIT)
+        await self.db.prepare(
+            "INSERT INTO attempt_text_answers (attempt_id, attempt_question_id, body, saved_at) VALUES (?, ?, ?, ?)"
+        ).bind(self.aid, self.qid, earlier, START).run()
+        self.assertEqual(await self.texts(), {str(self.qid): earlier})
+        await self.ok("POST", f"/attempts/{self.aid}/submit")
+        results = await self.ok("GET", f"/attempts/{self.aid}/results")
+        [written] = [q for q in results["questions"] if q["kind"] == "subjective"]
+        self.assertEqual((written["text_answer"], written["evaluation"]), (earlier, "awaiting"))
 
     async def test_an_answer_must_suit_its_question(self):
         for qid, body, error in (

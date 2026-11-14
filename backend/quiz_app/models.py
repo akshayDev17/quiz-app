@@ -98,7 +98,18 @@ SUBJECTIVE_MARKS = 4.0
 attempt at start (``Attempt.subjective_marks``), so changing it never re-marks history."""
 
 MAX_TEXT_ANSWER = 10_000
-"""The most characters a typed answer may hold (the D1 column checks it too)."""
+"""The most characters a typed answer may ever hold (the D1 column checks it too)."""
+
+ANSWER_LIMIT_FACTOR = 10
+ANSWER_LIMIT_FLOOR = 300
+
+
+def text_answer_limit(model_answer_length: int) -> int:
+    """The most characters a solver may type for one written question (ADR 0010): ten times
+    the length of its model answer, at least ``ANSWER_LIMIT_FLOOR`` so a terse model answer
+    still leaves room to explain, and at most ``MAX_TEXT_ANSWER``. Checked when an answer is
+    saved; an answer saved before this limit existed is kept and marked as it is."""
+    return min(MAX_TEXT_ANSWER, max(ANSWER_LIMIT_FLOOR, ANSWER_LIMIT_FACTOR * model_answer_length))
 
 
 @dataclass(frozen=True)
@@ -107,6 +118,7 @@ class QuestionForSolver:
     prompt: str
     options: tuple[OptionForSolver, ...]  # empty for a subjective question
     kind: str = CHOICE
+    max_text_length: int | None = None    # a subjective question's text_answer_limit; None for choice
 
 
 @dataclass(frozen=True)

@@ -53,12 +53,13 @@ const questions = [
 // A subjective question: typed into a text box, marked 0–4 by the AI evaluator against its model answer.
 // The typed answer and the model answer carry a long unbroken URL and a fenced block.
 const LONG_TYPED = 'Each model learns its own space, see https://github.com/facebookresearch/faiss/wiki/MetricType-and-distances#metric_inner_product_and_cosine_similarity_explained\n\nSo re-embed.';
-const written = { id: 13, kind: 'subjective', prompt: 'In two or three sentences: why does swapping the embedding model force a full re-index, even at the same dimension?', options: [] };
+const written = { id: 13, kind: 'subjective', prompt: 'In two or three sentences: why does swapping the embedding model force a full re-index, even at the same dimension?', options: [],
+  max_text_length: 2_000 };
 const MODEL_ANSWER = 'Each model learns its own vector space, so old and new vectors are not comparable:\n\n```python\nindex.reset(); index.add(np.stack([new_model.encode(chunk) for chunk in all_chunks_in_the_corpus_without_exception]))\n```';
 const sessionOf = (id, qs, extra = {}) => ({
   attempt: { id, set_id: 2, status: 'in_progress', started_at: NOW - 13 * 60_000, deadline_at: NOW + 7 * 60_000, paused_at: null },
   server_now: NOW, set: { name: setIntro.name, topic: setIntro.topic, subtopic: setIntro.subtopic },
-  questions: qs, selections: {}, texts: {}, ...extra,
+  questions: qs.map((q) => ({ max_text_length: null, ...q })), selections: {}, texts: {}, ...extra,
 });
 const attemptSession = sessionOf('a2', [...questions, written], { selections: { 11: [111] } });
 /** The same paper opened on its subjective question, with a long typed answer in the box. */

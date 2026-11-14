@@ -31,7 +31,8 @@ export type SetIntro = { id: number; topic: string; subtopic: string | null; nam
  * set reveals answers.
  */
 export type QuestionKind = 'choice' | 'subjective';
-/** A subjective answer is at most this many characters (the backend's MAX_TEXT_ANSWER). */
+/** A subjective answer is never more than this many characters (the backend's MAX_TEXT_ANSWER);
+ *  each question's own limit, `max_text_length`, is usually lower. */
 export const MAX_TEXT_ANSWER = 10_000;
 
 export type AttemptSession = {
@@ -40,7 +41,9 @@ export type AttemptSession = {
   server_now: number;
   set: { name: string; topic: string; subtopic: string | null };
   questions: { id: number; kind: QuestionKind; prompt: string;
-               options: { id: number; body: string }[] }[];  // display order; options [] for subjective
+               options: { id: number; body: string }[];    // display order; options [] for subjective
+               /** A written answer's most characters, 10x the model answer (300 to 10,000); null for choice. */
+               max_text_length: number | null }[];
   selections: Record<string, number[]>;   // question id (string key) → option ids
   texts: Record<string, string>;          // question id (string key) → typed answer; blank ones absent
 };

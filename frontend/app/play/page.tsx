@@ -13,12 +13,12 @@ import {
   signOut,
   submitAttempt,
 } from '../../lib/api';
-import { blanks, isAnswered, isTypingTarget, textCounter } from '../../lib/answers';
+import { blanks, isAnswered, isTypingTarget, textCounter, textLimit } from '../../lib/answers';
 import { clockOffset, TIMES_UP_OVERLAY_MS } from '../../lib/countdown';
 import { letter } from '../../lib/letters';
 import { isTerminal, SaveQueue, submitAfterTimeout, type SaveState } from '../../lib/saveQueue';
 import { clearReauthFlag } from '../../lib/session';
-import { MAX_TEXT_ANSWER, type AttemptSession, type Me } from '../../lib/types';
+import type { AttemptSession, Me } from '../../lib/types';
 import ConfirmDialog from '../components/ConfirmDialog';
 import Markdown from '../components/Markdown';
 import Masthead, { type Crumb } from '../components/Masthead';
@@ -322,7 +322,8 @@ function Play() {
 
   const { unanswered, blankWritten } = blanks(questions, sel, texts);
   const typed = question?.kind === 'subjective' ? (texts[question.id] ?? '') : '';
-  const counter = textCounter(typed.length);
+  const limit = question ? textLimit(question) : 0;
+  const counter = textCounter(typed.length, limit);
   const saveLabel =
     saveState === 'saved' && savedHidden ? '' : saveRejected ? 'Not saved' : SAVE_LABEL[saveState];
 
@@ -382,15 +383,13 @@ function Play() {
                     id={`answer-${question.id}`}
                     className="written"
                     rows={8}
-                    maxLength={MAX_TEXT_ANSWER}
+                    maxLength={limit}
                     value={typed}
                     disabled={inputsOff}
                     spellCheck
                     onChange={(e) => write(e.target.value)}
                   />
-                  {counter && (
-                    <div className="mc count" aria-live="polite">{counter}</div>
-                  )}
+                  <div className={counter.over ? 'mc count over' : 'mc count'} aria-live="polite">{counter.text}</div>
                 </>
               ) : (
                 <div className="mc hint">Select all that apply</div>

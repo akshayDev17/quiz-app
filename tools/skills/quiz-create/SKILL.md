@@ -225,7 +225,8 @@ validation on upload.
   - **choice**: non-empty `prompt`, `points > 0` (default 1; stored but no longer weights
     marking), at least 2 `options`, at least 1 option with `correct: true`. `explanation`
     optional. No `model_answer`.
-  - **subjective**: the solver types the answer into a text box (up to 10,000 characters).
+  - **subjective**: the solver types the answer into a text box, at most ten times as many
+    characters as its `model_answer` (at least 300, at most 10,000).
     Non-empty `prompt` and a required, non-empty `model_answer`; `key_points` optional
     for the upload (1–6 short texts, each at most 300 characters) but always written by
     this skill; `explanation` optional. No `options` and no `points`: it is always worth
@@ -253,7 +254,9 @@ easy to apply:
   points aim at the same size. One question, not two hidden in one.
 - **The model answer is the answer a strong solver would write**, complete enough to
   mark against: every point a full answer must make, in plain prose, nothing the prompt
-  did not ask for. Never a stub ("see explanation").
+  did not ask for. Never a stub ("see explanation"). Its length also sets the solver's
+  room: a typed answer may be at most ten times as long (never under 300 characters), so
+  a model answer cut shorter than a complete answer squeezes the solver.
 - **Key points: 2 to 4 of them, the model answer's essentials.** Each is one checkable
   claim in plain words ("Each model learns its own vector space"), not a keyword or a
   topic ("vector spaces"). Together they are exactly a level-4 answer: drop one and the

@@ -322,8 +322,9 @@ class AttemptService:
                 raise Invalid("question is not in this quiz")
             if question.kind != SUBJECTIVE:
                 raise Invalid("only a subjective question takes a text answer")
-            if len(text) > MAX_TEXT_ANSWER:
-                raise Invalid(f"a text answer is at most {MAX_TEXT_ANSWER:,} characters")
+            limit = question.max_text_length or MAX_TEXT_ANSWER
+            if len(text) > limit:
+                raise Invalid(f"this answer is at most {limit:,} characters")
 
     async def _session(self, attempt: Attempt, created: bool) -> AttemptSession:
         return AttemptSession(

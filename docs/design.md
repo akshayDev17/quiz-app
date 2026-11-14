@@ -478,7 +478,8 @@ resumes and submits, and finished results and history stay.
   how many answers are correct. If you'd rather tell solvers "pick 1", it's a
   per-set flag later.
 - **A subjective question is a text box** ("Write your answer · AI-marked out of 4, never below 0"),
-  up to 10,000 characters, with a counter in the last 1,000. It is answered
+  up to ten times as many characters as its model answer (at least 300, at most
+  10,000; ADR 0010), with a counter always under it. It is answered
   once its text is more than whitespace. The number and arrow shortcuts stand
   down while the reader types in it.
 - **Autosave** each answer (debounced ~400 ms) with a quiet "Saved" tick. No
