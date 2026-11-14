@@ -55,8 +55,10 @@ and correctly, and an imprecise or misused technical term does not make it; prec
 specific and technically accurate, not in the model answer's words, so a correct answer in
 other words, order or line of reasoning still gets full credit. Every wrong statement
 anywhere in the answer, even beyond the essential points, costs at least one level, so
-padding with guesses never helps; a wrong claim about an essential point voids that point;
-a claim contradicting the main point caps the answer at 1. Content only (spelling, grammar,
+padding with guesses never helps; a wrong claim about an essential point is not credited
+and still costs that level, so getting a point wrong is always worse than leaving it out
+(the real-model check found this needed saying outright); a claim contradicting the main
+point also caps the answer at 1. Content only (spelling, grammar,
 style and length earn and cost nothing unless they obscure the meaning; a short answer that
 makes every point precisely earns 4); hedging earns nothing (only what the answer commits
 to counts, and a self-contradiction on an essential point is an error). The full prompt,

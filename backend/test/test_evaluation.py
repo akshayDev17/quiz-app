@@ -196,7 +196,13 @@ class StrictRubricTest(unittest.TestCase):
         self.assertNotIn("in a way that matters", self.system)
         self.assertIn("stated precisely", self.levels[4])
         self.assertIn("nothing in the answer is wrong, including anything beyond the essential points", self.levels[4])
-        self.assertIn("Every wrong statement anywhere in the answer costs at least one level", self.system)
+        self.assertIn("Every wrong statement costs at least one level", self.system)
+
+    def test_a_wrong_essential_point_is_uncredited_and_still_costs_a_level(self):
+        # Getting a point wrong must be worse than leaving it out, or a guess at the main point
+        # would cost nothing (the real call of 2026-11-14 gave such an answer 1, not 0).
+        self.assertIn("A wrong claim about an essential point is not credited and still costs that level", self.system)
+        self.assertIn("getting a point wrong is always worse than leaving it out", self.system)
 
     def test_level_3_is_one_secondary_point_missing_and_an_imprecise_term_is_not_credited(self):
         self.assertIn("one secondary point, which is missing", self.levels[3])
