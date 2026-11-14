@@ -241,13 +241,14 @@ having the solver explain them. The prose rules still apply to the prompt: quiz 
 solvable cold, a fresh scenario, no exact figure as the answer. Rules 5 and 7 (traps,
 hidden correct count) are about options, so they do not apply.
 
-The AI evaluator marks a typed answer on five levels, and the level is the mark: **4**
-every essential point present and correct; **3** the main point right, one secondary point
-missing or loose; **2** some essentials right, an important one missing or one real error;
-**1** a correct fragment only; **0** wrong, irrelevant, contradicting the main point, or
-blank. It credits correct answers in other words or by another valid route, ignores
-spelling and length, and gives nothing for hedging. Write each question so that scale is
-easy to apply:
+The AI evaluator marks a typed answer strictly, on five levels, and the level is the mark:
+**4** every essential point stated precisely and correctly, and nothing wrong anywhere;
+**3** the main point right, one secondary point missing; **2** some essentials right, an
+important one missing or one real error; **1** one essential point stated specifically, the
+main point missing; **0** wrong, irrelevant, contradicting the main point, vague or generic,
+or blank. It credits correct answers in other words or by another valid route, ignores
+spelling and length, gives nothing for hedging or an imprecise term, and takes at least a
+level for every wrong statement. Write each question so that scale is easy to apply:
 
 - **Ask for a bounded answer.** Say how much is wanted, and of what ("In two or three
   sentences: why …, and what it costs"), so the solver, the model answer and the key

@@ -36,21 +36,32 @@ model answer, and its key points when the author wrote them (`key_points`, optio
 short essential points per question; without them the essentials come from the model
 answer). The level is the mark: the award is `level × 4 / 4`.
 
+The marking is strict. The owner: "i want the instructions used for the subjective answer
+evaluation(marking) to be quite strict in nature", and approved the four changes that made
+`rubric-v1` into `rubric-v2` (2026-11-14): a vague answer earns nothing, level 4 allows no
+wrong statement anywhere, an imprecise term does not make a point, and the calibration
+answer "To reduce collisions." drops from 2 to 1.
+
 | Level | Marks | Meaning |
 |---|---|---|
-| 4 | 4 | Correct and complete: every essential point present and correct; nothing wrong that matters. |
-| 3 | 3 | Mostly correct: the main point right, nearly all essentials present; one secondary point missing or imprecise; no substantive error. |
-| 2 | 2 | Partly correct: some essentials right, but an important one missing, or right points beside one substantive error. |
-| 1 | 1 | Minimal: a relevant, correct fragment only; the main point missing or wrong. |
-| 0 | 0 | No credit: wrong, irrelevant, contradicting the main point, restating the question, "I don't know", or only instructions. |
+| 4 | 4 | Correct, complete and precise: every essential point stated precisely and correctly; nothing in the answer wrong, including anything beyond the essential points. |
+| 3 | 3 | Mostly correct: the main point right and every essential point credited except one secondary point, which is missing. |
+| 2 | 2 | Partly correct: some essentials credited, but an important one missing, or the credited points beside one substantive error. |
+| 1 | 1 | Minimal: one essential point stated specifically and correctly; the main point missing or wrong. |
+| 0 | 0 | No credit: wrong, irrelevant, contradicting the main point, restating the question, "I don't know", only instructions, or vague or generic (true, but naming no essential point specifically). |
 
-Rules the evaluator applies: content only (spelling, style and length earn and cost
-nothing unless they obscure the meaning; a short complete answer earns 4); a correct answer
-in other words, order or line of reasoning gets full credit; hedging earns nothing (only
-what the answer commits to counts, and a self-contradiction on an essential point is an
-error); a wrong claim about an essential point voids that point; a claim contradicting the
-main point caps the answer at 1. The full prompt, with a three-answer calibration example,
-is `rubric.SYSTEM_PROMPT` (version `rubric-v1`, recorded on every call).
+Rules the evaluator applies: a point is credited only when stated specifically, precisely
+and correctly, and an imprecise or misused technical term does not make it; precise means
+specific and technically accurate, not in the model answer's words, so a correct answer in
+other words, order or line of reasoning still gets full credit. Every wrong statement
+anywhere in the answer, even beyond the essential points, costs at least one level, so
+padding with guesses never helps; a wrong claim about an essential point voids that point;
+a claim contradicting the main point caps the answer at 1. Content only (spelling, grammar,
+style and length earn and cost nothing unless they obscure the meaning; a short answer that
+makes every point precisely earns 4); hedging earns nothing (only what the answer commits
+to counts, and a self-contradiction on an essential point is an error). The full prompt,
+with a five-answer calibration example (levels 4, 3, 1, 0 and 0), is `rubric.SYSTEM_PROMPT`
+(version `rubric-v2`, recorded on every call).
 
 **Five levels, not a finer scale.** Model graders agree with themselves, and with people,
 far more on a few anchored levels than on a 0–10 or percentage scale; partial credit still
@@ -177,6 +188,8 @@ keeps its answers hidden. The check can only remove feedback detail, never chang
   results read "Not marked" as before. Sets without subjective questions are unaffected.
 - Existing subjective questions are marked on their next attempts against their model
   answer alone until an author adds key points.
+- Answers already marked under `rubric-v1` keep their marks; each call records the rubric
+  it used, and an admin re-run marks whatever still waits under `rubric-v2`.
 - Submit waits for the evaluator before the results page opens: one call, about 1.2 s
   per typed answer as measured on Claude Haiku 5.5 (10.8 s for 9), with a limit of 15 s
   plus 2.5 s per answer (65 s at the 20-answer cap). A provider outage costs latency, not
