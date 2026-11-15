@@ -19,7 +19,7 @@ Topology (details in [design.md](design.md) §2 and §7):
 
 ```
 akshayprabhakant.com/quiz/api/*   → backend Worker  (Python + D1)   backend/wrangler.jsonc
-akshayprabhakant.com/quiz, /quiz/* → frontend Worker (static assets)  frontend/wrangler.jsonc
+akshayprabhakant.com/quiz*        → frontend Worker (static assets)  frontend/wrangler.jsonc
 everything else                    → GitHub Pages (untouched)
 ```
 

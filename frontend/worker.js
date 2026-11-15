@@ -1,5 +1,15 @@
 /**
- * Serves the static export of the quiz app at /quiz/*.
+ * Serves the static export of the quiz app at /quiz and /quiz/*.
+ *
+ * The zone route is `akshayprabhakant.com/quiz*`, not `/quiz` + `/quiz/*`: a
+ * Workers route matches the whole URL including the query string, and a
+ * pattern cannot hold a query, so the exact `/quiz` route never matched
+ * `/quiz?x=1` and GitHub Pages answered it with a 404. `quiz*` also matches
+ * paths that are not the app's (`/quizzes`, `/quiz.html`, `/quiz-x`); those go
+ * to the origin untouched with `fetch(req)`, so they answer exactly as before.
+ * `/quiz?<query>` is served in place like `/quiz`, not redirected to
+ * `/quiz/?<query>`: `/quiz` is public while `/quiz/` is behind sign-in, so a
+ * redirect would ask a signed-out visitor to sign in where `/quiz` does not.
  *
  * The export is built with basePath /quiz, so its pages and chunks are linked as
  * /quiz/..., but the files in `out/` sit at the root of the ASSETS binding. This
@@ -24,8 +34,10 @@ const PREFIX = /^\/quiz(?=\/|$)/;
 export default {
   async fetch(req, env) {
     const u = new URL(req.url);
+    const ours = PREFIX.test(u.pathname);
     u.pathname = u.pathname.replace(PREFIX, '') || '/';
     if (u.pathname.startsWith('/_site/') && env.SHELL) return env.SHELL.fetch(new Request(u, req));
+    if (!ours) return fetch(req);
     const page = async () => reprefixRedirect(await env.ASSETS.fetch(new Request(u, req)), u);
     return withShell(await page(), env, page, 'quiz', '/quiz/_site/');
   },

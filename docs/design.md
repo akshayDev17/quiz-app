@@ -37,14 +37,17 @@ anti-cheat (tab-switch detection, proctoring), public sharing of results.
 
 ```
 akshayprabhakant.com/quiz/api/*   → quiz-app-backend   (Python Worker, D1)
-akshayprabhakant.com/quiz         → quiz-app-frontend  (static-assets Worker)
-akshayprabhakant.com/quiz/*       → quiz-app-frontend
+akshayprabhakant.com/quiz*        → quiz-app-frontend  (static-assets Worker)
 akshayprabhakant.com/api/*        → ai-chat-archive backend   (untouched)
 akshayprabhakant.com/chat-archives/*, /_next/* → archive frontend (untouched)
 everything else                   → GitHub Pages portfolio     (untouched)
 ```
 
-- **Most-specific route wins**, so `/quiz/api/*` beats `/quiz/*`. This is the
+- The frontend route is `quiz*`, not `quiz` + `quiz/*`: a route matches the
+  whole URL including the query string, so only a trailing `*` catches
+  `/quiz?x=1`. The Worker hands every other path the route catches
+  (`/quizzes`, `/quiz.html`) back to GitHub Pages unchanged with `fetch(req)`.
+- **Most-specific route wins**, so `/quiz/api/*` beats `/quiz*`. This is the
   same mechanism the archive relies on for `/api/*` vs GitHub Pages.
 - **The API lives under `/quiz/api/*`, not `/api/quiz/*`**, so the archive's
   Worker route stays exactly as it is, and one Access application covers the
@@ -514,7 +517,7 @@ quiz-app/
    `backend/wrangler.jsonc`.
 2. `npx wrangler d1 migrations apply quiz-app --remote`
 3. `uv run pywrangler deploy` (backend: route `akshayprabhakant.com/quiz/api/*`)
-4. Frontend: `next build` then `wrangler deploy` (routes `…/quiz` and `…/quiz/*`)
+4. Frontend: `next build` then `wrangler deploy` (route `…/quiz*`, see §2)
 5. Zero Trust → Access → add an application for `akshayprabhakant.com/quiz`
    and `/quiz/*`, with a One-time PIN policy, Include → Emails → the invite list.
 6. `curl -I https://akshayprabhakant.com/quiz` should return a 302 to the
