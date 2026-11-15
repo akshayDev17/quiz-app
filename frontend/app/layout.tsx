@@ -22,9 +22,26 @@ const plexMono = IBM_Plex_Mono({
   variable: '--font-plex-mono',
 });
 
+// The browser tab icon: the app's "Q" (white bowl, green tail) on the navy
+// tile the site's other app icons use. Inlined as a data URI so it loads on
+// every page the app serves, with no request to a path that could fall outside
+// /quiz (or behind sign-in). It is SVG only: browsers that do not render SVG
+// favicons, such as Safari before 26, still fall back to the site root's
+// /favicon.ico.
+const ICON =
+  'data:image/svg+xml,' +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">' +
+      '<rect width="32" height="32" rx="7" fill="#0F172A"/>' +
+      '<circle cx="14.5" cy="14.5" r="8" fill="none" stroke="#fff" stroke-width="3.5"/>' +
+      '<path d="M17 17l7.5 7.5" stroke="#5BC28C" stroke-width="3.5" stroke-linecap="round"/>' +
+      '</svg>',
+  );
+
 export const metadata: Metadata = {
   title: 'The Quiz Room',
   description: 'Timed multiple-answer quizzes.',
+  icons: { icon: { url: ICON, type: 'image/svg+xml' } },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

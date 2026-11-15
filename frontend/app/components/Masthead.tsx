@@ -18,8 +18,8 @@ export type Session = 'signed-in' | 'signed-out' | 'pending';
 const BASE_PATH = '/quiz';
 
 /**
- * site-shell's site row ("Home  AI Digest  Quiz Room  Graph Notes  Election Atlas", its
- * <style> and the row's <nav>, without the page's trail line), as first composed into a
+ * site-shell's site row ("Home  AI Digest  Quiz Room  Graph Notes  Election Atlas
+ * Time Track", its <style> and the row's <nav>, without the page's trail line), as first composed into a
  * page this tab loaded: undefined until the start page is read, null while no page has
  * come back composed. site-shell fills the slot only in the HTML it serves, but most moves
  * around the quiz are client-side navigations, which render a fresh Masthead. The row is

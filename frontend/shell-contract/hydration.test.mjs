@@ -70,7 +70,7 @@ function readSitePath(page) {
   });
 }
 
-const APP_LABELS = ['Home', 'AI Digest', 'Quiz Room', 'Graph Notes', 'Election Atlas'];
+const APP_LABELS = ['Home', 'AI Digest', 'Quiz Room', 'Graph Notes', 'Election Atlas', 'Time Track'];
 
 /** What readSitePath() must return on a page whose crumbs after "Quiz Room" are `tail`. */
 const expectedSitePath = (tail) => ({

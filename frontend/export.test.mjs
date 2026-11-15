@@ -51,6 +51,15 @@ const MASTHEAD_PAGES = ['index.html', 'set.html', 'play.html', 'results.html', '
   'admin/evaluators.html',
   'view.html', 'signin.html'];
 
+test('every page declares the tab icon inline, so it never requests a path outside /quiz', () => {
+  for (const file of pages()) {
+    const head = readFileSync(file, 'utf8').split('</head>')[0];
+    const icons = [...head.matchAll(/<link rel="icon"[^>]*>/g)].map((m) => m[0]);
+    assert.equal(icons.length, 1, `${relative(out, file)}: one icon link`);
+    assert.match(icons[0], /href="data:image\/svg\+xml,/, `${relative(out, file)}: an inline SVG icon`);
+  }
+});
+
 test('every page\'s masthead renders the plain <site-theme-picker hide-label> element', () => {
   for (const name of MASTHEAD_PAGES) {
     const html = readFileSync(join(out, name), 'utf8');

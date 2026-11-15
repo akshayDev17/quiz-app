@@ -423,7 +423,8 @@ The quiz must look like part of the same site as `my-github-io/index.html` and
   theme's colour scheme (GitHub Light or GitHub Dark).
 - **The site path.** Under the masthead name sits the site's shared switcher,
   `<site-slot name="site-path">`, which site-shell fills from site-themes' app
-  list: the row `Home  AI Digest  Quiz Room  Graph Notes  Election Atlas` with
+  list: the row
+  `Home  AI Digest  Quiz Room  Graph Notes  Election Atlas  Time Track` with
   Quiz Room marked, and below the quiz home the page's trail on its own line
   (`Quiz Room › History`). On portrait phones the row is one line that scrolls
   sideways. Each page passes its crumbs after "Quiz Room" (`History`, `Quiz`,
