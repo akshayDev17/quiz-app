@@ -174,15 +174,15 @@ def prompt_calibration(system: str) -> dict[str, int]:
 
 
 class StrictRubricTest(unittest.TestCase):
-    """rubric-v2, the owner's stricter scheme, as the model receives it: the system prompt every
+    """rubric-v3, the owner's stricter scheme, as the model receives it: the system prompt every
     request carries. Whether a model then marks that way is for the real-call check, not CI."""
 
     def setUp(self):
         self.system = rubric.build_request([item()], True, "n0nce123").system
         self.levels = prompt_levels(self.system)
 
-    def test_the_scheme_is_rubric_v2_with_five_levels(self):
-        self.assertEqual(rubric.RUBRIC_VERSION, "rubric-v2")
+    def test_the_scheme_is_rubric_v3_with_five_levels(self):
+        self.assertEqual(rubric.RUBRIC_VERSION, "rubric-v3")
         self.assertEqual(sorted(self.levels), [0, 1, 2, 3, 4])
 
     def test_a_vague_answer_scores_0_and_level_1_needs_one_point_stated_specifically(self):
@@ -209,6 +209,24 @@ class StrictRubricTest(unittest.TestCase):
         # would cost nothing (the real call of 2026-11-14 gave such an answer 1, not 0).
         self.assertIn("A wrong claim about an essential point is not credited and still costs that level", self.system)
         self.assertIn("getting a point wrong is always worse than leaving it out", self.system)
+
+    def test_wording_merely_compatible_with_a_point_does_not_credit_it(self):
+        # rubric-v3: the real call of 2026-11-14 credited "the stored data has to be updated" as
+        # "every stored chunk must be re-embedded with the new model" ("essentially stated").
+        self.assertIn("Credit a point only when the answer states it specifically, precisely and correctly.",
+                      self.system)
+        self.assertIn("Wording that is merely compatible with a point does not state it", self.system)
+        self.assertIn("when the answer leaves you to supply what the point specifies", self.system)
+        self.assertIn("however likely it is that the student meant it", self.system)
+        self.assertIn('"the records have to be updated" does not state that every record must be rewritten',
+                      self.system)
+        self.assertIn("which essential points are credited, missing, vague, imprecise or wrong", self.system)
+
+    def test_the_example_of_vague_wording_is_not_from_a_question_it_marks(self):
+        # The example teaches the kind of wording, not the answer to a real check's question.
+        rule = self.system.split("\n2. ", 1)[1].split("\n3. ", 1)[0]
+        for word in ("embed", "chunk", "vector", "model"):
+            self.assertNotIn(word, rule.split("Wording that is merely compatible", 1)[1])
 
     def test_level_3_is_one_secondary_point_missing_and_an_imprecise_term_is_not_credited(self):
         self.assertIn("one secondary point, which is missing", self.levels[3])
@@ -787,7 +805,20 @@ class MarkingTest(EvalCase):
         [key] = (await self.page())["keys"]
         await self.ok("POST", f"/admin/evaluators/keys/{key['id']}/check", None, ADMIN)
         rows = (await self.db.prepare("SELECT trigger, rubric FROM evaluation_calls ORDER BY id").all()).results
-        self.assertEqual([(r["trigger"], r["rubric"]) for r in rows], [("submit", "rubric-v2"), ("check", "rubric-v2")])
+        self.assertEqual([(r["trigger"], r["rubric"]) for r in rows], [("submit", "rubric-v3"), ("check", "rubric-v3")])
+
+    async def test_an_answer_marked_under_an_older_rubric_keeps_its_mark_and_its_version(self):
+        await self.add_entry()
+        aid = await self.take({FIRST.prompt: GOOD_FIRST})
+        before = await self.written(aid)
+        # As if this answer had been marked before rubric-v3 shipped.
+        await self.db.prepare("UPDATE evaluation_calls SET rubric = 'rubric-v2'").run()
+        got = await self.ok("POST", "/admin/evaluations/rerun", None, ADMIN)
+        self.assertEqual(got, {"attempts_tried": 0, "still_awaiting": 0})
+        self.assertEqual(await self.written(aid), before)
+        rows = (await self.db.prepare("SELECT rubric FROM evaluation_calls ORDER BY id").all()).results
+        self.assertEqual([r["rubric"] for r in rows], ["rubric-v2"])
+        self.assertEqual(len(self.fake.calls), 1)
 
     async def test_objective_scores_are_exactly_what_they_were(self):
         await self.add_entry()
