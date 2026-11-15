@@ -84,7 +84,7 @@ on disk — are in [`tools/README.md`](tools/README.md).**
 | [`tools/`](tools/README.md) | **The authoring plugin** — `quiz-create` and `quiz-upload`, packaged for Claude Code and DSH. |
 | [`docs/design.md`](docs/design.md) | The design: topology, auth, schema, request flows. |
 | [`docs/deploy.md`](docs/deploy.md) | The deploy runbook: Access, D1, secrets, CI, first-deploy checks. |
-| [`design/`](design) | Clickable frontend sketches — open the HTML in a browser. |
+| [`design/`](design) | Clickable frontend sketches — open the HTML in a browser — and the tab icon strip. |
 
 ## Run it locally
 
