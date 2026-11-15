@@ -517,7 +517,7 @@ quiz-app/
    `backend/wrangler.jsonc`.
 2. `npx wrangler d1 migrations apply quiz-app --remote`
 3. `uv run pywrangler deploy` (backend: route `akshayprabhakant.com/quiz/api/*`)
-4. Frontend: `next build` then `wrangler deploy` (routes `…/quiz` and `…/quiz/*`)
+4. Frontend: `next build` then `wrangler deploy` (route `…/quiz*`, see §2)
 5. Zero Trust → Access → add an application for `akshayprabhakant.com/quiz`
    and `/quiz/*`, with a One-time PIN policy, Include → Emails → the invite list.
 6. `curl -I https://akshayprabhakant.com/quiz` should return a 302 to the
