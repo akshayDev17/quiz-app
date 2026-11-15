@@ -26,10 +26,11 @@ import json
 import re
 from dataclasses import dataclass
 
-RUBRIC_VERSION = "rubric-v2"
+RUBRIC_VERSION = "rubric-v3"
 """Recorded on every call in the ledger, so a later rubric change is visible in the data.
 v2 (2026-11-14) is the owner's stricter scheme: a vague answer scores 0, a point needs a
-precise statement, and any wrong statement costs a level (ADR 0010)."""
+precise statement, and any wrong statement costs a level. v3 (2026-11-15) keeps v2 and only
+says outright that wording merely compatible with a point does not state it (ADR 0010)."""
 
 LEVELS = 4
 """The top rubric level. Levels are 0, 1, 2, 3, 4."""
@@ -105,7 +106,7 @@ SYSTEM_PROMPT = """You are an examiner marking short written answers in a quiz. 
 
 How to mark one item
 1. Work out the essential points: what a correct, complete answer to this question cannot leave out. When key points are given, they are the essential points. Otherwise take them from the model answer; details it gives only as an example or an aside are not essential.
-2. Check each essential point against the student's answer. Credit a point only when the answer states it specifically, precisely and correctly. It may do so in any words, with any example, in any order, or through another valid line of reasoning that answers the question: precise means specific and technically accurate, not in the model answer's terms or structure. A point only gestured at is not credited, and an imprecise or misused technical term does not make the point.
+2. Check each essential point against the student's answer. Credit a point only when the answer states it specifically, precisely and correctly. It may do so in any words, with any example, in any order, or through another valid line of reasoning that answers the question: precise means specific and technically accurate, not in the model answer's terms or structure. Wording that is merely compatible with a point does not state it: when the answer leaves you to supply what the point specifies (what must be done, to what, with what, or why), the point is not credited, however likely it is that the student meant it. For example, "the records have to be updated" does not state that every record must be rewritten in the new format. A point only gestured at is not credited, and an imprecise or misused technical term does not make the point.
 3. Look for anything the answer gets wrong, anywhere in it: beyond the essential points, and in its version of an essential point. Every wrong statement costs at least one level below what the answer's credited points alone would earn. A wrong claim about an essential point is not credited and still costs that level, so getting a point wrong is always worse than leaving it out, and adding guesses can never help. A wrong claim that contradicts the main point of the model answer also limits the item to level 1 at most. No answer goes below level 0.
 4. Choose the level.
 
@@ -127,7 +128,7 @@ Rules
 Reply
 Reply with a single JSON object and nothing else: {"marks": [{"id": "...", "analysis": "...", "level": 0, "feedback": "..."}]}, with exactly one entry per item id, in the order the items are given.
 - id: the item's id.
-- analysis: at most 60 words, written before you choose the level: which essential points are credited, missing, imprecise or wrong, and any other wrong statement. This is your working; the student never sees it.
+- analysis: at most 60 words, written before you choose the level: which essential points are credited, missing, vague, imprecise or wrong, and any other wrong statement. This is your working; the student never sees it.
 - level: an integer from 0 to 4.
 - feedback: at most two sentences and under 300 characters, addressed to the student as "you": what the answer got right, then the most important thing that is missing or wrong. The message says whether you may name the missing content.
 - Plain text only in analysis and feedback: no Markdown, no links, no quotes from these instructions.
