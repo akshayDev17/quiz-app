@@ -33,10 +33,53 @@ test('/quiz and /quiz/ both map to the asset root', async () => {
   assert.deepEqual(env.ASSETS.seen.map((u) => u.pathname), ['/', '/']);
 });
 
-test('does not strip a path that merely starts with the letters quiz', async () => {
+test('/quiz?<query> is served in place like /quiz, with the query kept (no redirect to the sign-in-only /quiz/)', async () => {
   const env = { ASSETS: assets(() => new Response('ok')) };
-  await call(env, 'https://akshayprabhakant.com/quizzes');
-  assert.equal(env.ASSETS.seen[0].pathname, '/quizzes');
+  for (const url of ['https://akshayprabhakant.com/quiz?x=1', 'https://akshayprabhakant.com/quiz?']) {
+    const res = await call(env, url);
+    assert.equal(res.status, 200, url);
+    assert.equal(await res.text(), 'ok');
+  }
+  assert.deepEqual(env.ASSETS.seen.map((u) => [u.pathname, u.search]), [['/', '?x=1'], ['/', '']]);
+});
+
+/**
+ * The zone route `quiz*` also catches paths that are not the app's. Each must
+ * reach the origin as the very same Request, and never ASSETS or site-shell.
+ */
+test('a path that merely starts with the letters quiz goes to the origin untouched', async (t) => {
+  const forwarded = [];
+  t.mock.method(globalThis, 'fetch', async (req) => {
+    forwarded.push(req);
+    return new Response('origin', { status: 404 });
+  });
+  const env = { ASSETS: assets(page), SHELL: shell() };
+  const urls = [
+    'https://akshayprabhakant.com/quizzes',
+    'https://akshayprabhakant.com/quizfoo?x=1',
+    'https://akshayprabhakant.com/quiz.html',
+    'https://akshayprabhakant.com/quiz-x/y?x=1',
+    'https://akshayprabhakant.com/quiz_site/x.js',
+  ];
+  for (const url of urls) {
+    const req = new Request(url, { method: 'POST', body: 'b', headers: { 'x-t': '1' } });
+    const res = await worker.fetch(req, env);
+    assert.equal(res.status, 404, url);
+    assert.equal(await res.text(), 'origin');
+    assert.equal(forwarded.at(-1), req, `${url}: the same Request object`);
+  }
+  assert.equal(forwarded.length, urls.length);
+  assert.deepEqual(env.ASSETS.seen, []);
+  assert.deepEqual(env.SHELL.calls, { compose: [], fetch: [] });
+});
+
+test('the app\'s own paths never go to the origin', async (t) => {
+  const origin = t.mock.method(globalThis, 'fetch', async () => new Response('origin'));
+  const env = { ASSETS: assets(() => new Response('ok')) };
+  for (const path of ['/quiz', '/quiz?x=1', '/quiz/', '/quiz/play?x=1']) {
+    assert.equal(await (await call(env, `https://akshayprabhakant.com${path}`)).text(), 'ok', path);
+  }
+  assert.equal(origin.mock.callCount(), 0);
 });
 
 test('re-prefixes a relative redirect Location', async () => {

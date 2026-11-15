@@ -8,10 +8,12 @@
   // site (GitHub Pages) and /quiz/api/* stays the Python Worker.
   "workers_dev": false,
   "routes": [
-    // The bare path needs its own entry: `quiz/*` matches everything *under*
-    // /quiz/ but not /quiz itself.
-    { "pattern": "akshayprabhakant.com/quiz", "zone_name": "akshayprabhakant.com" },
-    { "pattern": "akshayprabhakant.com/quiz/*", "zone_name": "akshayprabhakant.com" }
+    // `quiz*`, not `quiz` + `quiz/*`: a route matches the whole URL including
+    // the query string and a pattern cannot hold one, so only a trailing `*`
+    // catches /quiz?x=1. It also catches /quizzes, /quiz.html and the like;
+    // worker.js hands every path that is not /quiz or /quiz/... back to the
+    // origin unchanged. /quiz/api/* (backend) is more specific and still wins.
+    { "pattern": "akshayprabhakant.com/quiz*", "zone_name": "akshayprabhakant.com" }
     // No /_next/* route: basePath keeps the chunks under /quiz/_next/.
   ],
 
