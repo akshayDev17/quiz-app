@@ -25,8 +25,9 @@ const plexMono = IBM_Plex_Mono({
 // The browser tab icon: the app's "Q" (white bowl, green tail) on the navy
 // tile the site's other app icons use. Inlined as a data URI so it loads on
 // every page the app serves, with no request to a path that could fall outside
-// /quiz (or behind sign-in), and so browsers do not fall back to the site
-// root's /favicon.ico.
+// /quiz (or behind sign-in). It is SVG only: browsers that do not render SVG
+// favicons, such as Safari before 26, still fall back to the site root's
+// /favicon.ico.
 const ICON =
   'data:image/svg+xml,' +
   encodeURIComponent(
